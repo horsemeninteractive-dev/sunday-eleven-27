@@ -1,0 +1,145 @@
+import { Fragment, useState, type CSSProperties } from 'react';
+import { formatShortDate } from '@/simulation/calendar';
+import type { SaveSlotInfo } from '@/state/persistence';
+import { gameActions } from '../hooks';
+import { Button } from '../components/primitives';
+import { BrandLockup } from '../components/BrandMark';
+import { SceneBackdrop } from '../components/SceneBackdrop';
+import { Glyph } from '../components/icons';
+
+/** The line under the mark, one word per span so it can be spread. */
+const TAGLINE = ['Sunday', 'League', 'Management'];
+
+/**
+ * The career the game keeps up to date comes first.
+ *
+ * It is the one a returning manager almost always wants, and it is the one he
+ * never made himself — everything under it is his own doing.
+ */
+function orderSaves(saves: SaveSlotInfo[]): SaveSlotInfo[] {
+  return [...saves].sort((a, b) => Number(Boolean(b.auto)) - Number(Boolean(a.auto)));
+}
+
+/**
+ * The way in.
+ *
+ * A scene rather than a form: a Sunday league ground washed green behind the
+ * game's mark on the left, and the two ways to begin beside it — take over a
+ * club that already exists, or build one of your own — with the careers already
+ * saved underneath. Nothing here tries to sell the game to the person who
+ * already owns it.
+ */
+export function StartView() {
+  const [saves, setSaves] = useState<SaveSlotInfo[]>(() => orderSaves(gameActions().listSaves()));
+
+  const refreshSaves = () => setSaves(orderSaves(gameActions().listSaves()));
+
+  return (
+    <div className="start">
+      <SceneBackdrop />
+
+      <div className="start__shell">
+        <section className="start__brand">
+          <div className="lockup">
+            <BrandLockup />
+            {/* The words are spread across the mark's width, so they are set as
+                words rather than as one line — with the spaces kept in the
+                markup, so it still reads as three words out loud. */}
+            <p className="start__tagline">
+              {TAGLINE.map((word, index) => (
+                <Fragment key={word}>
+                  {index > 0 ? ' ' : null}
+                  <span style={{ '--tagline-i': index } as CSSProperties}>{word}</span>
+                </Fragment>
+              ))}
+            </p>
+          </div>
+        </section>
+
+        <div className="start__menu">
+          <button
+            type="button"
+            className="menucard menucard--accent"
+            style={{ '--start-i': 0 } as CSSProperties}
+            onClick={() => gameActions().beginSetup('career')}
+          >
+            <span className="menucard__badge">
+              <Glyph name="manager" />
+            </span>
+            <span className="menucard__body">
+              <span className="menucard__kicker">Career mode</span>
+              <span className="menucard__title">Start a new career</span>
+              <span className="menucard__desc">
+                Generate a local football world from a seed and take charge of one of fourteen clubs. The squad,
+                the bank balance and the history come with it.
+              </span>
+            </span>
+            <span className="menucard__go">
+              <Glyph name="chevron" />
+            </span>
+          </button>
+
+          <button
+            type="button"
+            className="menucard"
+            style={{ '--start-i': 1 } as CSSProperties}
+            onClick={() => gameActions().beginSetup('create-club')}
+          >
+            <span className="menucard__badge">
+              <Glyph name="kit" />
+            </span>
+            <span className="menucard__body">
+              <span className="menucard__kicker">Create a club</span>
+              <span className="menucard__title">Build your own side</span>
+              <span className="menucard__desc">
+                Name it, kit it out, choose its ground and its standing — then take the weakest club's place in
+                the division.
+              </span>
+            </span>
+            <span className="menucard__go">
+              <Glyph name="chevron" />
+            </span>
+          </button>
+
+          {/* The saved careers arrive with the doors rather than after them: they
+              are the reason a returning manager is here. */}
+          <section className="start__saves" style={{ '--start-i': 2 } as CSSProperties}>
+            <header className="start__saves-head">
+              <div>
+                <h2 className="start__saves-title">Continue</h2>
+                <p className="muted small">Your career is saved as you play. Everything stays in this browser.</p>
+              </div>
+              <Button variant="ghost" size="sm" onClick={refreshSaves}>
+                Refresh
+              </Button>
+            </header>
+            {saves.length === 0 ? (
+              <p className="empty">Nothing saved yet. Start a career and the game keeps it up to date on its own.</p>
+            ) : (
+              <ul className="save-list">
+                {saves.map((save) => (
+                  <li key={save.slot} className="save-list__item">
+                    <div className="save-list__main">
+                      <strong>{save.clubName}</strong>
+                      {save.auto && <span className="save-list__tag">Autosave</span>}
+                      <div className="muted small">
+                        {save.seasonLabel} · {save.auto ? 'autosaved' : 'saved'}{' '}
+                        {formatShortDate(save.savedAt.slice(0, 10))} · seed “{save.seed}”
+                      </div>
+                    </div>
+                    <Button
+                      variant={save.auto ? 'primary' : 'default'}
+                      onClick={() => gameActions().loadGame(save.slot)}
+                    >
+                      {save.auto ? 'Continue' : 'Load'}
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
+      </div>
+    </div>
+  );
+}

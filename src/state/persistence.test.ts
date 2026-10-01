@@ -9,10 +9,12 @@ import {
   deleteSave,
   listSaveSlots,
   loadGame,
+  orderSaves,
   resumeCareer,
   resumeSlot,
   saveGame,
   setResumeSlot,
+  type SaveSlotInfo,
 } from './persistence';
 
 /**
@@ -199,5 +201,43 @@ describe('the store’s autosave', () => {
 
     // One autosave from choosing the club, and none from moving around the UI.
     expect(listSaveSlots().filter((entry) => entry.auto)).toHaveLength(1);
+  });
+});
+
+describe('the order careers are listed in', () => {
+  const slot = (name: string, savedAt: string, auto = false): SaveSlotInfo => ({
+    slot: name,
+    saveName: name,
+    clubName: `${name} FC`,
+    date: '2026-09-01',
+    seasonLabel: '2026/27',
+    savedAt,
+    seed: name,
+    ...(auto ? { auto: true } : {}),
+  });
+
+  it('puts the most recently saved career at the top', () => {
+    const ordered = orderSaves([
+      slot('slot-1', '2026-09-01T10:00:00.000Z'),
+      slot('slot-2', '2026-09-03T10:00:00.000Z'),
+      slot('autosave', '2026-09-02T10:00:00.000Z', true),
+    ]);
+    expect(ordered.map((entry) => entry.slot)).toEqual(['slot-2', 'autosave', 'slot-1']);
+  });
+
+  it('does not give the autosave a place of its own', () => {
+    // The career played five minutes ago is the one wanted, whichever slot it is in.
+    const ordered = orderSaves([
+      slot('autosave', '2026-09-01T10:00:00.000Z', true),
+      slot('slot-1', '2026-09-04T10:00:00.000Z'),
+    ]);
+    expect(ordered[0]!.slot).toBe('slot-1');
+  });
+
+  it('leaves the list it was given alone', () => {
+    const given = [slot('slot-1', '2026-09-01T10:00:00.000Z'), slot('slot-2', '2026-09-03T10:00:00.000Z')];
+    orderSaves(given);
+    expect(given.map((entry) => entry.slot)).toEqual(['slot-1', 'slot-2']);
+    expect(orderSaves([])).toEqual([]);
   });
 });

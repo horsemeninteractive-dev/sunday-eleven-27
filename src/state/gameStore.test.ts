@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Player } from '@/domain/person';
+import { listProfiles } from './managerProfiles';
 import { addDays } from '@/simulation/calendar';
 import { currentScore } from '@/simulation/match/engine';
 import { fullTimeOutcome, fullTimeTalkMoraleDelta } from '@/simulation/match/preparation';
@@ -33,6 +34,36 @@ describe('the store clock', () => {
     const game = newCareer('store-start');
     expect(useGameStore.getState().view).toBe('dashboard');
     expect(new Date(`${game.date}T00:00:00Z`).getUTCDay()).toBe(1);
+  });
+
+  it('remembers the manager once a career begins, so the next one need not be retyped', () => {
+    const map = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => map.get(key) ?? null,
+      setItem: (key: string, value: string) => map.set(key, String(value)),
+      removeItem: (key: string) => map.delete(key),
+    });
+
+    const store = useGameStore.getState();
+    store.beginSetup('career');
+    store.setManagerProfile({
+      firstName: 'Dave',
+      surname: 'Fletcher',
+      nickname: 'Fletch',
+      birthday: '1984-05-02',
+      occupation: 'Scaffolder',
+      hometown: 'Wychavon',
+    });
+    expect(listProfiles()).toEqual([]);
+
+    store.createDraft('manager-remembered');
+    useGameStore.getState().chooseClub(useGameStore.getState().draft!.divisionClubIds[0]!);
+
+    const remembered = listProfiles();
+    expect(remembered).toHaveLength(1);
+    expect(remembered[0]!.profile.firstName).toBe('Dave');
+    expect(remembered[0]!.profile.nickname).toBe('Fletch');
+    vi.unstubAllGlobals();
   });
 
   it('runs the quiet days and stops on the day worth stopping on', () => {
@@ -105,6 +136,16 @@ describe('the matchday', () => {
   }
 
   const gameStore = () => useGameStore.getState();
+
+  it('opens a match at the speed the manager asked for, not at 1x', () => {
+    gameStore().setPreferences({ defaultMatchSpeed: 4 });
+    const { session } = inTheDressingRoom('matchday-speed');
+    expect(session.speed).toBe(4);
+    // The controls still change it once it is running.
+    gameStore().setMatchSpeed(1);
+    expect(gameStore().session!.speed).toBe(1);
+    gameStore().setPreferences({ defaultMatchSpeed: 1 });
+  });
 
   it('opens in the dressing room rather than on the pitch', () => {
     const { session } = inTheDressingRoom('matchday-pre');

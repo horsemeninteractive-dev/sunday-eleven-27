@@ -1,6 +1,7 @@
 import { Fragment, useState, type CSSProperties } from 'react';
 import { formatShortDate } from '@/simulation/calendar';
-import type { SaveSlotInfo } from '@/state/persistence';
+import { orderSaves, type SaveSlotInfo } from '@/state/persistence';
+import { versionLabel } from '@/version';
 import { gameActions } from '../hooks';
 import { Button } from '../components/primitives';
 import { BrandLockup } from '../components/BrandMark';
@@ -11,14 +12,17 @@ import { Glyph } from '../components/icons';
 const TAGLINE = ['Sunday', 'League', 'Management'];
 
 /**
- * The career the game keeps up to date comes first.
+ * The things that belong to the game rather than to any career.
  *
- * It is the one a returning manager almost always wants, and it is the one he
- * never made himself — everything under it is his own doing.
+ * They are kept to one row under the ways in: a new manager needs the two doors
+ * and nothing else, and a returning one wants them out of the way but to hand.
  */
-function orderSaves(saves: SaveSlotInfo[]): SaveSlotInfo[] {
-  return [...saves].sort((a, b) => Number(Boolean(b.auto)) - Number(Boolean(a.auto)));
-}
+const UTILITIES: Array<{ id: 'preferences' | 'profiles' | 'changelog' | 'credits'; label: string; detail: string }> = [
+  { id: 'preferences', label: 'Preferences', detail: 'Motion, fullscreen and how a match opens' },
+  { id: 'profiles', label: 'Managers', detail: 'Profiles you have already used' },
+  { id: 'changelog', label: 'Changelog', detail: 'What has changed, and what this build is' },
+  { id: 'credits', label: 'Credits', detail: 'What the game is built with and from' },
+];
 
 /**
  * The way in.
@@ -107,7 +111,9 @@ export function StartView() {
             <header className="start__saves-head">
               <div>
                 <h2 className="start__saves-title">Continue</h2>
-                <p className="muted small">Your career is saved as you play. Everything stays in this browser.</p>
+                <p className="muted small">
+                  Most recently saved first. Your career is saved as you play, and everything stays in this browser.
+                </p>
               </div>
               <Button variant="ghost" size="sm" onClick={refreshSaves}>
                 Refresh
@@ -138,6 +144,25 @@ export function StartView() {
               </ul>
             )}
           </section>
+
+          <section className="start__utility" style={{ '--start-i': 3 } as CSSProperties} aria-label="The game itself">
+            {UTILITIES.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className="utilitycard"
+                title={item.detail}
+                onClick={() => gameActions().openDialog(item.id)}
+              >
+                <span className="utilitycard__label">{item.label}</span>
+                <span className="utilitycard__detail">{item.detail}</span>
+              </button>
+            ))}
+          </section>
+
+          <p className="start__version" style={{ '--start-i': 4 } as CSSProperties}>
+            Sunday Eleven 27 <span className="start__version-number">{versionLabel()}</span>
+          </p>
         </div>
       </div>
     </div>

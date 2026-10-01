@@ -22,6 +22,7 @@ import { NewsView } from './views/NewsView';
 import { RecruitmentView } from './views/RecruitmentView';
 import { TrainingView } from './views/TrainingView';
 import { MatchView } from './views/MatchView';
+import { AppDialogs } from './dialogs/AppDialogs';
 
 /**
  * The application is four things: a menu screen, a club-choice screen, the game
@@ -38,28 +39,40 @@ export function App() {
   const view = useGameStore((state) => state.view);
   const session = useGameStore((state) => state.session);
 
-  if (!game) {
-    // Before a career exists every screen is part of setting one up, and which
-    // one is showing is simply where the manager got to in that flow.
-    if (view === 'profile') return <ProfileView />;
-    if (view === 'create-club' && draft) return <CreateClubView />;
-    if (draft && view === 'select-club') return <ClubSelectView />;
-    return <StartView />;
-  }
+  // The game's own dialogs — settings, the changelog, the credits, the managers
+  // already saved — sit above whichever screen is showing, because the header of
+  // a running career and the main menu both have to be able to reach them.
+  const screen = () => {
+    if (!game) {
+      // Before a career exists every screen is part of setting one up, and which
+      // one is showing is simply where the manager got to in that flow.
+      if (view === 'profile') return <ProfileView />;
+      if (view === 'create-club' && draft) return <CreateClubView />;
+      if (draft && view === 'select-club') return <ClubSelectView />;
+      return <StartView />;
+    }
 
-  if (view === 'match' && session) {
-    // The club's colours come with it: the match is still your club's match.
+    if (view === 'match' && session) {
+      // The club's colours come with it: the match is still your club's match.
+      return (
+        <div className="takeover" style={clubStyle(game.clubs[game.userClubId]!.identity.colours)}>
+          <MatchView />
+        </div>
+      );
+    }
+
     return (
-      <div className="takeover" style={clubStyle(game.clubs[game.userClubId]!.identity.colours)}>
-        <MatchView />
-      </div>
+      <AppShell game={game} view={view}>
+        <ViewRouter view={view} />
+      </AppShell>
     );
-  }
+  };
 
   return (
-    <AppShell game={game} view={view}>
-      <ViewRouter view={view} />
-    </AppShell>
+    <>
+      {screen()}
+      <AppDialogs />
+    </>
   );
 }
 

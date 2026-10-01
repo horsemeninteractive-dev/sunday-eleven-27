@@ -5,6 +5,15 @@ import { isCompetitiveMatch, type Match } from '@/domain/match';
 import type { GameEvent } from '@/domain/news';
 import { isPlayer } from '@/domain/person';
 import type { Tactics } from '@/domain/tactics';
+import {
+  DEFAULT_PREFERENCES,
+  applyMotion,
+  clampSpeed,
+  loadPreferences,
+  savePreferences,
+  type Preferences,
+} from './preferences';
+import { rememberProfile } from './managerProfiles';
 import { advanceMinute, beginMatch, currentScore, simulateToCompletion } from '@/simulation/match/engine';
 import {
   applyWarmUpToFamiliarity,
@@ -150,6 +159,14 @@ export interface SetupState {
   profile: ManagerProfile;
 }
 
+/**
+ * The dialogs that belong to the game rather than to a screen: settings, the
+ * changelog, the credits and the managers already saved. They are named here
+ * rather than held locally because the same menu has to open from the main menu
+ * and from the header of a running career.
+ */
+export type DialogId = 'preferences' | 'changelog' | 'credits' | 'profiles';
+
 export interface GameStore {
   game: GameState | null;
   draft: WorldDraft | null;
@@ -166,9 +183,17 @@ export interface GameStore {
   profile: ProfileTarget | null;
   /** A transfer/recruitment negotiation opened from a candidate. */
   negotiationId: PersonId | null;
+  /** Which of the game's own dialogs is open, if any. */
+  dialog: DialogId | null;
+  /** How the game behaves for the person playing it. Held outside any career. */
+  preferences: Preferences;
 
   // Navigation and selection are presentation-only state.
   setView: (view: ViewId) => void;
+  openDialog: (dialog: DialogId) => void;
+  closeDialog: () => void;
+  setPreferences: (patch: Partial<Preferences>) => void;
+  resetPreferences: () => void;
   selectPlayer: (playerId: PersonId | null) => void;
   selectClub: (clubId: ClubId | null) => void;
   setNotice: (notice: string | null) => void;
@@ -355,8 +380,29 @@ export const useGameStore = create<GameStore>((set, get) => ({
   plannerOpen: false,
   profile: null,
   negotiationId: null,
+  dialog: null,
+  preferences: loadPreferences(),
 
-  setView: (view) => set({ view, profile: null, negotiationId: null, plannerOpen: false }),
+  setView: (view) => set({ view, profile: null, negotiationId: null, plannerOpen: false, dialog: null }),
+  openDialog: (dialog) => set({ dialog, profile: null, negotiationId: null, plannerOpen: false }),
+  closeDialog: () => set({ dialog: null }),
+
+  /**
+   * A setting is written down and put into effect in the same breath, because a
+   * preference that only takes hold after a reload is not a preference.
+   */
+  setPreferences: (patch) => {
+    const next = { ...get().preferences, ...patch };
+    savePreferences(next);
+    applyMotion(next.motion);
+    set({ preferences: next });
+  },
+
+  resetPreferences: () => {
+    savePreferences(DEFAULT_PREFERENCES);
+    applyMotion(DEFAULT_PREFERENCES.motion);
+    set({ preferences: { ...DEFAULT_PREFERENCES } });
+  },
   selectPlayer: (playerId) => set({ selectedPlayerId: playerId }),
   selectClub: (clubId) => set({ selectedClubId: clubId }),
   setNotice: (notice) => set({ notice }),
@@ -471,12 +517,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
   chooseClub: (clubId) => {
     const draft = get().draft;
     if (!draft) return;
+    const profile = get().setup?.profile;
     const state = startGameFromDraft(draft, {
       ...{ seed: draft.seed, startYear: draft.startYear },
       clubId,
       saveName: `${draft.clubs[clubId]?.identity.name ?? 'Club'} — ${draft.seed}`,
-      manager: get().setup?.profile,
+      manager: profile,
     });
+    // Once he is in charge of a club, the manager he wrote is worth keeping:
+    // the next career should not ask him for his birthday again.
+    if (profile) rememberProfile(profile);
     set({
       game: state,
       draft: null,
@@ -494,13 +544,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const draft = get().draft;
     if (!draft) return;
     const clubId = applyCustomClub(draft, design);
+    const profile = get().setup?.profile;
     const state = startGameFromDraft(draft, {
       seed: draft.seed,
       startYear: draft.startYear,
       clubId,
       saveName: `${draft.clubs[clubId]?.identity.name ?? design.name} — ${draft.seed}`,
-      manager: get().setup?.profile,
+      manager: profile,
     });
+    if (profile) rememberProfile(profile);
     set({
       game: state,
       draft: null,
@@ -571,6 +623,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       profile: null,
       negotiationId: null,
       plannerOpen: false,
+      dialog: null,
     });
   },
 
@@ -608,7 +661,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
         matchId: working.id,
         live: working,
         side,
-        speed: 1,
+        // The speed the manager asked for, not the speed the match happens to
+        // open at. The controls still change it mid-match.
+        speed: clampSpeed(get().preferences.defaultMatchSpeed),
         paused: true,
         phase: 'pre-match',
         revision: 0,

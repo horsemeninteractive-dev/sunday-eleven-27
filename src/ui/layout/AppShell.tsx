@@ -32,6 +32,7 @@ export function AppShell({ game, view, children }: { game: GameState; view: View
   const plannerOpen = useGameStore((state) => state.plannerOpen);
   const profile = useGameStore((state) => state.profile);
   const negotiationId = useGameStore((state) => state.negotiationId);
+  const dialog = useGameStore((state) => state.dialog);
   const [moreOpen, setMoreOpen] = useState(false);
   const mainRef = useRef<HTMLElement | null>(null);
   const command = useCommandState();
@@ -53,14 +54,15 @@ export function AppShell({ game, view, children }: { game: GameState; view: View
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
-      if (negotiationId) gameActions().closeNegotiation();
+      if (dialog) gameActions().closeDialog();
+      else if (negotiationId) gameActions().closeNegotiation();
       else if (profile) gameActions().closeProfile();
       else if (plannerOpen) gameActions().closePlanner();
       else if (moreOpen) setMoreOpen(false);
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [moreOpen, plannerOpen, profile, negotiationId]);
+  }, [moreOpen, plannerOpen, profile, negotiationId, dialog]);
 
   return (
     <div className="app" style={clubStyle(game.clubs[game.userClubId]!.identity.colours)}>

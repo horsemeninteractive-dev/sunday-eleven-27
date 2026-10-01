@@ -4,6 +4,7 @@ import { firstSundayOfSeptember } from '@/simulation/gameSetup';
 import { preSeasonStart } from '@/simulation/calendar';
 import { weekStartOf } from '@/simulation/timeline';
 import { useGameStore } from '@/state/gameStore';
+import { listProfiles } from '@/state/managerProfiles';
 import { gameActions } from '../hooks';
 import { Button, PageHeader, Panel } from '../components/primitives';
 import { SceneBackdrop } from '../components/SceneBackdrop';
@@ -24,6 +25,9 @@ export function ProfileView() {
   const mode = setup?.mode ?? 'career';
   const [seed, setSeed] = useState(() => SUGGESTED_SEEDS[Math.floor(Math.random() * SUGGESTED_SEEDS.length)]!);
   const [error, setError] = useState<string | null>(null);
+  // Read once when the screen opens: it is a shortcut into the form, not
+  // something that has to keep up with what is typed.
+  const [saved] = useState(() => listProfiles());
 
   const seasonStart = useMemo(
     () => weekStartOf(preSeasonStart(firstSundayOfSeptember(START_YEAR))),
@@ -70,6 +74,28 @@ export function ProfileView() {
 
       <div className="profile-setup__grid">
         <Panel title="Your details" subtitle="This is how the local game will know you">
+          {/* A manager who has been here before should not have to type his own
+              birthday in again: the profiles he has used are one click away. */}
+          {saved.length > 0 && (
+            <div className="savedmanagers">
+              <p className="small muted">You have been one of these before</p>
+              <div className="row row--wrap">
+                {saved.map((entry) => (
+                  <Button
+                    key={entry.id}
+                    variant="ghost"
+                    size="sm"
+                    title={entry.profile.occupation ? `${entry.profile.occupation}` : undefined}
+                    onClick={() => gameActions().setManagerProfile(entry.profile)}
+                  >
+                    {entry.profile.firstName} {entry.profile.surname}
+                    {entry.profile.nickname.trim() ? ` “${entry.profile.nickname.trim()}”` : ''}
+                    {entry.careers > 1 ? ` · ${entry.careers} careers` : ''}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="form-grid">
             <label className="field">
               <span className="field__label">First name</span>

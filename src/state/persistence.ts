@@ -60,6 +60,24 @@ function storage(): Storage | null {
 }
 
 /**
+ * The careers to list, most recently saved first.
+ *
+ * The order is the manager's own history rather than a ranking of the saves:
+ * the one he was playing five minutes ago is the one he wants, and the career
+ * the game writes as it is played is simply the most recent of them, not a
+ * special case wedged above the others. Slots that were never stamped with a
+ * time sort last rather than jumping the queue.
+ */
+export function orderSaves(saves: readonly SaveSlotInfo[]): SaveSlotInfo[] {
+  return [...saves].sort((a, b) => {
+    const left = a.savedAt ?? '';
+    const right = b.savedAt ?? '';
+    if (left === right) return 0;
+    return left > right ? -1 : 1;
+  });
+}
+
+/**
  * Write, or say that it did not happen.
  *
  * A full browser quota throws, and a career being autosaved in the background

@@ -371,7 +371,20 @@ The first playable prototype should prove the central fantasy with a generated l
 
 It should prove that believable grassroots stories can emerge before the broader ecosystem is added.
 
-### 56. Final Principle
+### 56. Presentation and Preferences
+The game carries a version number and says so out loud — `Sunday Eleven 27 v0.1.0 beta`. The number is semantic and single-sourced: `package.json` is the only place it is written, Vite hands it to the code as `__APP_VERSION__`, and one small module reads it back, so nothing can drift. A version whose major number is still zero is a beta by definition, and the word is worked out from the number rather than typed beside it — promote the version and "beta" retires on its own. It is shown quietly, as a line under the way in and a line in the settings menu, because it is a fact about the build and not a headline.
+
+The changelog is a file, not a screen. `CHANGELOG.md` is kept in the usual Keep-a-Changelog shape so that it reads well in the repository, and the dialog is given that same file to render rather than a second copy of it. The parser understands only the few marks the changelog actually uses — headings, list items, paragraphs, bold and web links — and leaves everything else as ordinary text, so a link that is not a web link is never turned into one. The first version in the file is marked **this build**, which is the line a manager actually wants: what has changed since he last looked.
+
+Preferences belong to the manager, not the platform. Reduced motion is a three-way choice — follow the system, always reduce, always allow — because someone who has asked his operating system for stillness and someone who wants this one menu to move are both reasonable, and the game must be able to overrule the system in either direction. The choice is written onto the document as an attribute on the root element and the stylesheet keys off that attribute: every `prefers-reduced-motion` block is paired with an equal rule for the explicit setting, and both are written **after** the animations they cancel, because at the same specificity the later rule is the one that lands. Fullscreen is kept honest by listening for the real `fullscreenchange` — Escape leaves it the same way it was entered and the button must follow — and the preferred match speed is clamped to the speeds that exist rather than rejected, so a stored value can only ever resolve to something playable.
+
+A career remembers its manager. The details typed on the way in are kept in the browser under the manager's own name and birthday and offered back as a row of chips, so a second career can begin without retyping them; the most recent details win, the number of careers is counted, and the list is de-duplicated and never throws when the storage it reads has been corrupted. It is a convenience and not a gate: the fields stay editable and nothing must be saved.
+
+The way in is also where the smaller things live. The most recent save is first in the list, because the save a manager wants is almost always the one he just made; the utility row gathers Preferences, Managers, Changelog and Credits beside the game's own version line, so none of them needs a screen of its own. Credits name the people and the debts rather than the software alone, because a grassroots game owes a visible one to the era it is imitating.
+
+Inside a career the header carries a settings control where a save button used to be: one glyph, one menu — save to a local slot, load one, open the preferences, read the changelog, or leave for the main menu, with the version and a reminder that leaving does not cost the career. Save, load and the way out are the same act, and giving them one door leaves the header holding one control instead of three. On a phone the control sits in the head bar and its menu opens **below** its trigger and inside the viewport; the menu is bounded in height and scrolls within itself, so it can never open off the top of a small screen.
+
+### 57. Final Principle
 The game should never ask what scripted content happens next.
 
 It should ask:

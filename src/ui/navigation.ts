@@ -30,6 +30,7 @@ export type NavIcon =
   | 'match'
   | 'more'
   | 'save'
+  | 'settings'
   | 'exit'
   | 'menu'
   | 'calendar'

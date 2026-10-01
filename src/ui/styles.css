@@ -23,6 +23,11 @@
   --line: #232a31;
   --line-soft: #1b2127;
 
+  /* The mark's own dimensions, in one place because the mark, its strapline and
+     the credits all draw from them and they have to agree at every width. */
+  --brand-word: clamp(2.1rem, 4.4vw, 3.5rem);
+  --brand-stack: 4.6;
+
   /* Ink */
   --text: #e4e8ec;
   --text-dim: #93a0ac;
@@ -1188,6 +1193,11 @@ a,
 .utility__row {
   display: flex;
   gap: var(--s2);
+}
+.utility__version {
+  margin: var(--s2) 0 0;
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
 }
 .utility__note {
   margin: 0;
@@ -2402,10 +2412,18 @@ select.input {
    rather than the movement: stand it still for anybody who has asked for less
    motion. The layer stays a tile wider than its box and hung a tile off the
    left, so a still field is striped from edge to edge exactly as before. */
+/* Reduced motion, in two places on purpose. The system's own request is
+   honoured unless the manager has explicitly asked for the motion anyway, and
+   the preference he sets in the game applies whether or not his machine asked
+   for it. `data-motion` is written by the game as it starts, so the stylesheet
+   never has to ask JavaScript a question in the middle of a paint. */
 @media (prefers-reduced-motion: reduce) {
-  .stripefield__bands {
+  html:not([data-motion='full']) .stripefield__bands {
     animation: none;
   }
+}
+html[data-motion='reduced'] .stripefield__bands {
+  animation: none;
 }
 /* The pre-game field sits over the wash, which exists to quieten the photograph
    behind the words: the field is the one thing meant to be read on top of it. */
@@ -2452,8 +2470,6 @@ select.input {
    edges rather than merely starting at the same place. The mark's own sizes
    live here because both of them need them. */
 .lockup {
-  --brand-word: clamp(2.1rem, 4.4vw, 3.5rem);
-  --brand-stack: 4.6;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -2618,12 +2634,18 @@ select.input {
    later rule is the one that lands. Nothing is skipped or left half-set —
    everything is simply already in its settled place. */
 @media (prefers-reduced-motion: reduce) {
-  .start .brand__word > span,
-  .start .brand__year,
-  .start .start__tagline > span,
-  .start__menu > * {
+  html:not([data-motion='full']) .start .brand__word > span,
+  html:not([data-motion='full']) .start .brand__year,
+  html:not([data-motion='full']) .start .start__tagline > span,
+  html:not([data-motion='full']) .start__menu > * {
     animation: none;
   }
+}
+html[data-motion='reduced'] .start .brand__word > span,
+html[data-motion='reduced'] .start .brand__year,
+html[data-motion='reduced'] .start .start__tagline > span,
+html[data-motion='reduced'] .start__menu > * {
+  animation: none;
 }
 
 /* The ways in, as cards: the two doors first, the saved careers under them. */
@@ -2755,6 +2777,194 @@ select.input {
   vertical-align: middle;
 }
 
+/* The game's own things, under the careers: one row of quiet cards rather than
+   four more doors competing with the two that matter. */
+.start__utility {
+  display: grid;
+  /* Two across on a phone and two across on a desktop: four quiet cards, not a
+     wall, and not four full-width bars on a narrow screen either. */
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--s2);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--line);
+}
+.utilitycard {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  padding: var(--s2) var(--s3);
+  font: inherit;
+  color: var(--text);
+  background: rgba(11, 18, 14, 0.6);
+  border: 1px solid var(--line);
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.utilitycard:hover {
+  background: rgba(17, 27, 21, 0.86);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+.utilitycard:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.utilitycard__label {
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+}
+.utilitycard__detail {
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+}
+
+/* Which build this is. Small, at the foot of the menu, and never in the way. */
+.start__version {
+  margin: 0;
+  font-size: var(--fs-xs);
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  text-align: right;
+}
+.start__version-number {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}
+
+/* Preferences: a row of settings, each one a thing that is actually true. */
+.choices--stacked {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+.choice--wide {
+  gap: 2px;
+}
+.choice__label {
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: inherit;
+}
+.choice__detail {
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+}
+.choice--on .choice__detail {
+  color: var(--text-dim);
+}
+.pref-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  flex-wrap: wrap;
+}
+.pref-row p {
+  margin: 2px 0 0;
+}
+
+/* The changelog, read from the project's own file: versions, groups, changes. */
+.changelog {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.changelog__version {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  margin: var(--s3) 0 2px;
+  padding-bottom: 3px;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--fs-md);
+}
+.changelog__version:first-child {
+  margin-top: 0;
+}
+.changelog__version--current {
+  border-bottom-color: var(--accent);
+}
+.changelog__number {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.changelog__name {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-faint);
+}
+.changelog__section {
+  margin: var(--s2) 0 0;
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+}
+.changelog__item {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
+  gap: var(--s1);
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  line-height: 1.45;
+}
+.changelog__bullet {
+  color: var(--text-faint);
+}
+
+/* Credits: the game's own mark, and what it was built with and from. */
+.credits {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+.credits__mark {
+  --brand-word: clamp(1.5rem, 3vw, 2.2rem);
+  display: flex;
+  justify-content: center;
+  padding: var(--s2) 0;
+}
+.credits__intro {
+  margin: 0;
+  color: var(--text-dim);
+}
+.credits__list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+}
+.credits__row {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.6fr) minmax(0, 1.4fr);
+  gap: var(--s3);
+  align-items: baseline;
+  padding: var(--s2) 0;
+  border-top: 1px solid var(--line-soft);
+}
+.credits__row dt {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--text-faint);
+}
+.credits__row dd {
+  margin: 0;
+}
+.credits__names {
+  font-weight: 600;
+}
+.credits__row p {
+  margin: 2px 0 0;
+}
+.credits__note {
+  margin: 0;
+}
+
 /* Setting up: the profile step and the club designer, both centred flows. */
 .profile-setup,
 .create-club {
@@ -2765,6 +2975,19 @@ select.input {
   flex-direction: column;
   gap: var(--s3);
 }
+/* A manager who has been here before: the profiles already used, as buttons. */
+.savedmanagers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  margin-bottom: var(--s3);
+  padding-bottom: var(--s3);
+  border-bottom: 1px solid var(--line-soft);
+}
+.savedmanagers p {
+  margin: 0;
+}
+
 .profile-setup__grid,
 .create-club__grid {
   display: grid;
@@ -3930,8 +4153,24 @@ select.input {
   border-top: 3px solid var(--club);
   animation: overlay-in 120ms ease-out;
 }
+/* The dark outside the panel is part of the dialog: clicking it closes one,
+   which is what everybody expects and never has to be told. */
+.overlay__scrim {
+  position: absolute;
+  inset: 0;
+}
 .overlay__panel--narrow {
-  max-width: 860px;
+  max-width: 720px;
+}
+.overlay__panel {
+  position: relative;
+}
+.overlay__foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  border-top: 1px solid var(--line);
 }
 @keyframes overlay-in {
   from {
@@ -5143,13 +5382,18 @@ select.input {
   .start {
     padding: var(--s4) var(--s2);
   }
+  /* On a phone the settings trigger lives in the sticky head bar at the top
+     of the screen, so the panel hangs *below* its trigger and keeps itself
+     inside the viewport rather than dropping off the top edge. */
   .utility__panel {
-    position: fixed;
-    right: var(--s2);
-    left: var(--s2);
-    top: auto;
-    bottom: calc(100% + 6px);
-    width: auto;
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    left: auto;
+    bottom: auto;
+    width: min(300px, calc(100vw - 24px));
+    max-height: calc(100dvh - 96px);
+    overflow-y: auto;
   }
   .searchresults {
     position: fixed;
@@ -5197,13 +5441,20 @@ select.input {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
+  html:not([data-motion='full']) *,
+  html:not([data-motion='full']) *::before,
+  html:not([data-motion='full']) *::after {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
   }
+}
+html[data-motion='reduced'] *,
+html[data-motion='reduced'] *::before,
+html[data-motion='reduced'] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
 }
 
 @media print {

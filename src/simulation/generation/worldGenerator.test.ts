@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_PYRAMID } from '@/domain/competition';
 import { isPlayer } from '@/domain/person';
 import { ALL_POSITION_CODES } from '@/domain/positions';
 import { generateDraft } from '../gameSetup';
@@ -38,9 +39,24 @@ describe('world generation', () => {
   it('builds a believable local area of clubs, towns and grounds', () => {
     const world = generateDraft({ seed: 'grassroots-1' });
     const clubs = Object.values(world.clubs);
-    expect(clubs.length).toBeGreaterThanOrEqual(10);
-    expect(clubs.length).toBeLessThanOrEqual(14);
-    expect(world.divisionClubIds.length).toBe(clubs.length);
+    expect(clubs.length).toBe(DEFAULT_PYRAMID.tiers * DEFAULT_PYRAMID.clubsPerTier);
+    expect(world.divisionClubIds.length).toBe(DEFAULT_PYRAMID.clubsPerTier);
+
+    // The ladder: three divisions, full, and ranked so the top division is the
+    // strongest. Reputation drove both the ranking and the squads, so this is
+    // stratification from the moment the world is built rather than something
+    // the first few seasons sort out.
+    expect(world.divisions.length).toBe(DEFAULT_PYRAMID.tiers);
+    const divisionReputations = world.divisions.map((division) =>
+      division.map((id) => world.clubs[id]!.reputation),
+    );
+    for (const division of divisionReputations) {
+      expect(division.length).toBe(DEFAULT_PYRAMID.clubsPerTier);
+    }
+    const tierMean = (reputations: number[]) =>
+      reputations.reduce((sum, value) => sum + value, 0) / reputations.length;
+    expect(tierMean(divisionReputations[0]!)).toBeGreaterThan(tierMean(divisionReputations[1]!));
+    expect(tierMean(divisionReputations[1]!)).toBeGreaterThan(tierMean(divisionReputations[2]!));
 
     const towns = Object.values(world.world.towns);
     expect(towns.length).toBeGreaterThanOrEqual(5);

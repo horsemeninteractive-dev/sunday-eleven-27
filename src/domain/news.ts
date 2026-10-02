@@ -14,6 +14,10 @@ export type GameEventType =
   | 'player-signed'
   | 'player-released'
   | 'league-movement'
+  /** A cup round drawn: who has been drawn against whom, and when they play. */
+  | 'cup-draw'
+  /** Something a cup decided: a final, a winner, or a giant-killing. */
+  | 'cup-result'
   | 'notable-result'
   | 'finances-warning'
   | 'finances-positive'

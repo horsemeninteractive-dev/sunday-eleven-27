@@ -1,7 +1,7 @@
 {
   "name": "sunday-eleven-27",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.4.0",
   "type": "module",
   "description": "Sunday Eleven 27 - grassroots English Sunday League football management simulation",
   "scripts": {
@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "balance": "vite-node tools/balance.ts",
+    "soak": "vite-node tools/soak.ts"
   },
   "dependencies": {
     "react": "^18.3.1",

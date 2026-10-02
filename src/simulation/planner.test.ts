@@ -53,7 +53,9 @@ describe('the game date', () => {
   it('knows when the season calendar has run out', () => {
     const { state } = createTestGame('calendar-exhausted');
     expect(seasonCalendarExhausted(state)).toBe(false);
-    const last = state.season.calendar[state.season.calendar.length - 1]!.date;
+    // The latest date, not the last entry: the cup rounds are numbered after the
+    // league's matchdays but are played in the middle of them.
+    const last = state.season.calendar.map((entry) => entry.date).sort().at(-1)!;
     expect(seasonCalendarExhausted(state, addDays(last, 1))).toBe(true);
   });
 

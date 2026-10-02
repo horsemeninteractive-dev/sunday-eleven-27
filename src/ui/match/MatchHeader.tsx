@@ -47,6 +47,15 @@ export function MatchHeader({
 
   return (
     <header className="matchhead">
+      {/* The line across the top is the two clubs: the home colour on the left,
+          the away colour on the right, meeting in the middle. */}
+      <span
+        className="matchhead__stripe"
+        aria-hidden="true"
+        style={{
+          background: `linear-gradient(90deg, ${home.identity.colours.primary} 0, ${home.identity.colours.primary} 50%, ${away.identity.colours.primary} 50%, ${away.identity.colours.primary} 100%)`,
+        }}
+      />
       <div className="matchhead__team matchhead__team--home">
         <span className="matchhead__crest">
           <ClubBadge club={home} />

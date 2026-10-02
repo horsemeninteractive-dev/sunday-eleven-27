@@ -42,6 +42,20 @@ function rowsFrom(stats: Stats): Row[] {
 
   add('shots', 'Shots', stats.home.shots, stats.away.shots);
   add('onTarget', 'On target', stats.home.shotsOnTarget, stats.away.shotsOnTarget);
+  // Passes are shown as completed-of-attempted, because the attempt figure on
+  // its own says nothing about how the side has played.
+  const passTotals = stats.home.passes + stats.away.passes;
+  if (passTotals > 0) {
+    rows.push({
+      key: 'passes',
+      label: 'Passes (completed)',
+      home: `${stats.home.passesCompleted}/${stats.home.passes}`,
+      away: `${stats.away.passesCompleted}/${stats.away.passes}`,
+      homeShare: stats.home.passes / passTotals,
+    });
+  }
+  add('tackles', 'Tackles', stats.home.tackles, stats.away.tackles);
+  add('interceptions', 'Interceptions', stats.home.interceptions, stats.away.interceptions);
   add('corners', 'Corners', stats.home.corners, stats.away.corners);
   add('fouls', 'Fouls', stats.home.fouls, stats.away.fouls);
   add('offsides', 'Offsides', stats.home.offsides, stats.away.offsides);

@@ -4,6 +4,7 @@ import { isPlayer, type Player } from '@/domain/person';
 import type { PositionGroup } from '@/domain/positions';
 import type { Town } from '@/domain/world';
 import { Rng, stream } from '../rng';
+import { removePersonRelationships } from '../relationships';
 import { generatePlayer } from './playerGenerator';
 
 /**
@@ -37,6 +38,17 @@ const GROUP_WEIGHTS: Array<{ value: PositionGroup; weight: number }> = [
   { value: 'MID', weight: 2.6 },
   { value: 'FWD', weight: 2 },
 ];
+
+/**
+ * How many men without a club the county can hold, per club in it.
+ *
+ * A Sunday league county of thirty-six clubs is a few thousand players; the men
+ * in it who are good enough to be wanted and currently wanted by nobody are a
+ * small fraction of that. The first season of the standard soak opens with a pool
+ * of thirty-seven, so this is set to hold a pool of about that size — the drift
+ * band is ±35% and a cap set here is what the band is holding the world to.
+ */
+export const POOL_PER_CLUB = 0.8;
 
 function qualityForTown(rng: Rng, town: Town): number {
   // A strong town club's standard is around 11-12; the unattached pool is a
@@ -105,6 +117,15 @@ export function generateUnattachedPlayers(options: GenerateUnattachedOptions): P
 /**
  * Keep the unattached pool alive across seasons: everybody gets a year older,
  * the oldest drift out of the local game, and a few new names appear.
+ *
+ * The pool is also *capped*, and that cap is what keeps it a market rather than a
+ * reservoir. Every summer some men are released by their clubs and some new
+ * names turn up, and the only way out of the pool is being signed — so with
+ * nothing to stop it the pool grew by a dozen a season and more than tripled over
+ * a decade, while every squad stayed exactly as full as it always was. In a
+ * county this size there are only so many men playing football without a club;
+ * past that number the surplus have given up and gone to five-a-side, or moved
+ * away, or simply stopped. Which is what the surplus are treated as doing here.
  */
 export function refreshUnattachedPool(state: GameState, seasonStart: ISODate, idPrefix: string): Player[] {
   const unattached = Object.values(state.people).filter(
@@ -119,8 +140,26 @@ export function refreshUnattachedPool(state: GameState, seasonStart: ISODate, id
     player.injury = null;
     if (player.age >= 41 || (player.age >= 38 && player.attributes.physical.pace <= 5)) departed.push(player);
   }
+
+  // The surplus over the cap go as well, oldest and weakest first. Counting them
+  // against the cap is deliberate: they were in the pool this morning, and they
+  // are the reason the pool is no bigger than it is.
+  const clubCount = Object.values(state.clubs).filter((club) => club.active).length;
+  const cap = Math.max(12, Math.round(clubCount * POOL_PER_CLUB));
+  const staying = unattached.filter((player) => !departed.includes(player));
+  if (staying.length > cap) {
+    const surplus = [...staying]
+      .sort((a, b) => b.age - a.age || a.id.localeCompare(b.id))
+      .slice(0, staying.length - cap);
+    departed.push(...surplus);
+  }
+
   for (const player of departed) {
     delete state.people[player.id];
+    // A man who leaves the world should not leave his relationships behind:
+    // the save loader would prune them on the next load, so a running career and
+    // a reloaded one would otherwise differ in the social world.
+    removePersonRelationships(state, player.id);
     for (const candidateId of Object.keys(state.recruitment?.candidates ?? {})) {
       if (candidateId === player.id) delete state.recruitment.candidates[candidateId];
     }

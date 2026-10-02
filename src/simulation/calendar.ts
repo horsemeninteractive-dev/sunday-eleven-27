@@ -124,6 +124,72 @@ export function buildSeasonCalendar(startDate: ISODate, matchdays: number): Seas
   return entries;
 }
 
+/**
+ * The season's calendar with cup rounds in it.
+ *
+ * One calendar, not two. A league Sunday and a midweek cup tie are both
+ * *matchdays* — they both prepare a matchday, both roll the week's
+ * availability, and both are settled before the season can close — so they are
+ * numbered in one sequence rather than running as two parallel timelines that
+ * have to be kept in step. League matchdays take 1..N, and each cup round takes
+ * the next number after them.
+ *
+ * A cup round sits on the Wednesday of the week before a league matchday, which
+ * is where a county league actually plays them: midweek evening under the
+ * lights, and never on a Sunday a club is already playing.
+ */
+export interface CupRoundSlot {
+  /** 1-based round number, used for the matchday number of its ties. */
+  round: number;
+  /** 1-based league matchday whose preceding Wednesday the round is played on. */
+  beforeMatchday: number;
+}
+
+export const CUP_KICKOFF = '19:45';
+
+export function cupRoundDate(leagueDate: ISODate): ISODate {
+  // The Wednesday before the Sunday.
+  return addDays(leagueDate, -4);
+}
+
+/**
+ * Build the calendar for a season of leagues and cups.
+ *
+ * `slots` names the league matchday each cup round precedes. A slot pointing at
+ * a matchday that does not exist is ignored rather than throwing, so a pyramid
+ * configured with more cup rounds than the league has weeks still builds.
+ */
+export function buildSeasonCalendarWithCups(
+  startDate: ISODate,
+  matchdays: number,
+  slots: readonly CupRoundSlot[] = [],
+): SeasonCalendarEntry[] {
+  const league = buildSeasonCalendar(startDate, matchdays);
+  const extra: SeasonCalendarEntry[] = [];
+  const nextMatchday = league.length;
+
+  for (const slot of slots) {
+    const leagueEntry = league[slot.beforeMatchday - 1];
+    if (!leagueEntry) continue;
+    const date = cupRoundDate(leagueEntry.date);
+    if (isChristmasBreak(date)) continue;
+    extra.push({ matchday: nextMatchday + extra.length + 1, date });
+  }
+
+  return [...league, ...extra].sort((a, b) => a.matchday - b.matchday);
+}
+
+/**
+ * Matchday number of a cup round.
+ *
+ * Cup rounds are numbered above the league's own matchdays, so a tie's fixture
+ * list is separate from the league table's. `offset` separates two cups from
+ * each other: the consolation cup starts where the main cup's rounds run out.
+ */
+export function cupMatchdayFor(round: number, leagueMatchdays: number, offset = 0): number {
+  return leagueMatchdays + offset + round;
+}
+
 export function kickOffTimeFor(iso: ISODate): string {
   const date = toDate(iso);
   // Sunday mornings dominate, with occasional earlier or later kick-offs.

@@ -1,15 +1,45 @@
 import { useState } from 'react';
 import type { StandingRow } from '@/domain/club';
+import type { Competition } from '@/domain/competition';
 import { formatDayMonth } from '@/simulation/calendar';
-import { currentMatchday } from '@/simulation/queries';
+import { currentMatchday, userClub } from '@/simulation/queries';
+import { divisionOf, fixtureIdsFor, leagueCompetitions, standingsFor } from '@/simulation/pyramid';
 import { ordinal } from '@/simulation/news';
 import { gameActions, useGame, useStandings } from '../hooks';
 import { Button, FormPips, PageHeader, Panel, Pill, SortTh } from '../components/primitives';
 import { ClubLink } from '../components/Links';
 import { applySort, UNSORTED, type SortAccessors, type SortState } from '../tableSort';
 
+/**
+ * Which part of the table a row is in.
+ *
+ * Read off the competition's own promotion and relegation places rather than off
+ * the length of the table, so the top division's two promoted clubs and the
+ * bottom division's two relegated ones are marked correctly without any of the
+ * three being told it is the top.
+ */
+function zoneFor(position: number, size: number, competition: Competition): 'title' | 'promotion' | 'mid' | 'relegation' {
+  const promotionPlaces = competition.promotionPlaces ?? 0;
+  const relegationPlaces = competition.relegationPlaces ?? 0;
+  if (position === 1) return 'title';
+  if (promotionPlaces > 0 && position <= promotionPlaces) return 'promotion';
+  if (relegationPlaces > 0 && position > size - relegationPlaces) return 'relegation';
+  return 'mid';
+}
+
+function promotionLabel(competition: Competition): string {
+  const places = competition.promotionPlaces ?? 0;
+  return places === 0 ? 'no promotion place' : places === 1 ? 'one promotion place' : `${places} promoted`;
+}
+
+function relegationLabel(competition: Competition): string {
+  const places = competition.relegationPlaces ?? 0;
+  return places === 0 ? 'nothing to lose' : places === 1 ? 'one relegated' : `${places} relegated`;
+}
+
 /** A standing row that still knows where it sits, whatever the table is sorted by. */
 type PositionedRow = StandingRow & { position: number; name: string };
+
 
 type TableSortKey =
   | 'position'
@@ -52,18 +82,27 @@ const TABLE_SORT: SortAccessors<PositionedRow, TableSortKey> = {
  */
 export function LeagueView() {
   const game = useGame();
-  const standings = useStandings();
+  const ownStandings = useStandings();
   const [sort, setSort] = useState<SortState<TableSortKey>>(UNSORTED);
+  // The manager opens on their own division; the rest of the ladder is a door
+  // away rather than a separate screen, because a pyramid you have to go and
+  // look at is not a pyramid.
+  const [tier, setTier] = useState<number | null>(null);
   if (!game) return null;
 
-  const competition = Object.values(game.competitions)[0]!;
-  const club = game.clubs[game.userClubId]!;
+  const divisions = leagueCompetitions(game);
+  const clubRow = userClub(game);
+  const ownDivision = divisionOf(game, clubRow.id);
+  const competition = divisions.find((entry) => entry.tier === (tier ?? ownDivision?.tier)) ?? divisions[0];
+  if (!competition) return null;
+  const standings = competition.id === ownDivision?.id ? ownStandings : standingsFor(game, competition);
+
   const matchday = currentMatchday(game);
-  const myPosition = standings.findIndex((row) => row.clubId === club.id) + 1;
+  const myPosition = standings.findIndex((row) => row.clubId === clubRow.id) + 1;
   const myRow = standings[myPosition - 1];
   const playerCount = competition.clubIds.length;
-  const thisWeek = game.fixtures.byMatchday[matchday] ?? [];
-  const lastWeek = game.fixtures.byMatchday[matchday - 1] ?? [];
+  const thisWeek = fixtureIdsFor(game, competition.id, matchday);
+  const lastWeek = fixtureIdsFor(game, competition.id, matchday - 1);
   const rows: PositionedRow[] = standings.map((row, index) => ({
     ...row,
     position: index + 1,
@@ -76,12 +115,12 @@ export function LeagueView() {
       <PageHeader
         eyebrow="Competition"
         title={competition.name}
-        subtitle={`${playerCount} clubs · one promotion place · two relegated · up to ${game.season.calendar.length} matchdays`}
+        subtitle={`${playerCount} clubs · ${promotionLabel(competition)} · ${relegationLabel(competition)}`}
         meta={
           <>
             <span className="small muted">
-              {myPosition > 0
-                ? `${club.identity.shortName} are ${ordinal(myPosition)}, ${myRow?.points ?? 0} points from ${myRow?.played ?? 0} played`
+              {myPosition > 0 && competition.id === ownDivision?.id
+                ? `${clubRow.identity.shortName} are ${ordinal(myPosition)}, ${myRow?.points ?? 0} points from ${myRow?.played ?? 0} played`
                 : 'The season has not started yet'}
             </span>
             <span className="small muted">Matchday {matchday}</span>
@@ -93,6 +132,23 @@ export function LeagueView() {
           </Button>
         }
       />
+
+      {divisions.length > 1 && (
+        <div className="segmented" role="tablist" aria-label="Divisions">
+          {divisions.map((division) => (
+            <button
+              key={division.id}
+              type="button"
+              role="tab"
+              aria-selected={division.id === competition.id}
+              className={`segmented__item${division.id === competition.id ? ' segmented__item--active' : ''}`}
+              onClick={() => setTier(division.tier)}
+            >
+              {division.name.replace(/^.*Sunday League /, '')}
+            </button>
+          ))}
+        </div>
+      )}
 
       <Panel level="primary" title="The table" subtitle="Where everyone stands right now">
         <div className="table-wrapper">
@@ -114,9 +170,9 @@ export function LeagueView() {
             </thead>
             <tbody>
               {sortedRows.map((row) => {
-                const isMine = row.clubId === club.id;
-                const zone = row.position === 1 ? 'promotion' : row.position > rows.length - 2 ? 'relegation' : 'mid';
-                const rival = game.clubs[row.clubId]?.rivalries[club.id];
+                const isMine = row.clubId === clubRow.id;
+                const zone = zoneFor(row.position, rows.length, competition);
+                const rival = game.clubs[row.clubId]?.rivalries[clubRow.id];
                 return (
                   <tr key={row.clubId} className={isMine ? 'table__row--mine' : undefined}>
                     <td>
@@ -127,7 +183,9 @@ export function LeagueView() {
                             ? 'Promotion place'
                             : zone === 'relegation'
                               ? 'Relegation place'
-                              : undefined
+                              : zone === 'title'
+                                ? 'Champions'
+                                : undefined
                         }
                       >
                         {row.position}
@@ -173,7 +231,7 @@ export function LeagueView() {
               if (!match) return null;
               const home = game.clubs[match.homeClubId]!;
               const away = game.clubs[match.awayClubId]!;
-              const involvesUser = match.homeClubId === club.id || match.awayClubId === club.id;
+              const involvesUser = match.homeClubId === clubRow.id || match.awayClubId === clubRow.id;
               return (
                 <li key={id} className={`result-row${involvesUser ? ' result-row--mine' : ''}`}>
                   <span className="muted small">{formatDayMonth(match.date)}</span>
@@ -203,10 +261,10 @@ export function LeagueView() {
               if (!match || !match.result) return null;
               const home = game.clubs[match.homeClubId]!;
               const away = game.clubs[match.awayClubId]!;
-              const involvesUser = match.homeClubId === club.id || match.awayClubId === club.id;
-              return (
-                <li key={id} className={`result-row${involvesUser ? ' result-row--mine' : ''}`}>
-                  <span className="muted small">{match.result.attendance} att.</span>
+            const involvesUser = match.homeClubId === clubRow.id || match.awayClubId === clubRow.id;
+            return (
+              <li key={id} className={`result-row${involvesUser ? ' result-row--mine' : ''}`}>
+                <span className="muted small">{match.result.attendance} att.</span>
                   <span>
                     {home.identity.shortName} v {away.identity.shortName}
                   </span>

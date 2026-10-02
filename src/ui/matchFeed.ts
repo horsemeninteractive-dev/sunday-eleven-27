@@ -1,15 +1,15 @@
-import type { Match, MatchEvent, MatchEventType } from '@/domain/match';
+import type { CommentaryCategory, CommentaryEvent, CommentaryPriority, Match, MatchEvent, MatchEventType } from '@/domain/match';
 
 /**
- * Between the match engine and the live feed.
+ * The match's commentary, as a history rather than a live feed.
  *
- * The engine's job is to be right; this layer's job is to be readable. It
- * decides what a manager actually needs thrown at him while the game is
- * running — a goal is not the same as a throw-in — and it keeps the feed
- * bounded, because a transcript that grows all afternoon is a transcript that
- * pushes the rest of the match off the screen.
+ * The engine's job is to be right; this layer's job is to be readable, and to
+ * be the one place the rest of the UI asks for "what was said". It prefers the
+ * match's own transcript, written as the game was played; a match nobody
+ * watched — or a save from before narration existed — falls back to the raw
+ * events, so a report can always be produced from what the record holds.
  *
- * Nothing here invents an incident: every line is one the engine produced.
+ * Nothing here invents an incident: every line came from the engine.
  */
 
 export type FeedTone = 'major' | 'important' | 'normal';
@@ -21,6 +21,10 @@ export interface FeedEntry {
   /** Match minute the entry belongs to, for ordering and highlight windows. */
   rawMinute: number;
   tone: FeedTone;
+  /** The narrator's category — possession, chance, keeper — when known. */
+  category: CommentaryCategory | null;
+  /** How loudly the line should be read. */
+  priority: CommentaryPriority;
   /** Short label for the incident — GOAL, YELLOW CARD — or null for prose. */
   kind: string | null;
   side: 'home' | 'away' | null;
@@ -30,16 +34,17 @@ export interface FeedEntry {
 
 export interface MatchFeed {
   /**
-   * Newest first, already bounded. The first entry is the one the strip across
-   * the top of the panel is showing, so the list beneath it starts at the
-   * second — one incident is never reported twice.
+   * Newest first. When a limit is given it is applied from the newest end, so a
+   * requested window always contains the latest incident.
    */
   entries: FeedEntry[];
   /** The oldest entry still in the feed, so the UI can say how far back it goes. */
   oldestMinute: string | null;
+  /** True when the transcript came from the match's own narration. */
+  narrated: boolean;
 }
 
-/** How much of the match the feed keeps on screen. */
+/** How much of the match a live window keeps on screen. */
 export const FEED_LIMIT = 30;
 
 const KIND_LABEL: Partial<Record<MatchEventType, string>> = {
@@ -51,6 +56,8 @@ const KIND_LABEL: Partial<Record<MatchEventType, string>> = {
   substitution: 'Substitution',
   injury: 'Injury',
   'shot-saved': 'Save',
+  'shot-blocked': 'Blocked',
+  'shot-off-target': 'Off target',
   chance: 'Chance',
   corner: 'Corner',
   foul: 'Foul',
@@ -64,6 +71,12 @@ const KIND_LABEL: Partial<Record<MatchEventType, string>> = {
 const MAJOR_TYPES: ReadonlySet<MatchEventType> = new Set(['goal', 'penalty-scored', 'penalty-missed', 'red-card', 'half-time', 'full-time']);
 /** Incidents worth marking out, but not worth stopping the game for. */
 const IMPORTANT_TYPES: ReadonlySet<MatchEventType> = new Set(['yellow-card', 'substitution', 'injury', 'shot-saved', 'chance']);
+
+function toneForPriority(priority: CommentaryPriority): FeedTone {
+  if (priority === 'major') return 'major';
+  if (priority === 'important') return 'important';
+  return 'normal';
+}
 
 function toneFor(event: MatchEvent): FeedTone {
   if (MAJOR_TYPES.has(event.type) || event.importance >= 3) return 'major';
@@ -85,19 +98,24 @@ function minuteLabel(minute: number, firstHalf: boolean): string {
   return minute <= 90 ? String(minute) : `90+${minute - 90}`;
 }
 
-/**
- * Build the live feed.
- *
- * `keyOnly` is the manager's own filter: it drops the ordinary business of a
- * Sunday afternoon so only the incidents with something on them remain.
- */
-export function buildMatchFeed(
-  match: Match,
-  options: { limit?: number; keyOnly?: boolean } = {},
-): MatchFeed {
-  const limit = Math.max(1, options.limit ?? FEED_LIMIT);
-  const halfTimeIndex = match.events.findIndex((event) => event.type === 'half-time');
+function entryFromCommentary(event: CommentaryEvent): FeedEntry {
+  return {
+    id: event.id,
+    minute: minuteLabel(event.minute, event.firstHalf),
+    rawMinute: event.minute,
+    tone: toneForPriority(event.priority),
+    category: event.category,
+    priority: event.priority,
+    kind: event.kind,
+    side: event.side,
+    text: event.text,
+    scoreAfter: event.scoreAfter,
+  };
+}
 
+/** The raw events, told as they were when no narration was recorded. */
+function entriesFromEvents(match: Match, limit: number, keyOnly: boolean): MatchFeed {
+  const halfTimeIndex = match.events.findIndex((event) => event.type === 'half-time');
   const entries: FeedEntry[] = [];
   let previousText: string | null = null;
   for (let index = match.events.length - 1; index >= 0; index -= 1) {
@@ -105,7 +123,7 @@ export function buildMatchFeed(
     // The half-time whistle itself belongs to the first half it ends.
     const firstHalf = halfTimeIndex < 0 || index <= halfTimeIndex;
     const tone = toneFor(event);
-    if (options.keyOnly && tone === 'normal') continue;
+    if (keyOnly && tone === 'normal') continue;
     // The engine can produce the same line twice in a minute — a nudge and an
     // appeal. One is enough.
     if (event.text === previousText) continue;
@@ -115,6 +133,8 @@ export function buildMatchFeed(
       minute: minuteLabel(event.minute, firstHalf),
       rawMinute: event.minute,
       tone,
+      category: null,
+      priority: tone === 'major' ? 'major' : tone === 'important' ? 'important' : 'routine',
       kind: KIND_LABEL[event.type] ?? null,
       side: event.clubId === match.homeClubId ? 'home' : event.clubId === match.awayClubId ? 'away' : null,
       text: event.text,
@@ -126,10 +146,39 @@ export function buildMatchFeed(
   return {
     entries,
     oldestMinute: entries.length > 0 ? entries[entries.length - 1]!.minute : null,
+    narrated: false,
   };
 }
 
-/** The line the strip is showing: the newest incident, or nothing yet. */
+/**
+ * Build the commentary history, newest first.
+ *
+ * `keyOnly` is the reader's own filter: it keeps only the lines with something
+ * on them, so a manager skimming an afternoon can see its shape at a glance.
+ */
+export function buildMatchFeed(match: Match, options: { limit?: number; keyOnly?: boolean } = {}): MatchFeed {
+  const limit = options.limit ?? Number.POSITIVE_INFINITY;
+  const keyOnly = options.keyOnly ?? false;
+
+  const commentary = match.commentary;
+  if (!commentary || commentary.length === 0) return entriesFromEvents(match, limit, keyOnly);
+
+  const entries: FeedEntry[] = [];
+  for (let index = commentary.length - 1; index >= 0 && entries.length < limit; index -= 1) {
+    const event = commentary[index]!;
+    const tone = toneForPriority(event.priority);
+    if (keyOnly && tone === 'normal') continue;
+    entries.push(entryFromCommentary(event));
+  }
+
+  return {
+    entries,
+    oldestMinute: entries.length > 0 ? entries[entries.length - 1]!.minute : null,
+    narrated: true,
+  };
+}
+
+/** The line the live screen is showing: the newest incident, or nothing yet. */
 export function latestLine(feed: MatchFeed): FeedEntry | null {
   return feed.entries[0] ?? null;
 }

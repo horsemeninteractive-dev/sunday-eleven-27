@@ -19,8 +19,9 @@ import { createEvent } from '../news';
 import { applyRelationshipEvent, getRelationship, personName, recordInteraction } from '../relationships';
 import { runTrialSession } from '../recruitment/trials';
 import { stream } from '../rng';
+import { leagueClubIds } from '../pyramid';
 import { clubCohesionValue, clubSystemFamiliarity, gainSystemFamiliarity, nudgePositionalFamiliarity, rebaseSystemFamiliarity, rustSystemFamiliarity } from './cohesion';
-import { accrueDevelopment, applyImprovements } from './development';
+import { accrueDevelopment, applyDecline, applyImprovements } from './development';
 import {
   currentPlan,
   currentSessionKey,
@@ -249,6 +250,7 @@ export function conductTraining(state: GameState, clubId: ClubId, matchday: numb
     trialistIds: trialistsAttending,
     injuredIds: [],
     improvements: [],
+    declines: [],
     familiarityGain: 0,
   };
 
@@ -383,6 +385,12 @@ export function conductTraining(state: GameState, clubId: ClubId, matchday: numb
           observations.push(`${player.firstName} ${player.surname} has come on — his ${improvement.label.toLowerCase()} is better than it was.`);
         }
       }
+      // Age does its work in the same breath. A man past his peak loses a
+      // little every week whatever the session was like, which is what stops
+      // the world's football getting better every year for ever.
+      for (const decline of applyDecline(state, player, date)) {
+        session.declines.push(decline);
+      }
     }
 
     // Bodies break. Not often, but it is the risk the manager is taking.
@@ -481,7 +489,11 @@ export function ensureTrainingConducted(
   clubIds?: readonly ClubId[],
 ): TrainingOutcome {
   const result: TrainingOutcome = { events: [], session: null, messages: [] };
-  const ids = clubIds ?? Object.values(state.competitions)[0]?.clubIds ?? [];
+  // Every club in the pyramid, not just the first competition's. Taking the
+  // first division here trained the top of the ladder and left the other two
+  // silently frozen: their men never improved, never tired, and never appeared
+  // in a session. A club in Division Three has a Thursday night too.
+  const ids = clubIds ?? leagueClubIds(state);
   for (const clubId of ids) {
     const outcome = conductTraining(state, clubId, matchday);
     result.events.push(...outcome.events);

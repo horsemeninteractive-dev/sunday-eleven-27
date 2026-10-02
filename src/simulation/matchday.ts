@@ -9,6 +9,7 @@ import { estimateAttendance } from './match/attendance';
 import type { MatchEnvironment } from './match/engine';
 import { isPlayer } from '@/domain/person';
 import { nextFixtureFor } from './schedule';
+import { fixtureIdsOnMatchday } from './pyramid';
 import { autoPickLineup } from './selection';
 import { clubCohesionValue, clubSystemFamiliarity } from './training/cohesion';
 
@@ -284,7 +285,9 @@ export function ensureUserXi(state: GameState): void {
  * selections are never overwritten.
  */
 export function prepareMatchday(state: GameState, matchday: number): void {
-  const ids = state.fixtures.byMatchday[matchday] ?? [];
+  // Every competition that has a fixture on this matchday: a Sunday is a
+  // matchday in all three divisions at once, and a cup round is its own.
+  const ids = fixtureIdsOnMatchday(state, matchday);
   for (const id of ids) {
     const match = state.matches[id];
     if (!match || match.played) continue;
@@ -333,6 +336,10 @@ export function matchEnvironment(state: GameState, match: Match, options: Enviro
     // Only the club the human actually manages has its bench left alone.
     userClubId: userInvolved ? state.userClubId : null,
     autoManageAllBenches: options.autoManageAllBenches ?? true,
+    // Only the fixture with a manager in the dugout gets a transcript written
+    // for it: nobody reads the rest, and a whole division's worth of prose
+    // would bloat every save for nothing.
+    recordCommentary: userInvolved,
     substitutionsAllowed: 3,
     refereeStrictness: strictness,
     expectedAttendance: expectedAttendanceFor(state, match),

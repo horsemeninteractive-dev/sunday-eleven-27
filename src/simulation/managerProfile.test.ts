@@ -75,9 +75,13 @@ describe('the manager profile', () => {
 });
 
 describe('creating a club', () => {
-  it('takes the place of the weakest club but generates its own squad', () => {
+  it('takes the place of the weakest club in the bottom division but generates its own squad', () => {
     const draft = generateDraft({ seed: 'custom-club' });
-    const weakest = [...draft.divisionClubIds].sort(
+    // A club the manager builds starts at the bottom of the pyramid, so the
+    // place it takes is the weakest club in the *lowest* division rather than
+    // the weakest in the county.
+    const bottomDivision = draft.divisions[draft.divisions.length - 1]!;
+    const weakest = [...bottomDivision].sort(
       (a, b) => draft.clubs[a]!.reputation - draft.clubs[b]!.reputation,
     )[0]!;
     const squadBefore = [...draft.clubs[weakest]!.squadIds];
@@ -393,6 +397,7 @@ describe("the manager's career record", () => {
       seasonId: 'season_past',
       seasonLabel: '2025/26',
       competitionName: 'A league',
+      tier: 1,
       played: 20,
       won: 11,
       drawn: 4,

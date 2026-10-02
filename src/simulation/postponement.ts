@@ -1,8 +1,10 @@
 import type { GameState } from '@/domain/game';
-import type { ISODate, MatchId } from '@/domain/ids';
+import type { ClubId, ISODate, MatchId } from '@/domain/ids';
 import { isCompetitiveMatch, type Match } from '@/domain/match';
 import { addDays, isChristmasBreak, toDate } from './calendar';
+import { isCup } from '@/domain/competition';
 import { createMatchRecord } from './matchday';
+import { registerFixture } from './pyramid';
 import { stream } from './rng';
 import { scheduleEvent } from './schedule';
 
@@ -87,6 +89,35 @@ function homeClubCannotRaiseATeam(state: GameState, match: Match): boolean {
 }
 
 /**
+ * How long past the season's last scheduled Sunday a game may still be played.
+ *
+ * A rearranged fixture has to be played, and until there was a deadline it always
+ * could be: a slot can always be found within a month, so a game called off in a
+ * bad winter was rearranged into the same bad weather, called off again, and
+ * rearranged again — the replacement rolls its own conditions from its own id, so
+ * each bounce is an independent roll of the dice. One seed ran a single fixture
+ * through twenty-one rearrangements, took the season five months past its own
+ * calendar and never closed it at all, which cost the *next* season as well: a
+ * season that does not end is a season that never archives a champion, and the
+ * world stops having seasons.
+ *
+ * Real Sunday leagues do not do that. There is a point at which the league gives
+ * up on a game, and this is it — two months of grace past the last scheduled
+ * Sunday. That is generous enough for a genuine backlog of winter call-offs, and
+ * comfortably clear of the next season's pre-season, which begins the summer
+ * after next. The deadline is fixed, and every rearrangement is dated later than
+ * the game it replaces, so a chain of them can only ever be finite.
+ */
+const REARRANGEMENT_GRACE_DAYS = 56;
+
+/** The last date in the season on which a rearranged game may be played. */
+export function rearrangementDeadlineFor(state: GameState): ISODate {
+  const calendar = state.season.calendar;
+  const last = calendar[calendar.length - 1]?.date ?? state.season.endDate;
+  return addDays(last, REARRANGEMENT_GRACE_DAYS);
+}
+
+/**
  * When the rearranged game is played.
  *
  * The natural slot is a free Sunday — the Christmas gap, or one of the weeks
@@ -95,20 +126,62 @@ function homeClubCannotRaiseATeam(state: GameState, match: Match): boolean {
  * under the lights, and Saturday afternoon if even that is taken.
  *
  * The calendar is the authority on *when*: this only finds a date that suits
- * both clubs and is not a dead Sunday in the middle of winter.
+ * both clubs, is not a dead Sunday in the middle of winter, and is still inside
+ * the season. Null means there is genuinely no room, and the league abandons the
+ * fixture rather than shuffling it around for the rest of the year.
  */
-export function rescheduleDateFor(state: GameState, match: Match, from: ISODate): ISODate | null {
-  const sunday = findSlot(state, match, from, [0], 30);
+export function rescheduleDateFor(state: GameState, match: FixtureSlotRequest, from: ISODate): ISODate | null {
+  const deadline = rearrangementDeadlineFor(state);
+  // A cup tie is already a midweek game. Putting its replay on a Sunday means
+  // competing with the league fixture that Sunday for the same players, which
+  // is how one tie ends up bounced five times before the round can move.
+  const midweekFirst = isCup(state.competitions[match.competitionId]);
+  if (midweekFirst) {
+    return findSlot(state, match, from, [3], 30, deadline) ?? findSlot(state, match, from, [6], 30, deadline);
+  }
+  const sunday = findSlot(state, match, from, [0], 30, deadline);
   if (sunday) return sunday;
-  const evening = findSlot(state, match, from, [3], 30);
+  const evening = findSlot(state, match, from, [3], 30, deadline);
   if (evening) return evening;
-  return findSlot(state, match, from, [6], 30);
+  return findSlot(state, match, from, [6], 30, deadline);
 }
 
-/** A free date with one of these weekdays, at least three days away. */
-function findSlot(state: GameState, match: Match, from: ISODate, weekdays: number[], limit: number): ISODate | null {
+/** The two clubs and the competition a date search has to avoid clashes for. */
+export interface FixtureSlotRequest {
+  id: string;
+  competitionId: string;
+  homeClubId: ClubId;
+  awayClubId: ClubId;
+}
+
+/**
+ * The next date this fixture could be played on, at least three days out.
+ *
+ * Used when a competition is drawn late — a cup round whose slot has already
+ * gone by — so that a tie is never created in the past, where it would sit
+ * scheduled for ever and the round could never finish.
+ */
+export function nextPlayableDateFor(state: GameState, request: FixtureSlotRequest): ISODate | null {
+  return rescheduleDateFor(state, request as Match, state.date);
+}
+
+/**
+ * A free date with one of these weekdays, at least three days away.
+ *
+ * `deadline` is what stops the search running off the end of the season: the
+ * candidates only ever move forward, so the first one past it ends the search.
+ */
+function findSlot(
+  state: GameState,
+  match: FixtureSlotRequest,
+  from: ISODate,
+  weekdays: number[],
+  limit: number,
+  deadline: ISODate,
+): ISODate | null {
   let candidate = addDays(from, 3);
   for (let day = 0; day < limit; day += 1) {
+    if (candidate > deadline) return null;
     if (weekdays.includes(toDate(candidate).getUTCDay()) && !isChristmasBreak(candidate) && !clubBusyOn(state, match, candidate)) {
       return candidate;
     }
@@ -118,7 +191,7 @@ function findSlot(state: GameState, match: Match, from: ISODate, weekdays: numbe
 }
 
 /** True when either club is already playing that day. */
-function clubBusyOn(state: GameState, match: Match, date: ISODate): boolean {
+function clubBusyOn(state: GameState, match: FixtureSlotRequest, date: ISODate): boolean {
   const clubs = [match.homeClubId, match.awayClubId];
   return Object.values(state.matches).some(
     (other) =>
@@ -186,10 +259,7 @@ export function postponeFixture(
   replacement.originalDate = match.date;
   replacement.postponedOn = date;
   state.matches[id] = replacement;
-  state.matchOrder.push(id);
-  const bucket = state.fixtures.byMatchday[match.matchday] ?? [];
-  state.fixtures.byMatchday[match.matchday] = [...bucket, id];
-  state.fixtures.matchdayOf[id] = match.matchday;
+  registerFixture(state, match.competitionId, id, match.matchday);
   match.replacedByMatchId = id;
   return replacement;
 }

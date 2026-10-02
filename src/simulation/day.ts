@@ -12,7 +12,9 @@ import { sessionDatesFor, sessionKeyFor } from './training/plan';
 import { ensureTrainingConducted } from './training/session';
 import { describeSessionQuality } from '@/domain/training';
 import { weeklyApproaches, type DiscoveryResult } from './recruitment/discovery';
-import { computeStandings } from './league';
+
+import { divisionOf, leagueClubIds, standingsFor, cupCompetitions } from './pyramid';
+import { allCupRoundSlots, cupTieNews, drawCupRound, isLeagueMatchday, readCupRound } from './cup';
 import { prepareMatchday } from './matchday';
 import { simulateToCompletion } from './match/engine';
 import { matchEnvironment } from './matchday';
@@ -113,6 +115,8 @@ export function processDay(
   notes.push(...football.notes);
   results.push(...football.results);
 
+  events.push(...advanceCups(state));
+
   events.push(...applyWorldDay(state, date));
 
   const nextDate = addDays(date, 1);
@@ -202,8 +206,11 @@ function applyDatedMoney(state: GameState, date: ISODate): GameEvent[] {
   const costsDue = rules.some((rule) => rule.id === 'rec_costs' && recursOn(rule, date));
   if (!subsDue && !costsDue) return events;
 
-  const competition = Object.values(state.competitions)[0];
-  for (const clubId of competition?.clubIds ?? []) {
+
+  // Every club in the county collects its subs and pays its costs, not only the
+  // ones in the top division — otherwise the bottom of the pyramid would run on
+  // nothing at all and would fold in a season.
+  for (const clubId of leagueClubIds(state)) {
     if (subsDue) applySubsAndSponsorship(state, clubId, date);
     if (costsDue) applyStandingCosts(state, clubId, date);
     if (clubId === state.userClubId && (state.clubs[clubId]?.finances.balance ?? 0) < 0) {
@@ -453,6 +460,9 @@ function applyFixtures(state: GameState, date: ISODate, options: DayOptions): Fi
     simulateToCompletion(match, env);
     const consequences = applyMatchConsequences(state, match);
     outcome.events.push(...consequences.events);
+    // A cup tie that went the wrong way for the big club is the story of a cup
+    // round, so it is written before the round is read back and advanced.
+    outcome.events.push(...cupTieNews(state, match));
     applyMatchdayFinances(state, match);
 
     if (involvesUser) {
@@ -567,13 +577,10 @@ export function notableResultEvent(state: GameState, match: Match): GameEvent | 
   const away = state.clubs[match.awayClubId];
   if (!home || !away) return null;
 
-  const competition = Object.values(state.competitions)[0];
-  const standings = computeStandings({
-    clubIds: competition?.clubIds ?? [],
-    matches: Object.values(state.matches),
-    competitionId: competition?.id ?? '',
-    clubName: (id) => state.clubs[id]?.identity.name ?? id,
-  });
+  const competition = state.competitions[match.competitionId];
+  const standings = competition
+    ? standingsFor(state, competition)
+    : [];
   const positionOf = (clubId: ClubId) => standings.findIndex((row) => row.clubId === clubId) + 1;
 
   const homeWon = match.result.homeGoals > match.result.awayGoals;
@@ -658,10 +665,16 @@ function applyWorldDay(state: GameState, date: ISODate): GameEvent[] {
 function applyStandingsSnapshot(state: GameState, date: ISODate, nextDate: ISODate): GameEvent[] {
   if (matchdaysJustPassed(state, date, nextDate) === 0) return [];
 
-  state.standingHistory.push(snapshotStandings(state));
-  const history = state.standingHistory;
-  const previous = history[history.length - 2];
-  const current = history[history.length - 1];
+  const snapshots = snapshotStandings(state);
+  state.standingHistory.push(...snapshots);
+
+  // The news is about the manager's own division, so the movement is read from
+  // that division's two most recent snapshots rather than from the county's.
+  const division = divisionOf(state, state.userClubId);
+  if (!division) return [];
+  const own = state.standingHistory.filter((entry) => entry.competitionId === division.id);
+  const previous = own[own.length - 2];
+  const current = own[own.length - 1];
   if (!previous?.playerClubPosition || !current?.playerClubPosition) return [];
 
   const delta = previous.playerClubPosition - current.playerClubPosition;
@@ -675,13 +688,89 @@ function applyStandingsSnapshot(state: GameState, date: ISODate, nextDate: ISODa
         club: state.clubs[state.userClubId]?.identity.shortName ?? 'the club',
         position: current.playerClubPosition,
         movement: delta > 0 ? 'climb' : 'slip',
-        competition: Object.values(state.competitions)[0]?.name ?? 'the league',
+        competition: division.name,
       },
     }),
   ];
 }
 
-/** How many matchdays fall between two consecutive dates. */
+/**
+ * The cups move on.
+ *
+ * A knockout has no table and no fixtures until it is drawn, so the day after
+ * its ties are played is when the next round exists: the round that has just
+ * finished is read back out of its results, the winners become the next round's
+ * field, and the next round is drawn and put on the calendar. A round whose ties
+ * are still waiting on a postponed replay is simply not finished, which is what
+ * stops a cup advancing on a tie that never happened.
+ */
+function advanceCups(state: GameState): GameEvent[] {
+  const events: GameEvent[] = [];
+  for (const cup of cupCompetitions(state)) {
+    const cupState = cup.cup;
+    if (!cupState || cupState.complete) continue;
+
+    const outcome = readCupRound(state, cup);
+    // `complete` is "every tie in this round has been settled"; `decided` is
+    // "somebody has won the whole competition". Only the first one moves the
+    // round on — a semi-final is complete long before it is decided.
+    if (!outcome.complete) continue;
+    events.push(...outcome.events);
+    if (outcome.decided) continue; // the winner has already been crowned
+
+    // The consolation competition takes this round's losers — but only from
+    // the round it hangs off, which is the opening round. Feeding it from every
+    // round would put clubs back in after they had gone out, and a Plate drawn
+    // from the semi-final losers is three clubs and a walkover.
+    if (cupState.round === 1) {
+      const plate = cupCompetitions(state).find((entry) => entry.cup?.consolationFor === cup.id);
+      if (plate) {
+        plate.clubIds = [...outcome.eliminated];
+        plate.cup = { ...(plate.cup ?? { round: 1, winnerClubId: null, runnerUpClubId: null, complete: false }), round: 1, complete: false, winnerClubId: null, runnerUpClubId: null };
+        const drawn = drawCupRound(state, plate, {
+          seasonId: state.season.id,
+          seasonLabel: state.season.label,
+          leagueMatchdays: leagueMatchdayCount(state),
+          announce: true,
+        });
+        events.push(...(drawn?.events ?? []));
+      }
+    }
+
+    // The next round is the winners, drawn into the calendar.
+    cup.clubIds = [...outcome.survivors];
+    cupState.round += 1;
+
+    const slots = allCupRoundSlots(leagueCupField(state), leagueMatchdayCount(state), Boolean(cupState.consolationFor));
+    const slot = slots.find((entry) => entry.round === cupState.round);
+    if (!slot) {
+      cupState.complete = true;
+      continue;
+    }
+    const drawn = drawCupRound(state, cup, {
+      seasonId: state.season.id,
+      seasonLabel: state.season.label,
+      leagueMatchdays: leagueMatchdayCount(state),
+      announce: true,
+    });
+    events.push(...(drawn?.events ?? []));
+  }
+  return events;
+}
+
+/** How many of this season's matchdays are league Sundays. */
+function leagueMatchdayCount(state: GameState): number {
+  return Math.max(1, state.season.calendar.filter((entry) => isLeagueMatchday(state, entry.matchday)).length);
+}
+
+/** How many clubs the League Cup starts with. */
+function leagueCupField(state: GameState): number {
+  return leagueClubIds(state).length;
+}
+
+// ---------------------------------------------------------------------------
+// 6. The world and the club
+// ---------------------------------------------------------------------------
 function matchdaysJustPassed(state: GameState, date: ISODate, nextDate: ISODate): number {
   return matchdaysPlayed(state, nextDate) - matchdaysPlayed(state, date);
 }

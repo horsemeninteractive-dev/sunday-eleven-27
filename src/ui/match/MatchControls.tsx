@@ -16,11 +16,13 @@ import {
   type PressingIntensity,
   type Tempo,
 } from '@/domain/tactics';
+import { MATCH_SPEEDS, MATCH_SPEED_LABEL } from '@/state/preferences';
 import type { MatchSession } from '@/state/gameStore';
 import { gameActions } from '../hooks';
 import { Button, ToneText } from '../components/primitives';
 import { Glyph } from '../components/icons';
 import { MatchStatsPanel } from './MatchStats';
+import { CommentaryTranscript } from './CommentaryTranscript';
 
 /**
  * Everything the manager can do during the match, in one fixed strip.
@@ -31,7 +33,7 @@ import { MatchStatsPanel } from './MatchStats';
  * they are while he is in here.
  */
 
-export type MatchDrawer = 'tactics' | 'subs' | 'players' | 'stats';
+export type MatchDrawer = 'tactics' | 'subs' | 'players' | 'commentary' | 'stats';
 
 export function MatchControls({
   game,
@@ -64,6 +66,7 @@ export function MatchControls({
     { id: 'tactics', label: 'Tactics' },
     { id: 'subs', label: `Subs (${match.substitutions[session.side]}/3)` },
     { id: 'players', label: 'Players' },
+    { id: 'commentary', label: 'Commentary' },
     { id: 'stats', label: 'Stats' },
   ];
 
@@ -77,6 +80,11 @@ export function MatchControls({
           )}
           {drawer === 'players' && (
             <PlayersPanel match={match} session={session} playerById={playerById} preMatch={preMatch} />
+          )}
+          {drawer === 'commentary' && (
+            <div className="matchbar__transcript">
+              <CommentaryTranscript match={match} autoScroll={session.phase === 'in-progress'} />
+            </div>
           )}
           {drawer === 'stats' && <MatchStatsPanel match={match} />}
         </div>
@@ -96,13 +104,13 @@ export function MatchControls({
           )}
           {!fullTime && (
             <div className="speed" role="group" aria-label="Match speed">
-              {[1, 2, 4].map((speed) => (
+              {MATCH_SPEEDS.map((speed) => (
                 <button
                   key={speed}
                   type="button"
                   className={`chip${session.speed === speed && !session.paused ? ' chip--on' : ''}`}
                   onClick={() => gameActions().setMatchSpeed(speed)}
-                  title={`${speed === 1 ? 'Normal' : speed === 2 ? 'Fast' : 'Very fast'}`}
+                  title={MATCH_SPEED_LABEL[speed] ?? `${speed}×`}
                 >
                   {speed}×
                 </button>
@@ -127,6 +135,11 @@ export function MatchControls({
         </div>
 
         <div className="matchbar__go">
+          {preMatch && showIntervalButton && (
+            <Button variant="ghost" onClick={onOpenInterval}>
+              Matchday briefing
+            </Button>
+          )}
           {preMatch && (
             <Button variant="primary" size="lg" onClick={() => gameActions().kickOff()}>
               Kick off

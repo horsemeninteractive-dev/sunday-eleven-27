@@ -1,3 +1,4 @@
+import { fixtureIdsOnMatchday } from '@/simulation/pyramid';
 import { describe, expect, it } from 'vitest';
 import { addDays } from '@/simulation/calendar';
 import { processDay, readyForToday } from '@/simulation/day';
@@ -56,7 +57,7 @@ describe('a matchday is ready before the manager sees it', () => {
     advanceTo(state, Math.max(0, daysUntil(state.date, date)));
     readyForToday(state);
 
-    const fixtures = state.fixtures.byMatchday[matchday]!;
+    const fixtures = fixtureIdsOnMatchday(state, matchday);
     expect(fixtures.length).toBeGreaterThan(1);
     for (const id of fixtures) {
       const match = state.matches[id]!;

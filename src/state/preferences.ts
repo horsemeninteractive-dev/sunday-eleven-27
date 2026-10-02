@@ -12,8 +12,24 @@
 
 export type MotionPreference = 'system' | 'reduced' | 'full';
 
-/** The speeds a match can be watched at, in minutes of football per second. */
-export const MATCH_SPEEDS = [1, 2, 4] as const;
+/**
+ * The speeds a match can be watched at, as multiples of real time.
+ *
+ * `1x` is the pace a match is actually watched at: one second of football on
+ * screen for one second on the clock, so a player's legs move at the speed the
+ * simulation gives them and a pass is struck at the speed a pass is struck.
+ * Everything above it compresses the same minute into less real time; nothing
+ * here changes the football.
+ */
+export const MATCH_SPEEDS = [1, 2, 4, 8] as const;
+
+/** What each speed is called on the controls. */
+export const MATCH_SPEED_LABEL: Record<number, string> = {
+  1: 'Normal',
+  2: 'Quick',
+  4: 'Fast',
+  8: 'Very fast',
+};
 
 export interface Preferences {
   /** Reduced motion: follow the system, or be told either way. */

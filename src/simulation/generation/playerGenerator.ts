@@ -1,6 +1,6 @@
 import { clampAttribute, type PlayerAttributes } from '@/domain/attributes';
 import type { ClubId, GroundId, ISODate, PlayerId, TownId } from '@/domain/ids';
-import { createSystemFamiliarity, type Personality, type Player, type PlayerRecord } from '@/domain/person';
+import { createSystemFamiliarity, type Personality, type Player, type PlayerDevelopment, type PlayerRecord } from '@/domain/person';
 import { ALL_POSITION_CODES, POSITIONS, positionalSimilarity, type PositionCode, type PositionGroup } from '@/domain/positions';
 import { Rng } from '../rng';
 import { maybeNickname, occupationForAge, personFirstName, personSurname } from './names';
@@ -466,6 +466,10 @@ export function generatePlayer(options: GeneratePlayerOptions): Player {
       setPieces: 10 + familiarityOffset.setPieces,
     }),
     attributes,
+    // On a stream of its own, keyed to the player rather than to the squad's
+    // shared one: giving a lad a ceiling must not shift the roll that decided
+    // the abilities of the twenty men around him.
+    development: developmentProfileFor(new Rng(`${options.id}::development-curve`), quality, age),
     personality,
     fitness: rng.int(88, 100),
     form: rng.gaussianInt(50, 9, 20, 85),
@@ -477,6 +481,39 @@ export function generatePlayer(options: GeneratePlayerOptions): Player {
     joinedClubOn: seasonStart,
     record,
     notes: [],
+  };
+}
+
+/**
+ * The age a player stops having room to grow. After this he is the man he is.
+ */
+export const DEVELOPMENT_LAST_AGE = 24;
+
+/**
+ * The shape of a player's career: how good he can get, and when.
+ *
+ * A player gets headroom while he is young, in proportion to how young he is,
+ * and none at all once he is a grown man. That is the whole incentive the
+ * simulation offers a manager — a teenager you get right is worth more than a
+ * thirty-year-old you sign — and it is deliberately keyed to age rather than to
+ * the gap to a player's peak. Keying it to the peak instead gives almost every
+ * player in a league whose average age is its average peak no room at all,
+ * which silently switches development off across the whole world.
+ *
+ * `quality` is the level he was generated at, so a Division One intake is
+ * drawn with a higher ceiling than a Division Three one without either of them
+ * being handed a head start.
+ */
+export function developmentProfileFor(rng: Rng, quality: number, age: number): PlayerDevelopment {
+  const peakAge = 24 + rng.int(0, 7);
+  // A lad gets a little more out of each year than the arithmetic suggests,
+  // because the first improvements in a career are the big ones.
+  const yearsOfYouth = Math.max(0, DEVELOPMENT_LAST_AGE - age);
+  const room = yearsOfYouth * 0.45 + rng.gaussian(0, 0.3);
+  const potential = Math.max(quality, Math.min(20, quality + room));
+  return {
+    potential: Math.round(potential * 10) / 10,
+    peakAge,
   };
 }
 

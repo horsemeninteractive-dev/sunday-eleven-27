@@ -1,3 +1,4 @@
+import { isCup } from '@/domain/competition';
 import type { GameState } from '@/domain/game';
 import type { ISODate } from '@/domain/ids';
 import { addDays, dayOfWeek } from './calendar';
@@ -28,10 +29,33 @@ export function weekEndOf(iso: ISODate): ISODate {
   return addDays(weekStartOf(iso), 6);
 }
 
+/**
+ * The league's own matchdays, in date order.
+ *
+ * The season calendar also carries cup rounds, which are numbered after the
+ * league's matchdays but dated *inside* them — a midweek tie in the middle of
+ * matchday twelve. Counting the calendar from the top would therefore count a
+ * matchday that has not happened yet as one that has. Everything that means
+ * "how far through the league are we" works from the league's Sundays alone.
+ */
+function leagueEntries(state: GameState) {
+  return state.season.calendar.filter((entry) => isLeagueMatchday(state, entry.matchday));
+}
+
+/** True when this matchday number is a league Sunday rather than a cup round. */
+export function isLeagueMatchday(state: GameState, matchday: number): boolean {
+  for (const [competitionId, list] of Object.entries(state.fixtures ?? {})) {
+    if (!list.byMatchday[matchday]) continue;
+    if (isCup(state.competitions[competitionId])) continue;
+    return true;
+  }
+  return false;
+}
+
 /** Sundays that have already passed. On a matchday morning this is still the previous count. */
 export function matchdaysPlayed(state: GameState, date: ISODate = state.date): number {
   let played = 0;
-  for (const entry of state.season.calendar) {
+  for (const entry of leagueEntries(state)) {
     if (entry.date < date) played += 1;
   }
   return played;
@@ -70,8 +94,20 @@ export function isMatchdayDate(state: GameState, date: ISODate): boolean {
   return matchdayOnDate(state, date) !== null;
 }
 
-/** True once the last Sunday of the season has been and gone. */
+/**
+ * True once the last date of the season has been and gone.
+ *
+ * Measured against the last *date* rather than a count of matchdays, because the
+ * calendar is no longer one list of Sundays: the cup rounds are numbered after
+ * the league's but fall in the middle of it, so the final entry by number is not
+ * the final day of football. A cup tie that is rearranged past the last Sunday
+ * keeps the season open through `everyFixtureSettled`.
+ */
 export function seasonCalendarExhausted(state: GameState, date: ISODate = state.date): boolean {
   if (state.season.calendar.length === 0) return true;
-  return nextMatchday(state, date) > state.season.calendar.length;
+  let last = state.season.calendar[0]!.date;
+  for (const entry of state.season.calendar) {
+    if (entry.date > last) last = entry.date;
+  }
+  return date > last;
 }

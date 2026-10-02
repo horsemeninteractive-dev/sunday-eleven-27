@@ -1,12 +1,12 @@
 import type { Club, StandingRow } from '@/domain/club';
 import type { GameState } from '@/domain/game';
-import type { ClubId, ISODate, MatchId, PersonId } from '@/domain/ids';
+import type { ClubId, CompetitionId, ISODate, MatchId, PersonId } from '@/domain/ids';
 import type { Match } from '@/domain/match';
 import { isOfficial, isPlayer, type Official, type Person, type Player } from '@/domain/person';
 import { POSITIONS, type PositionCode } from '@/domain/positions';
 import type { Business, Ground, Town } from '@/domain/world';
-import { computeStandings } from './league';
 import { positionScore } from './selection';
+import { divisionOf, fixtureIdsOnMatchday, standingsFor, userCompetition } from './pyramid';
 import { nextFixtureFor } from './schedule';
 import { matchdaysPlayed, nextMatchday } from './timeline';
 
@@ -124,29 +124,35 @@ export function squadAvailability(state: GameState, clubId: ClubId): SquadBreakd
   };
 }
 
-export function standings(state: GameState): StandingRow[] {
-  const competition = Object.values(state.competitions)[0];
+/**
+ * A division's table.
+ *
+ * With no competition named this is the manager's own division, which is what
+ * every screen that just says "the table" wants; the league view passes a
+ * competition explicitly to show the rest of the ladder.
+ */
+export function standings(state: GameState, competitionId?: CompetitionId): StandingRow[] {
+  const competition =
+    (competitionId ? state.competitions[competitionId] : undefined) ?? userCompetition(state);
   if (!competition) return [];
-  return computeStandings({
-    clubIds: competition.clubIds,
-    matches: Object.values(state.matches),
-    competitionId: competition.id,
-    clubName: (id) => state.clubs[id]?.identity.name ?? id,
-  });
+  return standingsFor(state, competition);
 }
 
 export function formOf(state: GameState, clubId: ClubId, length = 5): Array<'W' | 'D' | 'L'> {
-  const row = standings(state).find((entry) => entry.clubId === clubId);
+  const competition = divisionOf(state, clubId);
+  const row = competition ? standingsFor(state, competition).find((entry) => entry.clubId === clubId) : undefined;
   return row ? row.form.slice(-length) : [];
 }
 
 export function leaguePosition(state: GameState, clubId: ClubId): number | null {
-  const index = standings(state).findIndex((row) => row.clubId === clubId);
+  const competition = divisionOf(state, clubId);
+  if (!competition) return null;
+  const index = standingsFor(state, competition).findIndex((row) => row.clubId === clubId);
   return index < 0 ? null : index + 1;
 }
 
 export function fixtureIdsForMatchday(state: GameState, matchday: number): MatchId[] {
-  return state.fixtures.byMatchday[matchday] ?? [];
+  return fixtureIdsOnMatchday(state, matchday) as MatchId[];
 }
 
 export function matchForClubOnMatchday(state: GameState, clubId: ClubId, matchday: number): Match | null {

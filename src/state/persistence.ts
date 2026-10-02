@@ -1,15 +1,47 @@
 import { GAME_STATE_VERSION, type GameState } from '@/domain/game';
+import type { Player, PlayerDevelopment } from '@/domain/person';
 import { birthdayForAge, type ManagerProfile } from '@/domain/manager';
 import { emptyRecruitmentStore } from '@/domain/recruitment';
+import { DEFAULT_PYRAMID, FRIENDLY_COMPETITION_ID, type Competition, type FixtureList, type PyramidConfig } from '@/domain/competition';
+import type { ClubId, CompetitionId } from '@/domain/ids';
+import type { Ground } from '@/domain/world';
+import { defaultTactics } from '@/domain/tactics';
 import {
   generateInitialRelationships,
   linkUnattachedPlayersInto,
 } from '@/simulation/generation/relationshipGenerator';
 import { generateUnattachedPlayers } from '@/simulation/generation/unattachedPlayers';
+import { generateSquad, developmentProfileFor } from '@/simulation/generation/playerGenerator';
+import {
+  buildClubName,
+  buildFinances,
+  clubQualityFromReputation,
+  emptyHistory,
+  generateChairman,
+  generateManager,
+} from '@/simulation/generation/worldGenerator';
 import { rebuildRelationshipIndex, relationshipStore } from '@/simulation/relationships';
 import { pruneCandidates } from '@/simulation/recruitment/store';
-import { ensureTrainingState, pruneTrainingHistory } from '@/simulation/training/store';
+import { ensureTrainingState, pruneTrainingHistory, trainingStore } from '@/simulation/training/store';
+import { overallAbility } from '@/simulation/training/development';
+import { buildSeasonCalendarWithCups, yearOf } from '@/simulation/calendar';
+import { matchdayCount } from '@/simulation/generation/fixtureGenerator';
+import { drawCupRound, cupRoundSlots, newCupState, seedOrder } from '@/simulation/cup';
+import {
+  divisionCompetitionId,
+  divisionNameFor,
+  leagueClubIds,
+  leagueCompetitions,
+  LEAGUE_CUP_ID,
+  LEAGUE_CUP_NAME,
+  PLATE_ID,
+  PLATE_NAME,
+} from '@/simulation/pyramid';
+import { stream } from '@/simulation/rng';
 import { emptyScheduleState } from '@/domain/events';
+
+/** The competition id a version 7 save used for its one league. */
+const OLD_LEAGUE_ID: CompetitionId = 'comp_league_1';
 
 /**
  * Local save slots.
@@ -109,6 +141,13 @@ function write(store: Storage, key: string, value: string): boolean {
  *    its cursor was the day the manager actually stood on. The cursor becomes
  *    the date, the matchday counter goes (it is derived from the calendar now),
  *    and every fixture is given the calendar fields postponements need.
+ *  - version 7 predates the pyramid: it carries one league and no cups. The
+ *    league it already has becomes Division One, the divisions below it are
+ *    generated from the world seed, and the cups are drawn on top.
+ *  - version 8 predates development curves: its players have no ceiling and no
+ *    peak age. Each is given one from the ability and age he already has, on a
+ *    stream of his own, and a session that does not say what age took back is
+ *    given an empty record of it.
  */
 function migrateSave(file: SaveFile): SaveFile {
   const state = file.state as GameState & {
@@ -151,6 +190,8 @@ function migrateSave(file: SaveFile): SaveFile {
   // in the build.
   ensureTrainingState(state);
   pruneTrainingHistory(state);
+  ensurePlayerDevelopment(state);
+  ensureSessionDeclines(state);
 
   // A career from before the manager introduced himself derives his profile
   // from the manager official the world already generated, so nothing is lost
@@ -188,9 +229,326 @@ function migrateSave(file: SaveFile): SaveFile {
 
   rebuildRelationshipIndex(state);
   pruneCandidates(state);
+  migrateToPyramid(state);
   file.version = GAME_STATE_VERSION;
   state.version = GAME_STATE_VERSION;
   return file;
+}
+
+/**
+ * A session saved before age started taking attributes back has no record of
+ * them. It is given an empty one, so nothing that reads the field has to
+ * wonder whether this career is old enough to predate it.
+ */
+function ensureSessionDeclines(state: GameState): void {
+  for (const session of trainingStore(state).history) {
+    if (!Array.isArray(session.declines)) session.declines = [];
+  }
+}
+
+/**
+ * Give every player the ceiling and the peak that shape his career.
+ *
+ * A career saved before development curves existed has men in it with no idea
+ * how good they are going to get or when. They are given one from the ability
+ * they already have and their age — a man of 34 is given no headroom, a
+ * teenager a lot — on a stream of their own, so the same save always wakes up
+ * with the same careers and no two men are given the same curve by accident.
+ */
+function ensurePlayerDevelopment(state: GameState): void {
+  for (const person of Object.values(state.people)) {
+    if (person.kind !== 'player') continue;
+    const player = person as Player & { development?: PlayerDevelopment };
+    if (player.development && Number.isFinite(player.development.potential)) continue;
+    const current = overallAbility(player);
+    const rng = stream(state.seed, 'development-curve', player.id);
+    const profile = developmentProfileFor(rng, current, player.age);
+    // An existing player is given only the headroom his age leaves him, so an
+    // old save does not suddenly discover a new talent in its established men.
+    const yearsLeft = Math.max(0, profile.peakAge - player.age);
+    player.development = {
+      potential: Math.round(Math.min(20, current + yearsLeft * 0.16) * 10) / 10,
+      peakAge: profile.peakAge,
+    };
+  }
+}
+
+/**
+ * A single-league career becomes a pyramid.
+ *
+ * The league a version 7 save already has is kept exactly as it was and becomes
+ * Division One: its clubs, its table, its finished season and its honours are
+ * all still true, and the manager's own club does not change division under
+ * him on the day he opens the game. The divisions *below* it are new, and are
+ * generated — towns, clubs, committees, grounds and squads — from the world seed
+ * on a stream of their own, so an old career gains a bottom two-thirds that is
+ * as deterministic as the top of it was and no two saves of the same world get
+ * a different one.
+ *
+ * The archive is left alone. A season a club played in "Division One" was played
+ * in the only division there was, and the migration says so rather than
+ * rewriting history it does not have the context to rewrite.
+ */
+function migrateToPyramid(state: GameState): void {
+  const legacy = state as GameState & { fixtures?: unknown };
+  if (state.pyramid && state.pyramid.tiers > 1) return;
+
+  const config = { ...DEFAULT_PYRAMID };
+  state.pyramid = config;
+
+  // --- The ladder -----------------------------------------------------------
+  const divisions = expandIntoPyramid(state, config);
+
+  // --- The calendar ---------------------------------------------------------
+  // The old calendar held league Sundays only. It is rebuilt from the same first
+  // Sunday and the same division size, so the dates a manager has already lived
+  // through are the dates he keeps — with the cup rounds added around them.
+  const firstLeagueDate = state.season.calendar[0]?.date ?? `${state.season.startDate}`;
+  const clubsPerTier = Math.max(2, divisions[0]?.length ?? config.clubsPerTier);
+  const leagueMatchdays = matchdayCount(clubsPerTier);
+  const slots = cupRoundSlots(leagueClubIds(state).length, leagueMatchdays);
+  const calendar = buildSeasonCalendarWithCups(firstLeagueDate, leagueMatchdays, slots);
+  state.season.calendar = calendar;
+  state.season.endDate = calendar[calendar.length - 1]!.date;
+
+  // --- The fixtures ---------------------------------------------------------
+  // Only the current season is re-cut; finished seasons live in the club
+  // records and would be thrown away by rebuilding them.
+  const competitions: Record<string, Competition> = {};
+  const fixtures: Record<string, FixtureList> = {};
+  divisions.forEach((clubIds, index) => {
+    const tier = index + 1;
+    if (clubIds.length === 0) return;
+    const competition: Competition = {
+      id: divisionCompetitionId(tier),
+      name: divisionNameFor(state.world.regionName, tier),
+      kind: 'league',
+      tier,
+      seasonId: state.season.id,
+      clubIds: [...clubIds],
+      ...(tier > 1 ? { promotionPlaces: config.promotionPlaces } : {}),
+      ...(tier < config.tiers ? { relegationPlaces: config.relegationPlaces } : {}),
+    };
+    competitions[competition.id] = competition;
+    fixtures[competition.id] = { competitionId: competition.id, byMatchday: {}, matchdayOf: {} };
+  });
+
+  const ladderClubs = leagueClubIds(state);
+  if (config.leagueCup && slots.length > 0) {
+    competitions[LEAGUE_CUP_ID] = {
+      id: LEAGUE_CUP_ID,
+      name: LEAGUE_CUP_NAME,
+      kind: 'cup',
+      tier: 0,
+      seasonId: state.season.id,
+      clubIds: seedOrder(state, ladderClubs),
+      cup: newCupState(),
+    };
+    fixtures[LEAGUE_CUP_ID] = { competitionId: LEAGUE_CUP_ID, byMatchday: {}, matchdayOf: {} };
+    if (config.consolationCup) {
+      competitions[PLATE_ID] = {
+        id: PLATE_ID,
+        name: PLATE_NAME,
+        kind: 'cup',
+        tier: 0,
+        seasonId: state.season.id,
+        clubIds: [],
+        cup: newCupState(LEAGUE_CUP_ID),
+      };
+      fixtures[PLATE_ID] = { competitionId: PLATE_ID, byMatchday: {}, matchdayOf: {} };
+    }
+  }
+
+  state.competitions = competitions;
+  state.fixtures = fixtures;
+
+  // The old season's matches keep the competition they were played in. The
+  // Division One competition keeps its old id under the new ladder so that a
+  // played fixture still belongs to a real competition.
+  for (const match of Object.values(state.matches)) {
+    if (match.knockout === undefined) match.knockout = false;
+    if (match.shootoutWinnerId === undefined) match.shootoutWinnerId = undefined;
+    if (match.competitionId === OLD_LEAGUE_ID || !state.competitions[match.competitionId]) {
+      match.competitionId = divisionCompetitionId(1);
+      match.competitionName = competitions[divisionCompetitionId(1)]?.name ?? match.competitionName;
+    }
+    if (match.competitionId === FRIENDLY_COMPETITION_ID) {
+      fixtures[match.competitionId] ??= { competitionId: match.competitionId, byMatchday: {}, matchdayOf: {} };
+      fixtures[match.competitionId]!.byMatchday[match.matchday] = [
+        ...(fixtures[match.competitionId]!.byMatchday[match.matchday] ?? []),
+        match.id,
+      ];
+      fixtures[match.competitionId]!.matchdayOf[match.id] = match.matchday;
+    }
+  }
+  // Division One's own played fixtures, from whatever the old list held.
+  const oldFixtures = legacy.fixtures as unknown as FixtureList | undefined;
+  if (oldFixtures && typeof oldFixtures === 'object' && 'byMatchday' in oldFixtures) {
+    const list = fixtures[divisionCompetitionId(1)]!;
+    for (const [matchday, ids] of Object.entries(oldFixtures.byMatchday ?? {})) {
+      for (const id of ids as string[]) {
+        const match = state.matches[id];
+        if (!match || match.competitionId !== divisionCompetitionId(1)) continue;
+        list.byMatchday[Number(matchday)] = [...(list.byMatchday[Number(matchday)] ?? []), id];
+        list.matchdayOf[id] = Number(matchday);
+      }
+    }
+  }
+
+  // --- The first cup draw ---------------------------------------------------
+  if (config.leagueCup && slots.length > 0) {
+    drawCupRound(state, state.competitions[LEAGUE_CUP_ID]!, {
+      seasonId: state.season.id,
+      seasonLabel: state.season.label,
+      leagueMatchdays,
+      announce: false,
+    });
+  }
+
+  // --- The archive ----------------------------------------------------------
+  // Every season a club played before the pyramid existed was played in the only
+  // division there was, and the history says Division One from now on.
+  for (const club of Object.values(state.clubs)) {
+    for (const record of club.history.seasons) {
+      if (record.tier === undefined) record.tier = 1;
+      if (record.competitionName && !record.competitionName.toLowerCase().includes('division')) {
+        record.competitionName = `Division One`;
+      }
+    }
+  }
+  for (const snapshot of state.standingHistory ?? []) {
+    if (snapshot.competitionId === undefined) snapshot.competitionId = divisionCompetitionId(1);
+  }
+  if (!state.promotionHistory) state.promotionHistory = [];
+  if (state.fixtures === undefined) state.fixtures = fixtures;
+}
+
+/**
+ * Give a single-division world the divisions underneath it.
+ *
+ * The clubs already in the division keep their places; the rest of the ladder is
+ * filled by new clubs, generated in the same towns the county already has and,
+ * where the county has run out of plausible places, in new ones. Reputation
+ * decides the cut, so the new clubs land below the old ones — the ladder starts
+ * stratified rather than sorting itself out over three seasons.
+ */
+function expandIntoPyramid(state: GameState, config: PyramidConfig): ClubId[][] {
+  const existingDivision = leagueCompetitions(state)[0];
+  const existing = existingDivision ? [...existingDivision.clubIds] : [];
+  const wanted = config.tiers * config.clubsPerTier;
+  const needed = Math.max(0, wanted - existing.length);
+
+  const generated = needed > 0 ? generateLowerTierClubs(state, needed) : [];
+
+  const ranked = [...existing, ...generated]
+    .filter((id) => state.clubs[id]?.active)
+    .sort((a, b) => {
+      const repA = state.clubs[a]?.reputation ?? 0;
+      const repB = state.clubs[b]?.reputation ?? 0;
+      return repB - repA || a.localeCompare(b);
+    });
+
+  const divisions: ClubId[][] = [];
+  for (let tier = 1; tier <= config.tiers; tier += 1) {
+    divisions.push(ranked.slice((tier - 1) * config.clubsPerTier, tier * config.clubsPerTier));
+  }
+  return divisions;
+}
+
+/** New clubs for the divisions below the one a save already has. */
+function generateLowerTierClubs(state: GameState, count: number): ClubId[] {
+  const rng = stream(state.seed, 'pyramid-expansion', state.season.id);
+  const created: ClubId[] = [];
+  const towns = Object.values(state.world.towns);
+  if (towns.length === 0) return created;
+
+  const usedNames = new Set(Object.values(state.clubs).map((club) => club.identity.name));
+  const usedNicknames = new Set(Object.values(state.clubs).map((club) => club.identity.nickname));
+  const usedBusinesses = new Set<string>();
+  const year = yearOf(state.season.startDate);
+
+  for (let index = 0; index < count; index += 1) {
+    const town = towns[index % towns.length]!;
+    const clubId: ClubId = `club_py${index + 1}`;
+    if (state.clubs[clubId]) continue;
+    const groundId = `ground_py${index + 1}`;
+
+    // A club joining a lower division sits in a smaller town than one already at
+    // the top of it, which is what makes it a lower-division club rather than a
+    // Division One club that happened to lose.
+    const reputation = Math.max(18, Math.min(46, Math.round(20 + rng.gaussian(0, 7))));
+    const ground: Ground = {
+      id: groundId,
+      name: `${town.name} ${rng.pick(['Recreation Ground', 'Playing Fields', 'Meadow', 'Sports Ground'])}`,
+      townId: town.id,
+      tenantClubId: clubId,
+      capacity: rng.gaussianInt(Math.max(25, town.population / 300), 30, 20, 300),
+      surface: rng.chance(0.1) ? '3G' : rng.chance(0.5) ? 'grass (uneven)' : 'grass',
+      quality: rng.gaussianInt(8, 2.4, 4, 15),
+      drainage: rng.gaussianInt(7, 3, 2, 14),
+      hasFloodlights: rng.chance(0.2),
+      hasChangingRooms: rng.chance(0.7),
+      hasClubhouse: rng.chance(0.4),
+      matchdayCost: rng.int(15, 45),
+      sharedWith: [],
+    };
+    state.world.grounds[groundId] = ground;
+    state.world.groundIds.push(groundId);
+
+    const localBusinesses = Object.values(state.world.businesses).filter((business) => business.townId === town.id);
+    const { identity, structure, business } = buildClubName(
+      rng,
+      town,
+      localBusinesses,
+      usedNames,
+      usedNicknames,
+      usedBusinesses,
+      year,
+    );
+    if (business) business.sponsoredClubIds.push(clubId);
+
+    const manager = generateManager(rng, town.id, reputation, 900 + index);
+    manager.id = `mgr_py${index + 1}`;
+    manager.clubId = clubId;
+    manager.roles = [{ clubId, role: 'manager', since: state.season.startDate }];
+    const chairman = generateChairman(rng, town.id, 900 + index);
+    chairman.id = `chm_py${index + 1}`;
+    chairman.clubId = clubId;
+    chairman.roles = [{ clubId, role: 'chairman', since: state.season.startDate }];
+    state.people[manager.id] = manager;
+    state.people[chairman.id] = chairman;
+
+    const squad = generateSquad({
+      rng,
+      clubId,
+      townId: town.id,
+      homeGroundId: groundId,
+      quality: clubQualityFromReputation(rng, reputation),
+      seasonStart: state.season.startDate,
+      idSeedPrefix: clubId,
+    });
+    for (const player of squad) state.people[player.id] = player;
+
+    state.clubs[clubId] = {
+      id: clubId,
+      identity,
+      townId: town.id,
+      groundId,
+      structure,
+      reputation,
+      squadIds: squad.map((player) => player.id),
+      chairmanId: chairman.id,
+      managerId: manager.id,
+      sponsorIds: business ? [business.id] : [],
+      finances: buildFinances(rng, town, reputation),
+      history: { ...emptyHistory(rng, identity.foundedYear), honours: [] },
+      tactics: defaultTactics('4-4-2'),
+      active: true,
+      rivalries: {},
+    };
+    created.push(clubId);
+  }
+  return created;
 }
 
 /** Write a career to a slot. Returns null if the browser would not store it. */

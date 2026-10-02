@@ -31,6 +31,7 @@ import {
 } from './relationships';
 import { createTestGame, type TestGame } from './testSupport';
 import { nextMatchday } from '@/simulation/timeline';
+import { refreshUnattachedPool } from './generation/unattachedPlayers';
 
 function allPlayers(game: TestGame): Player[] {
   return Object.values(game.state.people).filter(isPlayer);
@@ -412,11 +413,20 @@ describe('relationships in the simulation', () => {
   it('keeps the network across a season rollover', () => {
     const game = createTestGame('rel-rollover');
     const before = Object.keys(relationshipStore(game.state).byId).length;
+    expect(before).toBeGreaterThan(0);
 
     startNextSeason(game.state);
 
-    const after = Object.keys(relationshipStore(game.state).byId).length;
-    expect(after).toBeGreaterThanOrEqual(before);
+    // A rollover can take a man out of the world — retired, or too old for the
+    // local game — and his relationships rightly go with him, so the count is
+    // not guaranteed to grow. What must hold is that nothing points at somebody
+    // who has left, so a reload does not have to repair the social world.
+    const store = relationshipStore(game.state);
+    expect(Object.keys(store.byId).length).toBeGreaterThan(0);
+    for (const relationship of Object.values(store.byId)) {
+      expect(game.state.people[relationship.personAId]).toBeDefined();
+      expect(game.state.people[relationship.personBId]).toBeDefined();
+    }
     expect(rebuildRelationshipIndex(game.state).duplicates).toBe(0);
 
     // New faces arrive attached to somebody rather than floating free.
@@ -479,5 +489,37 @@ describe('social structure', () => {
       expect(profile.influence).toBeGreaterThanOrEqual(62);
     }
     if (profile.troublemaker) expect(profile.tensionWith).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('people who leave the world', () => {
+  it('takes a departed free agent’s relationships with him', () => {
+    const game = createTestGame('rel-departure');
+    const state = game.state;
+    const freeAgent = allPlayers(game).find((player) => player.clubId === null)!;
+    expect(freeAgent).toBeDefined();
+    const friend = allPlayers(game).find((player) => player.clubId !== null)!;
+    upsertRelationship(state, {
+      aId: freeAgent.id,
+      bId: friend.id,
+      origin: 'same-pub',
+      date: state.date,
+    });
+    expect(getRelationship(state, freeAgent.id, friend.id)).toBeDefined();
+
+    // Old enough to drift out of the local game when the pool is refreshed.
+    freeAgent.age = 41;
+    refreshUnattachedPool(state, state.season.startDate, 'rel-departure');
+
+    expect(state.people[freeAgent.id]).toBeUndefined();
+    // No relationship is left pointing at somebody who has gone, so a reloaded
+    // career is the same social world as a running one.
+    const store = relationshipStore(state);
+    expect(store.byPerson[freeAgent.id]).toBeUndefined();
+    for (const relationship of Object.values(store.byId)) {
+      expect(relationship.personAId).not.toBe(freeAgent.id);
+      expect(relationship.personBId).not.toBe(freeAgent.id);
+    }
+    expect(getRelationship(state, freeAgent.id, friend.id)).toBeUndefined();
   });
 });

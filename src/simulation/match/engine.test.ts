@@ -1,3 +1,4 @@
+import { fixtureIdsOnMatchday } from '@/simulation/pyramid';
 import { describe, expect, it } from 'vitest';
 import type { GameState } from '@/domain/game';
 import type { ClubId } from '@/domain/ids';
@@ -89,7 +90,9 @@ describe('match engine', () => {
       expect(performance.rating).toBeLessThanOrEqual(10);
     }
 
-    const goals = match.events.filter((event) => event.type === 'goal');
+    // A goal from the spot counts as a goal in the scoreline as well as a goal
+    // in the match record, so both event types have to be counted here.
+    const goals = match.events.filter((event) => event.type === 'goal' || event.type === 'penalty-scored');
     const goalCount = goals.length;
     expect(goalCount).toBe(result.homeGoals + result.awayGoals);
     for (const goal of goals) {
@@ -197,8 +200,8 @@ describe('match engine', () => {
     const { state } = createTestGame('season-scan');
     prepareMatchday(state, 1);
     prepareMatchday(state, 3);
-    const matchday1 = (state.fixtures.byMatchday[1] ?? []).map((id) => cloneMatch(state.matches[id]!));
-    const matchday3 = (state.fixtures.byMatchday[3] ?? []).map((id) => cloneMatch(state.matches[id]!));
+    const matchday1 = fixtureIdsOnMatchday(state, 1).map((id) => cloneMatch(state.matches[id]!));
+    const matchday3 = fixtureIdsOnMatchday(state, 3).map((id) => cloneMatch(state.matches[id]!));
     const matches = [...matchday1, ...matchday3];
     const typeCounts = new Map<string, number>();
     let goals = 0;

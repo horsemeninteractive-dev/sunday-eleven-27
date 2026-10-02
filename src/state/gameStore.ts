@@ -15,6 +15,7 @@ import {
 } from './preferences';
 import { rememberProfile } from './managerProfiles';
 import { advanceMinute, beginMatch, currentScore, simulateToCompletion } from '@/simulation/match/engine';
+import { advanceSpatial } from '@/simulation/match/spatial';
 import {
   applyWarmUpToFamiliarity,
   fullTimeOutcome,
@@ -236,6 +237,11 @@ export interface GameStore {
   swapSessionPlayers: (outgoingId: PlayerId, incomingId: PlayerId) => void;
   instantResult: () => void;
   tickMatch: () => void;
+  /**
+   * Move the match's continuous spatial state on by the real time that has
+   * passed. The clock is pumped by the match view; this only spends it.
+   */
+  advanceSpatial: (deltaSeconds: number) => void;
   simulateMatchToEnd: () => void;
   setMatchSpeed: (speed: number) => void;
   toggleMatchPause: () => void;
@@ -356,6 +362,22 @@ function recruitmentAction(
   const outcome = run(state);
   publishEvents(state, outcome.events);
   set({ game: state, notice: outcome.messages.join(' ') || null, error: null });
+}
+
+/**
+ * The match environment, kept between frames.
+ *
+ * The spatial loop asks for this sixty times a second, and rebuilding it every
+ * time would be a pile of closures a second for no reason. It is rebuilt only
+ * when the game or the live match it points at is replaced.
+ */
+let spatialEnv: { game: GameState; live: Match; env: ReturnType<typeof matchEnvironment> } | null = null;
+
+function advanceSpatialFor(game: GameState, live: Match, deltaSeconds: number): void {
+  if (!spatialEnv || spatialEnv.game !== game || spatialEnv.live !== live) {
+    spatialEnv = { game, live, env: matchEnvironment(game, live, { autoManageAllBenches: false }) };
+  }
+  advanceSpatial(live, spatialEnv.env, deltaSeconds);
 }
 
 /**
@@ -815,6 +837,18 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({ game: state, session: null, view: 'dashboard' });
   },
 
+  advanceSpatial: (deltaSeconds) => {
+    const session = get().session;
+    const game = get().game;
+    if (!session || !game) return;
+    if (session.phase !== 'in-progress' || session.paused) return;
+    const live = session.live;
+    if (!live.spatial) return;
+    // The environment is the same one the engine has been using, so a player's
+    // pace and the state of his legs come from where they already live.
+    advanceSpatialFor(game, live, deltaSeconds);
+  },
+
   tickMatch: () => {
     const session = get().session;
     const game = get().game;
@@ -945,6 +979,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       shots: 0,
       shotsOnTarget: 0,
       passes: 0,
+      passesCompleted: 0,
       tackles: 0,
       interceptions: 0,
       saves: 0,

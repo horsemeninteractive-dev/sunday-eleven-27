@@ -1,5 +1,26 @@
+import { fixtureIdsOnMatchday } from '@/simulation/pyramid';
+
+/**
+ * The match that actually happened for a fixture.
+ *
+ * A postponed fixture keeps its date and its record and hangs a replacement off
+ * itself, so a chain of them can be followed to the game that was played. Guarded
+ * so a genuinely abandoned fixture fails the test rather than looping for ever.
+ */
+function resolveToPlayedMatch(state: ReturnType<typeof createTestGame>['state'], match: (typeof state.matches)[string]) {
+  let current = match;
+  for (let step = 0; step < 10; step += 1) {
+    if (current.played) return current;
+    const nextId = current.replacedByMatchId;
+    if (!nextId) break;
+    const next = state.matches[nextId];
+    if (!next) break;
+    current = next;
+  }
+  return current;
+}
 import { describe, expect, it } from 'vitest';
-import { isPlayer, type Player } from '@/domain/person';
+import { isOfficial, isPlayer, type Player } from '@/domain/person';
 import { createTestGame } from './testSupport';
 import { advanceWeek, startNextSeason } from './progression';
 import { lastSessionFor } from './training/store';
@@ -9,7 +30,7 @@ import { matchEnvironment } from './matchday';
 import { applyMatchConsequences } from './consequences';
 import { applyMatchdayFinances } from './finance';
 import { deserialiseGame, serialiseGame } from '@/state/persistence';
-import { matchdaysPlayed, nextMatchday } from './timeline';
+import { isLeagueMatchday, matchdaysPlayed, nextMatchday } from './timeline';
 
 describe('weekly progression', () => {
   it('plays the matchday, records results and moves the world on a week', () => {
@@ -68,7 +89,7 @@ describe('weekly progression', () => {
 
     // Resolve the whole matchday the way the live game does: matches finish,
     // consequences and matchday money are applied immediately.
-    for (const id of state.fixtures.byMatchday[1] ?? []) {
+    for (const id of fixtureIdsOnMatchday(state, 1)) {
       const match = state.matches[id]!;
       simulateToCompletion(match, matchEnvironment(state, match, { autoManageAllBenches: true }));
       applyMatchConsequences(state, match);
@@ -99,17 +120,27 @@ describe('weekly progression', () => {
   it('records appearances and adjusts condition for everyone who played', () => {
     const { state } = createTestGame('fitness-loop');
     const matchday = nextMatchday(state);
-    const match = Object.values(state.matches).find(
+    const scheduled = Object.values(state.matches).find(
       (candidate) =>
         candidate.matchday === matchday &&
         (candidate.homeClubId === state.userClubId || candidate.awayClubId === state.userClubId),
     )!;
 
-    const lineup = match.homeClubId === state.userClubId ? match.lineups.home : match.lineups.away;
+    // The XI is picked for the fixture that was scheduled. If that game is
+    // called off, the replacement is the game that actually happens and carries
+    // the consequences — so the reading follows the fixture through to whatever
+    // was played rather than expecting an abandoned game to have a record.
+    // Days are driven until the chain is settled, because that is how long a
+    // rearranged game genuinely takes to come round.
+    for (let day = 0; day < 60 && !resolveToPlayedMatch(state, scheduled).played; day += 1) {
+      advanceWeek(state, { instant: true });
+      if (state.phase === 'complete') break;
+    }
+    const played = resolveToPlayedMatch(state, scheduled);
+    expect(played.played).toBe(true);
+    const lineup = played.homeClubId === state.userClubId ? played.lineups.home : played.lineups.away;
     const startingIds = lineup.starting.map((slot) => slot.playerId);
     expect(startingIds).toHaveLength(11);
-
-    advanceWeek(state, { instant: true });
 
     const playedPlayers = startingIds.map((id) => state.people[id]).filter(isPlayer);
     expect(playedPlayers).toHaveLength(11);
@@ -139,16 +170,31 @@ describe('weekly progression', () => {
     // top of Sunday, so the floor is lower for the ones who trained.
     expect(squad.every((player) => player.fitness > 40)).toBe(true);
 
-    const session = lastSessionFor(state, state.userClubId);
-    const trained = new Set(
-      session?.attendance.filter((entry) => entry.status === 'attending').map((entry) => entry.personId) ?? [],
-    );
+    // Training costs freshness on top of the match does. One week cannot show
+    // it: it compares two small groups, and who happened to play is a far bigger
+    // effect on how fresh a man is than whether he turned up on Thursday. The
+    // cost is a running one, so it is measured across a run of weeks.
     const mean = (players: Player[]) => players.reduce((sum, player) => sum + player.fitness, 0) / players.length;
-    const trainedPlayers = squad.filter((player) => trained.has(player.id));
-    const restedPlayers = squad.filter((player) => !trained.has(player.id));
-    if (trainedPlayers.length > 0 && restedPlayers.length > 0) {
-      expect(mean(restedPlayers)).toBeGreaterThan(mean(trainedPlayers));
+    let balance = 0;
+    let worlds = 0;
+    for (const seed of ['recovery-loop', 'recovery-b', 'recovery-c', 'recovery-d', 'recovery-e', 'recovery-f', 'recovery-g']) {
+      const world = createTestGame(seed);
+      advanceWeek(world.state, { instant: true });
+      const worldSquad = world.state.clubs[world.state.userClubId]!.squadIds
+        .map((id) => world.state.people[id])
+        .filter(isPlayer);
+      const worldSession = lastSessionFor(world.state, world.state.userClubId);
+      const attendees = new Set(
+        worldSession?.attendance.filter((entry) => entry.status === 'attending').map((entry) => entry.personId) ?? [],
+      );
+      const trainedGroup = worldSquad.filter((player) => attendees.has(player.id));
+      const restedGroup = worldSquad.filter((player) => !attendees.has(player.id));
+      if (trainedGroup.length === 0 || restedGroup.length === 0) continue;
+      balance += mean(restedGroup) - mean(trainedGroup);
+      worlds += 1;
     }
+    expect(worlds).toBeGreaterThan(4);
+    expect(balance / worlds).toBeGreaterThan(0);
   });
 
   it('accumulates match history that the world remembers', () => {
@@ -157,9 +203,13 @@ describe('weekly progression', () => {
     advanceWeek(state, { instant: true });
 
     const club = state.clubs[state.userClubId]!;
+    // A season record is the club's competitive log, so it covers the league
+    // Sundays and the cup ties the draw slotted between them. Two weeks is at
+    // least the two league games, plus whatever midweek football came with it.
     const record = club.history.seasons[0]!;
-    expect(record.played).toBe(2);
-    expect(record.won + record.drawn + record.lost).toBe(2);
+    expect(record.played).toBeGreaterThanOrEqual(2);
+    expect(record.won + record.drawn + record.lost).toBe(record.played);
+    expect(record.points).toBe(record.won * 3 + record.drawn);
     expect(state.standingHistory.length).toBeGreaterThanOrEqual(3);
 
     const squad = club.squadIds.map((id) => state.people[id]).filter(isPlayer);
@@ -169,7 +219,10 @@ describe('weekly progression', () => {
 
   it('finishes the season, records final positions and allows a rollover', () => {
     const { state } = createTestGame('full-season');
-    const matchdays = state.season.calendar.length;
+    // The season calendar also carries the cup rounds, which are midweek games
+    // numbered after the league's matchdays. A club's league season is as long
+    // as the league's Sundays, not the calendar's entries.
+    const matchdays = state.season.calendar.filter((entry) => isLeagueMatchday(state, entry.matchday)).length;
     // A Sunday league season does not finish neatly on the last scheduled
     // Sunday: called-off games are rearranged into the weeks that follow, and
     // the season closes once the last of them has been played.
@@ -254,5 +307,34 @@ describe('weekly progression', () => {
     const loaded = deserialiseGame(raw);
     expect(loaded.state).toBeNull();
     expect(loaded.error).toMatch(/version/i);
+  });
+
+  it('keeps a player-manager in the dugout when he stops playing, as a real person', () => {
+    const { state } = createTestGame('player-manager-retires');
+    const club = state.clubs[state.userClubId]!;
+
+    // Set the club up the way the world generator does for the minority of
+    // sides run by a player-manager: a squad member picks the team and plays.
+    const playerManager = club.squadIds.map((id) => state.people[id]).filter(isPlayer)[0]!;
+    playerManager.isPlayerManager = true;
+    playerManager.age = 41; // over the hill: this summer takes him as a player
+    club.managerId = playerManager.id;
+
+    startNextSeason(state);
+
+    // He has stopped playing: he is out of the squad and the player world.
+    expect(state.clubs[club.id]!.squadIds).not.toContain(playerManager.id);
+    expect(isPlayer(state.people[playerManager.id])).toBe(false);
+
+    // But he has not stopped managing: he is the club's manager still, now an
+    // official rather than a player, so the reference never dangles.
+    expect(state.clubs[club.id]!.managerId).toBe(playerManager.id);
+    const manager = state.people[playerManager.id];
+    expect(isOfficial(manager)).toBe(true);
+    if (isOfficial(manager)) {
+      expect(manager.role).toBe('manager');
+      expect(manager.clubId).toBe(club.id);
+      expect(manager.roles).toEqual([{ clubId: club.id, role: 'manager', since: expect.any(String) }]);
+    }
   });
 });

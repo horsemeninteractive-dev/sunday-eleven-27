@@ -213,6 +213,16 @@ export interface TrainingImprovement {
   label: string;
 }
 
+/**
+ * An attribute lost to age rather than to injury. The mirror of an improvement,
+ * and the reason a squad's quality settles instead of climbing for ever.
+ */
+export interface TrainingDecline {
+  personId: PersonId;
+  attribute: string;
+  label: string;
+}
+
 export interface TrainingSession {
   id: string;
   clubId: ClubId;
@@ -252,6 +262,8 @@ export interface TrainingSession {
   injuredIds: PersonId[];
   /** Attribute increases that actually landed. Rare, and worth mentioning. */
   improvements: TrainingImprovement[];
+  /** Attributes given back to age over this session. */
+  declines: TrainingDecline[];
   /** Mean system familiarity gained by those who trained (0-1 scale). */
   familiarityGain: number;
 }

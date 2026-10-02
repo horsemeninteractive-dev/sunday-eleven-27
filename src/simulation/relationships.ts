@@ -128,6 +128,43 @@ export function rebuildRelationshipIndex(state: GameState): { duplicates: number
   return { duplicates, relationships: Object.keys(store.byId).length };
 }
 
+/**
+ * Forget somebody who has left the world, and every relationship that named
+ * them.
+ *
+ * A departed free agent is deleted from `state.people`, which leaves any
+ * relationship naming him pointing at nobody. The save loader prunes those links
+ * on the next load, so leaving them in place makes a running career and a
+ * reloaded one differ in the social world. Removing them here keeps the two in
+ * step: what happens to a man who leaves is the same whether or not the manager
+ * saves first.
+ *
+ * Safe to call for somebody with no relationships, and for somebody who is not
+ * in `state.people` at all. Returns how many links were removed.
+ */
+export function removePersonRelationships(state: GameState, personId: PersonId): number {
+  const store = relationshipStore(state);
+  // Read the records themselves rather than trusting the index, so a store that
+  // was already partly stale is cleaned up rather than half-cleaned.
+  const doomed = Object.values(store.byId).filter(
+    (relationship) =>
+      !!relationship && (relationship.personAId === personId || relationship.personBId === personId),
+  );
+
+  for (const relationship of doomed) {
+    delete store.byId[relationship.id];
+    for (const side of [relationship.personAId, relationship.personBId]) {
+      const list = store.byPerson[side];
+      if (!list) continue;
+      const remaining = list.filter((entry) => entry !== relationship.id);
+      if (remaining.length > 0) store.byPerson[side] = remaining;
+      else delete store.byPerson[side];
+    }
+  }
+  delete store.byPerson[personId];
+  return doomed.length;
+}
+
 export interface RelationshipSeed {
   aId: PersonId;
   bId: PersonId;

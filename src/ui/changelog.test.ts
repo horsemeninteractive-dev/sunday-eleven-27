@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import changelogRaw from '../../CHANGELOG.md?raw';
 import { parseChangelog, parseInline } from './changelog';
+import { VERSION } from '@/version';
 
 /**
  * The changelog the game shows is the project's own changelog file, so these
@@ -66,12 +67,14 @@ describe('the changelog reader', () => {
   it('reads the project\u2019s own changelog, and finds this version at the top', () => {
     const blocks = parseChangelog(changelogRaw);
     const versions = blocks.filter((block) => block.kind === 'version');
-    expect(versions.length).toBeGreaterThan(0);
+    expect(versions.length).toBeGreaterThan(1);
+    // The running build is the one the changelog calls "this build", so the
+    // first version in the file must be the version `package.json` carries.
     const latest = versions[0]!;
-    expect(latest.kind === 'version' && latest.version).toBe('0.1.0');
+    expect(latest.kind === 'version' && latest.version).toBe(VERSION);
     expect(blocks.filter((block) => block.kind === 'section').length).toBeGreaterThan(2);
     expect(blocks.filter((block) => block.kind === 'item').length).toBeGreaterThan(20);
     // Every version heading is the only thing on its line, so no stray text.
-    expect(latest.kind === 'version' && latest.detail).toBe('first beta');
+    expect(latest.kind === 'version' && latest.detail).toBe('a pyramid, and time passing');
   });
 });

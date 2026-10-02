@@ -3,6 +3,7 @@ import type { Business, Ground, GroundSurface, Town, World } from '@/domain/worl
 import type { ClubId, GroundId, ISODate, PersonId, PlayerId, TownId } from '@/domain/ids';
 import type { Official, Person, Player } from '@/domain/person';
 import { defaultTactics } from '@/domain/tactics';
+import { DEFAULT_PYRAMID } from '@/domain/competition';
 import { Rng } from '../rng';
 import {
   COLOUR_PAIRS,
@@ -27,13 +28,19 @@ export interface GenerateWorldOptions {
   clubCount?: number;
   /** Season the world is created in, used for founding years. */
   currentYear: number;
+  /** How many clubs each division should hold. Defaults to the pyramid's. */
+  clubsPerDivision?: number;
+  /** How many league divisions to build. Defaults to the pyramid's. */
+  tiers?: number;
 }
 
 export interface GeneratedWorld {
   world: World;
   clubs: Record<ClubId, Club>;
   people: Record<PersonId, Person>;
-  /** Clubs that make up the local division, strongest first. */
+  /** Clubs in each division, tier 1 first, strongest first within a division. */
+  divisions: ClubId[][];
+  /** The clubs of the top division, strongest first. */
   divisionClubIds: ClubId[];
   leagueName: string;
 }
@@ -49,10 +56,10 @@ type SettlementKind = keyof typeof POPULATION_RANGES;
 
 /** Club density responds to settlement size: towns support a handful. */
 const CLUB_DENSITY: Record<SettlementKind, { mean: number; min: number; max: number }> = {
-  town: { mean: 4.2, min: 3, max: 6 },
-  'small-town': { mean: 2.6, min: 2, max: 4 },
-  village: { mean: 1.5, min: 1, max: 2 },
-  hamlet: { mean: 0.6, min: 0, max: 1 },
+  town: { mean: 6.4, min: 4, max: 9 },
+  'small-town': { mean: 4.2, min: 3, max: 6 },
+  village: { mean: 2.6, min: 2, max: 4 },
+  hamlet: { mean: 1.1, min: 0, max: 2 },
 };
 
 const GROUND_NAME_PATTERNS = [
@@ -120,9 +127,11 @@ function generateTowns(rng: Rng, river: string): { towns: Town[]; businesses: Bu
   const towns: Town[] = [];
   const businesses: Business[] = [];
 
-  // One anchor town, then a spread of smaller settlements.
+  // One anchor town, then a spread of smaller settlements. A county that has to
+  // hold thirty-six clubs needs more places to put them than a county with
+  // twelve, so the spread is wider than a single division would need.
   const settlementPlan: SettlementKind[] = ['town'];
-  const extras = rng.int(4, 6);
+  const extras = rng.int(9, 12);
   for (let i = 0; i < extras; i++) settlementPlan.push(pickSettlementKind(rng));
   settlementPlan.push('village');
 
@@ -222,7 +231,7 @@ function generateGround(
   };
 }
 
-function reputationForTown(rng: Rng, town: Town): number {
+export function reputationForTown(rng: Rng, town: Town): number {
   const base = 22 + 14 * Math.log10(Math.max(150, town.population) / 200);
   return Math.round(Math.max(18, Math.min(88, base + rng.gaussian(0, 7))));
 }
@@ -264,7 +273,7 @@ interface ClubNameResult {
  * stapling a number onto a duplicate — two "Holmere Athletic" sides is a world
  * generation bug, not local colour.
  */
-function buildClubName(
+export function buildClubName(
   rng: Rng,
   town: Town,
   businesses: Business[],
@@ -389,7 +398,7 @@ function pickFreeNickname(rng: Rng, used: Set<string>): string {
   return `${clubNickname(rng)} of ${rng.pick(['the Lane', 'the Rec', 'the Village', 'the Bridge'])}`;
 }
 
-function buildFinances(rng: Rng, town: Town, reputation: number): ClubFinances {
+export function buildFinances(rng: Rng, town: Town, reputation: number): ClubFinances {
   return {
     balance: rng.gaussianInt(town.kind === 'town' ? 1400 : 650, 450, -250, 4000),
     subscriptionPerPlayer: rng.int(3, 6),
@@ -404,7 +413,7 @@ function buildFinances(rng: Rng, town: Town, reputation: number): ClubFinances {
   };
 }
 
-function emptyHistory(rng: Rng, foundedYear: number): ClubHistory {
+export function emptyHistory(rng: Rng, foundedYear: number): ClubHistory {
   return {
     founded: foundedYear,
     seasons: [],
@@ -422,7 +431,7 @@ function emptyHistory(rng: Rng, foundedYear: number): ClubHistory {
   };
 }
 
-function generateManager(rng: Rng, clubTownId: TownId, clubReputation: number, index: number): Official {
+export function generateManager(rng: Rng, clubTownId: TownId, clubReputation: number, index: number): Official {
   const quality = clubQualityFromReputation(rng, clubReputation);
   return {
     id: `mgr_${index}`,
@@ -450,7 +459,7 @@ function generateManager(rng: Rng, clubTownId: TownId, clubReputation: number, i
   };
 }
 
-function generateChairman(rng: Rng, townId: TownId, index: number): Official {
+export function generateChairman(rng: Rng, townId: TownId, index: number): Official {
   return {
     id: `chm_${index}`,
     kind: 'official',
@@ -525,8 +534,10 @@ export function generateWorld(options: GenerateWorldOptions): GeneratedWorld {
     for (let i = 0; i < count; i++) tasks.push({ town });
   }
 
-  const maxClubs = options.clubCount ?? rng.int(12, 14);
-  const clubTasks = rng.shuffle(tasks).slice(0, maxClubs);
+  const tiers = Math.max(1, options.tiers ?? DEFAULT_PYRAMID.tiers);
+  const clubsPerDivision = Math.max(2, options.clubsPerDivision ?? DEFAULT_PYRAMID.clubsPerTier);
+  const wanted = options.clubCount ?? tiers * clubsPerDivision;
+  const clubTasks = rng.shuffle(tasks).slice(0, wanted);
 
   const clubs: Record<ClubId, Club> = {};
   const people: Record<PersonId, Person> = {};
@@ -672,12 +683,32 @@ export function generateWorld(options: GenerateWorldOptions): GeneratedWorld {
     .sort((a, b) => b.reputation - a.reputation)
     .map((c) => c.id);
 
+  /**
+   * The ladder.
+   *
+   * Clubs are ranked on reputation, which the generator derived from the size
+   * of the town they sit in, and cut into divisions from the top. A club's
+   * reputation is also what its squad was generated from, so the top division
+   * holds the better squads without anything having to be said about it twice —
+   * the pyramid is stratified from the moment the world is built rather than
+   * sorted out over the first few seasons.
+   *
+   * If the county turned out to have fewer plausible club sites than the ladder
+   * needs, the divisions are still all created and the short ones are simply
+   * smaller. Nothing manufactures a club to hit a number.
+   */
+  const divisions: ClubId[][] = [];
+  for (let tier = 0; tier < tiers; tier += 1) {
+    divisions.push(divisionClubIds.slice(tier * clubsPerDivision, (tier + 1) * clubsPerDivision));
+  }
+
   return {
     world,
     clubs,
     people,
-    divisionClubIds,
-    leagueName: `${regionName} Sunday League Division One`
+    divisions,
+    divisionClubIds: divisions[0] ?? [],
+    leagueName: `${regionName} Sunday League Division One`,
   };
 }
 

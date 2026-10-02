@@ -42,6 +42,8 @@ const CATEGORY_BY_TYPE: Record<GameEventType, NewsCategory> = {
   'player-signed': 'Squad',
   'player-released': 'Squad',
   'league-movement': 'League',
+  'cup-draw': 'League',
+  'cup-result': 'League',
   'notable-result': 'League',
   'finances-warning': 'Finances',
   'finances-positive': 'Finances',
@@ -160,6 +162,23 @@ function writeLeagueMovement(event: GameEvent): Headline {
   };
 }
 
+/**
+ * A promotion, a relegation, or a draw.
+ *
+ * These carry their own headline and body rather than being assembled from
+ * positions and points, because what they are reporting has already happened and
+ * already has a sentence: a club went up, a club went down, a place was refused,
+ * or thirty-six clubs were put into a bag. The structured facts travel alongside
+ * it so the archive and any future system can read them, but the prose is the
+ * news and is written where the news is written.
+ */
+function writeExplicit(event: GameEvent): Headline {
+  return {
+    headline: stringValue(event, 'headline') || 'News from the county',
+    body: stringValue(event, 'body'),
+  };
+}
+
 function writeFinances(event: GameEvent, warning: boolean): Headline {
   const club = stringValue(event, 'club');
   const balance = numberValue(event, 'balance');
@@ -259,7 +278,11 @@ export function renderNewsItem(state: GameState, event: GameEvent): NewsItem {
       written = writeNotableResult(event);
       break;
     case 'league-movement':
-      written = writeLeagueMovement(event);
+      written = event.data.headline ? writeExplicit(event) : writeLeagueMovement(event);
+      break;
+    case 'cup-draw':
+    case 'cup-result':
+      written = writeExplicit(event);
       break;
     case 'finances-warning':
       written = writeFinances(event, true);

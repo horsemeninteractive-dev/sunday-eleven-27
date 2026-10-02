@@ -240,6 +240,23 @@ export function applyAnnualCosts(state: GameState, clubId: ClubId, rng: Rng): vo
     category: 'equipment',
     amount: -rng.int(45, 120),
   });
+  // A winter's pitch repairs and ground upkeep, scaled to what the ground costs
+  // to hire — the club with the expensive pitch is the one that feels it.
+  addLedgerEntry(state, clubId, {
+    date: state.date,
+    description: 'Winter pitch repairs and ground upkeep',
+    category: 'pitch-hire',
+    amount: -Math.round(club.finances.weeklyGroundCost * rng.float(3, 7)),
+  });
+  // Running a squad has a cost that a club cannot avoid: kit, travel, physio and
+  // the small expenses players claim back. This is the line that makes money a
+  // risk rather than a scoreboard that only rises.
+  addLedgerEntry(state, clubId, {
+    date: state.date,
+    description: `Players' expenses (${club.squadIds.length} players)`,
+    category: 'other',
+    amount: -club.squadIds.length * rng.int(9, 20),
+  });
 }
 
 export function financeSummary(club: { finances: ClubFinances }): { income: number; expenditure: number; net: number } {

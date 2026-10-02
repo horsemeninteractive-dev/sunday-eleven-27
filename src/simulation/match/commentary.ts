@@ -27,6 +27,17 @@ function nameOf(player: Player | null | undefined): string {
   return player.surname;
 }
 
+/**
+ * Choose between templates that name a second player and templates that do not.
+ *
+ * A keeper who has already been sent off is still a save, but the match has no
+ * name for him — and prose that reads "straight at somebody" is worse than prose
+ * that names nobody at all.
+ */
+function either<T>(partner: Player | null | undefined, named: T[], anonymous: T[]): T[] {
+  return partner ? named : anonymous;
+}
+
 function fullNameOf(player: Player | null | undefined): string {
   if (!player) return 'somebody';
   return player.nickname ? `${player.firstName} '${player.nickname}' ${player.surname}` : `${player.firstName} ${player.surname}`;
@@ -51,6 +62,16 @@ export function writeHalfTime(homeScore: number, awayScore: number): string {
 
 export function writeFullTime(homeScore: number, awayScore: number): string {
   return `Full-time: ${homeScore}-${awayScore}.`;
+}
+
+/**
+ * The ninety-minute whistle in a cup tie that is level.
+ *
+ * Only written for a knockout, where level means two more periods rather than a
+ * draw; there is no version of this that a league match can reach.
+ */
+export function writeExtraTime(score: { home: number; away: number }): string {
+  return `Ninety minutes, ${score.home}-${score.away}, and it is level. Two halves of extra time, then penalties if it must be.`;
 }
 
 export function writeGoal(ctx: CommentaryContext): string {
@@ -83,16 +104,32 @@ export function writeSaved(ctx: CommentaryContext): string {
   const keeper = nameOf(ctx.partner);
   const good = (ctx.quality ?? 0.5) > 0.62;
   const templates = good
-    ? [
-        `${shooter} forces a superb save from ${keeper}.`,
-        `Great chance for ${shooter} — ${keeper} gets a strong hand to it.`,
-        `${keeper} somehow keeps ${shooter}'s effort out.`,
-      ]
-    : [
-        `${shooter} works ${keeper} with a routine effort.`,
-        `Straight at ${keeper} from ${shooter}.`,
-        `${shooter} shoots, saved comfortably by ${keeper}.`,
-      ];
+    ? either(
+        ctx.partner,
+        [
+          `${shooter} forces a superb save from ${keeper}.`,
+          `Great chance for ${shooter} — ${keeper} gets a strong hand to it.`,
+          `${keeper} somehow keeps ${shooter}'s effort out.`,
+        ],
+        [
+          `${shooter} forces a fine save.`,
+          `Great chance for ${shooter} — and it is kept out.`,
+          `${shooter}'s effort is somehow kept out.`,
+        ],
+      )
+    : either(
+        ctx.partner,
+        [
+          `${shooter} works ${keeper} with a routine effort.`,
+          `Straight at ${keeper} from ${shooter}.`,
+          `${shooter} shoots, saved comfortably by ${keeper}.`,
+        ],
+        [
+          `${shooter} works the keeper with a routine effort.`,
+          `Straight at the keeper from ${shooter}.`,
+          `${shooter} shoots, saved comfortably.`,
+        ],
+      );
   return ctx.rngPick(templates);
 }
 
@@ -111,23 +148,53 @@ export function writeOffTarget(ctx: CommentaryContext): string {
 export function writeBlocked(ctx: CommentaryContext): string {
   const shooter = nameOf(ctx.player);
   const blocker = nameOf(ctx.partner);
-  const templates = [
-    `${shooter} shoots, blocked bravely by ${blocker}.`,
-    `${blocker} throws himself in front of ${shooter}'s effort.`,
-    `Deflected away — ${blocker} got a touch on ${shooter}'s shot.`,
-  ];
+  const templates = either(
+    ctx.partner,
+    [
+      `${shooter} shoots, blocked bravely by ${blocker}.`,
+      `${blocker} throws himself in front of ${shooter}'s effort.`,
+      `Deflected away — ${blocker} got a touch on ${shooter}'s shot.`,
+    ],
+    [
+      `${shooter} shoots and it is blocked.`,
+      `Bravely thrown in front of ${shooter}'s effort.`,
+      `Deflected away — a touch on ${shooter}'s shot.`,
+    ],
+  );
   return ctx.rngPick(templates);
 }
 
 export function writeFoul(ctx: CommentaryContext): string {
   const offender = nameOf(ctx.player);
   const victim = nameOf(ctx.partner);
+  const templates = either(
+    ctx.partner,
+    [
+      `Free kick against ${offender} for a trip on ${victim}.`,
+      `${offender} clatters into ${victim} — free kick.`,
+      `Strong challenge by ${offender}. Referee gives it.`,
+      `${victim} goes down and ${offender} is the man penalised.`,
+      `Shirt pull by ${offender}. Simple decision.`,
+    ],
+    [
+      `Free kick against ${offender}.`,
+      `${offender} clatters into his man — free kick.`,
+      `Strong challenge by ${offender}. Referee gives it.`,
+      `A man goes down and ${offender} is the one penalised.`,
+      `Shirt pull by ${offender}. Simple decision.`,
+    ],
+  );
+  return ctx.rngPick(templates);
+}
+
+export function writeOffside(ctx: CommentaryContext): string {
+  const player = nameOf(ctx.player);
   const templates = [
-    `Free kick against ${offender} for a trip on ${victim}.`,
-    `${offender} clatters into ${victim} — free kick.`,
-    `Strong challenge by ${offender}. Referee gives it.`,
-    `${victim} goes down and ${offender} is the man penalised.`,
-    `Shirt pull by ${offender}. Simple decision.`,
+    `${player} goes too early — the flag is up.`,
+    `Offside against ${player}. He was half a yard beyond the last man.`,
+    `${player} is in behind, but the assistant had his flag up all the way.`,
+    `Flag up against ${player}. He knew it, too.`,
+    `${player} mistimed the run and the line held. Offside.`,
   ];
   return ctx.rngPick(templates);
 }

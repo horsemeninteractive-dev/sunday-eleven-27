@@ -34,6 +34,11 @@ export interface ClubFinances {
   insurancePerWeek: number;
   /** Applied at the start of each season. */
   annualLeagueFee: number;
+  /**
+   * Consecutive seasons the club has ended in the red. Absent or 0 means it is
+   * solvent. A club that cannot get out of the red after a few of these folds.
+   */
+  administrationSeasons?: number;
   ledger: LedgerEntry[];
 }
 
@@ -65,6 +70,20 @@ export interface ClubSeasonRecord {
   seasonId: SeasonId;
   seasonLabel: string;
   competitionName: string;
+  /**
+   * Which division of the pyramid this season was played in: 1 is the top.
+   *
+   * Stored rather than derived because the ladder moves. A club's season in
+   * Division One and its season in Division Three are not the same achievement,
+   * and the archive has to be able to say which one a record belongs to.
+   * Null for a season that predates the pyramid.
+   */
+  tier: number | null;
+  /**
+   * How this season ended for the club: promoted, relegated, or neither.
+   * Set at the season boundary and shown in the archive beside the table.
+   */
+  movement?: 'promoted' | 'relegated';
   played: number;
   won: number;
   drawn: number;

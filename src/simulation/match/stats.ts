@@ -15,6 +15,12 @@ export interface SideStats {
   possession: number;
   shots: number;
   shotsOnTarget: number;
+  /** Balls played to a teammate, attempted. */
+  passes: number;
+  /** How many of them reached him. Never more than `passes`. */
+  passesCompleted: number;
+  tackles: number;
+  interceptions: number;
   corners: number;
   fouls: number;
   offsides: number;
@@ -55,10 +61,20 @@ function sideStats(match: Match, side: 'home' | 'away'): SideStats {
   const events = match.events;
   let shots = 0;
   let shotsOnTarget = 0;
+  let passes = 0;
+  let passesCompleted = 0;
+  let tackles = 0;
+  let interceptions = 0;
   for (const performance of Object.values(match.performances)) {
     if (performance.clubId !== clubId) continue;
-    shots += performance.shots;
-    shotsOnTarget += performance.shotsOnTarget;
+    shots += performance.shots || 0;
+    shotsOnTarget += performance.shotsOnTarget || 0;
+    passes += performance.passes || 0;
+    // A save from an older save file has no completed-pass figure; it must never
+    // read as more completions than attempts.
+    passesCompleted += Math.min(performance.passesCompleted || 0, performance.passes || 0);
+    tackles += performance.tackles || 0;
+    interceptions += performance.interceptions || 0;
   }
   const ticks = match.possessionTicks;
   const total = ticks.home + ticks.away;
@@ -66,6 +82,10 @@ function sideStats(match: Match, side: 'home' | 'away'): SideStats {
     possession: total > 0 ? (side === 'home' ? ticks.home : ticks.away) / total : 0.5,
     shots,
     shotsOnTarget,
+    passes,
+    passesCompleted,
+    tackles,
+    interceptions,
     corners: countEvents(events, 'corner', side, match),
     fouls: countEvents(events, 'foul', side, match),
     offsides: countEvents(events, 'offside', side, match),

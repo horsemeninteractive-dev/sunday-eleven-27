@@ -4,6 +4,7 @@ import type { ClubId, ISODate, MatchId } from '@/domain/ids';
 import type { Match } from '@/domain/match';
 import { addDays, kickOffTimeFor, PRE_SEASON_WEEKS } from './calendar';
 import { createMatchRecord } from './matchday';
+import { registerFixture } from './pyramid';
 import { stream } from './rng';
 
 /**
@@ -110,9 +111,10 @@ function registerMatch(state: GameState, match: Match): void {
     if (left.date === right.date) return left.id < right.id ? -1 : 1;
     return left.date < right.date ? -1 : 1;
   });
-  const bucket = state.fixtures.byMatchday[match.matchday] ?? [];
-  state.fixtures.byMatchday[match.matchday] = [...bucket, match.id];
-  state.fixtures.matchdayOf[match.id] = match.matchday;
+  // Friendlies live on matchday zero of their own competition, which is not in
+  // `state.competitions` — so nothing writes a table, a record or an honour
+  // from them, which is exactly what a warm-up is for.
+  registerFixture(state, match.competitionId, match.id, match.matchday);
 }
 
 /**

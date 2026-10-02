@@ -2063,6 +2063,13 @@ select.input {
 .zone--mid {
   border-left-color: transparent;
 }
+/* The champions' place: a heavier bar than a promotion place, because winning a
+   division is not the same as being in it. */
+.zone--title {
+  border-left-color: var(--accent);
+  border-left-width: 4px;
+  font-weight: 700;
+}
 
 /* Club cells: crest, name, and a clickable target.
 
@@ -3351,6 +3358,8 @@ html[data-motion='reduced'] .start__menu > * {
   flex-direction: column;
   align-items: center;
   pointer-events: none;
+  /* Moved every frame by the renderer, so the browser is told once. */
+  will-change: left, top;
 }
 .pitch__dot-ball {
   display: grid;
@@ -3368,6 +3377,57 @@ html[data-motion='reduced'] .start__menu > * {
   background: var(--club);
   color: var(--club-ink);
 }
+/* The man with the ball stands out whatever colour he is wearing. */
+.pitch__dot--carrying .pitch__dot-ball {
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.85);
+}
+/* A goal is the one moment the picture is allowed to shout. The side that scored
+   is picked out, the scorer most of all, and the pitch washes warm for as long
+   as the celebration lasts — which is the simulation's own state, not a second
+   animation running beside it. */
+.pitch__dot--celebrating .pitch__dot-ball {
+  animation: dot-celebrate 0.55s ease-in-out infinite alternate;
+}
+.pitch__dot--scorer .pitch__dot-ball {
+  transform: scale(1.24);
+  box-shadow:
+    0 0 0 3px rgba(255, 214, 102, 0.95),
+    0 0 16px rgba(255, 214, 102, 0.65);
+}
+.matchpitch[data-celebrating='true']::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 46%, rgba(255, 214, 102, 0.18), transparent 68%);
+  animation: pitch-celebrate 1.2s ease-in-out infinite alternate;
+}
+@keyframes dot-celebrate {
+  from {
+    transform: translateY(0) scale(1.08);
+  }
+  to {
+    transform: translateY(-3px) scale(1.2);
+  }
+}
+@keyframes pitch-celebrate {
+  from {
+    opacity: 0.5;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-motion='full']) .pitch__dot--celebrating .pitch__dot-ball,
+  html:not([data-motion='full']) .matchpitch[data-celebrating='true']::after {
+    animation: none;
+  }
+}
+html[data-motion='reduced'] .pitch__dot--celebrating .pitch__dot-ball,
+html[data-motion='reduced'] .matchpitch[data-celebrating='true']::after {
+  animation: none;
+}
 .pitch__dot-name {
   font-size: 0.58rem;
   color: rgba(255, 255, 255, 0.85);
@@ -3381,7 +3441,9 @@ html[data-motion='reduced'] .start__menu > * {
   background: #fff;
   transform: translate(-50%, -50%);
   box-shadow: 0 0 6px rgba(255, 255, 255, 0.8);
-  transition: left 0.3s ease, top 0.3s ease;
+  /* No transition: the simulation moves it every frame itself, and easing on
+     top of that would only lag the ball behind where the match says it is. */
+  will-change: left, top;
 }
 
 /* Matchday: a takeover screen, not a page --------------------------------- */
@@ -3407,6 +3469,7 @@ html[data-motion='reduced'] .start__menu > * {
 
 /* The score, always in the same place, never more than a row tall. */
 .matchhead {
+  position: relative;
   flex: 0 0 auto;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
@@ -3415,7 +3478,15 @@ html[data-motion='reduced'] .start__menu > * {
   padding: var(--s2) var(--s3);
   background: var(--bg-2);
   border-bottom: 1px solid var(--line);
-  border-top: 3px solid var(--club);
+}
+/* The line across the top is the two clubs rather than one: home on the left,
+   away on the right, meeting in the middle of the screen. */
+.matchhead__stripe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
 }
 .matchhead__team {
   display: flex;
@@ -3498,43 +3569,133 @@ html[data-motion='reduced'] .start__menu > * {
   color: var(--text-faint);
 }
 
-/* Panes. On a desktop everything is on screen at once; on a phone the manager
-   switches between them, and the shell still never scrolls. */
-.matchday__switch {
-  display: none;
-  flex: 0 0 auto;
-  gap: 1px;
-  padding: var(--s1) var(--s2) 0;
-  background: var(--bg-2);
-}
+/* The pitch takes the middle on its own and the commentary is a bar beneath it:
+   no side column, because the pitch is the point and a column beside it only
+   ever takes the room the match wants. */
 .matchday__main {
   flex: 1 1 auto;
   min-height: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(300px, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: var(--s2);
   padding: var(--s2);
 }
-.matchday__visual,
-.matchday__side {
+.matchday__visual {
+  flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
 }
-.matchday__visual > *,
-.matchday__side > * {
+.matchday__stage {
   flex: 1 1 auto;
   min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(140px, 200px) minmax(0, 1fr) minmax(140px, 200px);
+  gap: var(--s2);
 }
-.matchday__statspane {
-  display: none;
+.matchday__visual > * {
+  flex: 1 1 auto;
   min-height: 0;
-  overflow-y: auto;
 }
 .matchpitch {
   aspect-ratio: auto;
   height: 100%;
+}
+
+/* A team's sheet down each side of the pitch: who is out there, in the order
+   they were picked. The shape itself is drawn on the pitch beside it. */
+.teamsheet {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--sheet-colour, var(--line));
+}
+.teamsheet__head {
+  flex: 0 0 auto;
+  padding: var(--s1) var(--s2);
+  border-bottom: 1px solid var(--line);
+}
+.teamsheet__club {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 800;
+  color: var(--text);
+}
+.teamsheet__list {
+  list-style: none;
+  margin: 0;
+  padding: 2px 0;
+}
+.teamsheet__row {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: var(--s1);
+  padding: 2px var(--s2);
+  font-size: var(--fs-sm);
+}
+.teamsheet__pos {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: var(--text-faint);
+}
+.teamsheet__player {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.teamsheet__marks {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--fs-xs);
+}
+.teamsheet__mark--goal {
+  color: var(--text);
+}
+.teamsheet__card {
+  width: 7px;
+  height: 9px;
+  border-radius: 1px;
+  display: inline-block;
+}
+.teamsheet__card--yellow {
+  background: #e6c531;
+}
+.teamsheet__card--red {
+  background: #d6412f;
+}
+.teamsheet__sub {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: var(--s1) var(--s2) 0;
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+  border-top: 1px solid var(--line-soft);
+}
+.teamsheet__list--bench .teamsheet__player {
+  color: var(--text-dim);
+}
+/* The away sheet faces the other way, so the two read as mirror images down
+   either side of the pitch. */
+.teamsheet--away .teamsheet__head,
+.teamsheet--away .teamsheet__sub {
+  text-align: right;
+}
+.teamsheet--away .teamsheet__row {
+  grid-template-columns: auto minmax(0, 1fr) 26px;
+  text-align: right;
+}
+.teamsheet--away .teamsheet__pos {
+  order: 3;
 }
 
 /* The match itself is the only thing drawn at full height. */
@@ -3573,15 +3734,85 @@ html[data-motion='reduced'] .start__menu > * {
   color: var(--text-dim);
 }
 
-/* The live feed: a fixed window on the match, newest at the top. */
-.livefeed {
+/* The current commentary: the match's voice, one line at a time, in a bar under
+   the pitch. There is no list on this screen — the whole afternoon is written
+   down and a tab away. The bar is tinted and striped in the colour of the club
+   the line is about; a line about nobody in particular — a whistle, the weather
+   — is left plain. */
+.commentary--live {
+  position: relative;
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--c-line, var(--line));
+  background:
+    linear-gradient(90deg, var(--c-bar, transparent) 0, transparent 72%),
+    var(--panel);
+}
+.commentary__now {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 64px;
+  padding: var(--s2) 96px;
+  text-align: center;
+}
+.commentary__kind {
+  margin-right: var(--s2);
+  font-size: var(--fs-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 800;
+  color: var(--c-ink, var(--club));
+}
+.commentary__text {
+  margin: 0;
+  font-size: var(--fs-xl);
+  line-height: 1.3;
+  font-weight: 500;
+  text-wrap: balance;
+}
+.commentary__score {
+  position: absolute;
+  right: var(--s4);
+  font-size: var(--fs-xl);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+/* A goal is the one thing in a match that should be impossible to miss. */
+.commentary__now--flash {
+  animation: commentary-flash 1100ms ease-out 1;
+}
+@keyframes commentary-flash {
+  0% {
+    background-color: transparent;
+  }
+  18% {
+    background-color: rgba(255, 255, 255, 0.26);
+  }
+  46% {
+    background-color: transparent;
+  }
+  66% {
+    background-color: rgba(255, 255, 255, 0.15);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+.commentary__idle {
+  margin: 0;
+  padding: var(--s4);
+  color: var(--text-faint);
+  font-size: var(--fs-sm);
+}
+
+/* The transcript: the whole afternoon in order, for when it is asked for. */
+.transcript {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: var(--panel);
-  border: 1px solid var(--line);
 }
-.livefeed__head {
+.transcript__head {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
@@ -3590,84 +3821,73 @@ html[data-motion='reduced'] .start__menu > * {
   padding: var(--s1) var(--s3);
   border-bottom: 1px solid var(--line);
 }
-.livefeed__head h2 {
+.transcript__head h3 {
   margin: 0;
   font-size: var(--fs-xs);
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: var(--text-dim);
 }
-.livefeed__list {
+.transcript__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
-.livefeed__foot {
-  flex: 0 0 auto;
-  margin: 0;
-  padding: 2px var(--s3);
-  border-top: 1px solid var(--line-soft);
-}
-
-/* A moment worth its own billboard. */
-/* The strip across the top of the feed: the newest incident and nothing else,
-   so the manager reads the match without going looking for it. */
-.moment {
-  flex: 0 0 auto;
+.transcript__row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
   gap: var(--s2);
-  padding: var(--s2) var(--s3);
-  background: var(--panel-3);
-  border-bottom: 1px solid var(--line);
+  align-items: baseline;
+  padding: 4px var(--s3);
+  border-bottom: 1px solid var(--line-soft);
   border-left: 3px solid transparent;
-  min-height: 52px;
-}
-.moment--major {
-  border-left-color: var(--club);
-  background: var(--panel-2);
-}
-.moment--important {
-  border-left-color: var(--line);
-}
-.moment--quiet {
-  margin: 0;
-  border-left-color: transparent;
-  background: var(--panel);
-  color: var(--text-faint);
+  color: var(--text-dim);
   font-size: var(--fs-sm);
 }
-.moment__minute {
-  font-size: var(--fs-md);
+.transcript__row--important {
+  color: var(--text);
+  border-left-color: var(--line);
+}
+.transcript__row--major {
+  color: var(--text);
+  border-left-color: var(--club);
+  font-weight: 600;
+}
+.transcript__minute {
+  color: var(--text-faint);
   font-variant-numeric: tabular-nums;
-  font-weight: 700;
-  color: var(--text-dim);
+  text-align: right;
 }
-.moment__body {
+.transcript__body {
   min-width: 0;
-  display: block;
 }
-.moment__kind {
+.transcript__kind {
   display: block;
   font-size: var(--fs-xs);
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.09em;
   font-weight: 800;
-  color: var(--text);
+  color: var(--text-dim);
 }
-.moment--major .moment__kind {
+.transcript__row--major .transcript__kind {
   color: var(--club);
 }
-.moment__text {
-  display: block;
-  font-size: var(--fs-sm);
-}
-.moment__score {
-  font-size: var(--fs-md);
-  font-weight: 800;
+.transcript__score {
   font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+.transcript--compact .transcript__list {
+  max-height: 200px;
+  border: 1px solid var(--line);
+}
+.transcript--compact .transcript__row {
+  grid-template-columns: 32px minmax(0, 1fr);
+  padding: 3px var(--s2);
+  font-size: var(--fs-xs);
 }
 
 .feed {
@@ -3808,6 +4028,18 @@ html[data-motion='reduced'] .start__menu > * {
   border-bottom: 1px solid var(--line);
   background: var(--panel);
 }
+/* In the commentary drawer the transcript scrolls, not the drawer, so the
+   header stays put while the afternoon runs past underneath it. */
+.matchbar__drawer:has(.matchbar__transcript) {
+  max-height: none;
+  overflow: visible;
+  padding: 0;
+}
+.matchbar__transcript {
+  display: flex;
+  flex-direction: column;
+  max-height: 34vh;
+}
 .matchbar__row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -3934,23 +4166,6 @@ html[data-motion='reduced'] .start__menu > * {
 }
 
 /* The dressing room: what the manager knows before a ball is kicked. */
-.briefing {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s2);
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: var(--s3);
-  background: var(--panel);
-  border: 1px solid var(--line);
-}
-.briefing__head h2 {
-  margin: 0;
-  font-size: var(--fs-md);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
 .briefing__facts {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
@@ -4114,41 +4329,6 @@ html[data-motion='reduced'] .start__menu > * {
 .xilist__rating {
   font-variant-numeric: tabular-nums;
   font-weight: 700;
-}
-.commentary {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s2);
-  padding: var(--s2);
-  overflow-y: auto;
-}
-.commentary--static {
-  overflow: visible;
-}
-.commentary__item {
-  display: grid;
-  grid-template-columns: 26px minmax(0, 1fr);
-  gap: var(--s2);
-  color: var(--text-dim);
-  margin: 0;
-  font-size: var(--fs-sm);
-  padding: 5px var(--s2);
-  border-left: 2px solid var(--line-soft);
-  background: var(--panel);
-}
-.commentary__item--notable {
-  color: var(--text);
-  border-left-color: var(--line);
-}
-.commentary__item--key {
-  color: var(--text);
-  font-weight: 600;
-  border-left-color: var(--club);
-  background: var(--panel-2);
-}
-.commentary__minute {
-  color: var(--text-faint);
-  font-variant-numeric: tabular-nums;
 }
 .picker {
   display: flex;
@@ -4939,9 +5119,6 @@ html[data-motion='reduced'] .start__menu > * {
   .hero {
     grid-template-columns: minmax(0, 1fr);
   }
-  .matchday__main {
-    grid-template-columns: minmax(0, 1.3fr) minmax(260px, 1fr);
-  }
   .matchhead__names strong {
     font-size: var(--fs-sm);
   }
@@ -4967,9 +5144,6 @@ html[data-motion='reduced'] .start__menu > * {
     align-items: center;
     text-align: center;
     gap: var(--s3);
-  }
-  .matchday__main {
-    grid-template-columns: minmax(0, 1fr);
   }
   .club-list {
     max-height: none;
@@ -5173,23 +5347,28 @@ html[data-motion='reduced'] .start__menu > * {
   .kitrow__item {
     max-width: 96px;
   }
-  /* The match on a phone: three panes with a switch between them, so the whole
-     afternoon still fits the screen without the page itself ever scrolling. */
-  .matchday__switch {
-    display: flex;
-  }
+  /* The match on a phone: the pitch, the commentary bar under it and the
+     controls, still all on one screen without the page ever scrolling. There
+     is no room for the team sheets beside the pitch, so they stand down and the
+     full statistics live behind the Stats tab of the control strip. */
   .matchday__main {
-    grid-template-columns: minmax(0, 1fr);
     padding: var(--s2) var(--s2) 0;
   }
-  .matchday__main[data-pane='pitch'] .matchday__side,
-  .matchday__main[data-pane='feed'] .matchday__visual,
-  .matchday__main[data-pane='stats'] .matchday__visual,
-  .matchday__main[data-pane='stats'] .matchday__side {
+  .matchday__stage {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .teamsheet {
     display: none;
   }
-  .matchday__main[data-pane='stats'] .matchday__statspane {
-    display: block;
+  .commentary__now {
+    min-height: 52px;
+    padding: var(--s1) 60px;
+  }
+  .commentary__text {
+    font-size: var(--fs-lg);
+  }
+  .commentary__score {
+    font-size: var(--fs-lg);
   }
   .matchday__stats {
     display: none;

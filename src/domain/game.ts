@@ -1,5 +1,5 @@
 import type { Club } from './club';
-import type { Competition, FixtureList } from './competition';
+import type { Competition, FixtureList, MovementRecord, PyramidConfig } from './competition';
 import type { ScheduleState } from './events';
 import type { ClubId, CompetitionId, ISODate, MatchId, PersonId, SeasonId } from './ids';
 import type { ManagerProfile } from './manager';
@@ -29,14 +29,28 @@ import type { StandingRow } from './club';
  *     is the day the career resumes from.
  * 7 — the manager's own profile (name, birthday, occupation, hometown). Older
  *     saves derive one from the manager official they already carry.
+ * 8 — the pyramid. Several concurrent competitions (a ladder of league
+ *     divisions plus cups), each with its own fixtures, standings and honours.
+ *     Version 7 saves carry one league and no cups: the migration keeps that
+ *     league as Division One, generates the divisions below it from the world
+ *     seed, and stamps `tier: 1` on the history a single-division career
+ *     already had.
+ * 9 — development curves. Every player carries his own ceiling and his own age
+ *     to reach it, which is what stops the world's football improving for ever,
+ *     and a training session now records the attributes age took back. Version
+ *     8 saves are given a profile derived from the ability and age each player
+ *     already had, so an old career does not suddenly discover a new talent in
+ *     its established men.
  */
-export const GAME_STATE_VERSION = 7;
+export const GAME_STATE_VERSION = 9;
 
 export type GamePhase = 'preseason' | 'season' | 'complete';
 
 export interface StandingSnapshot {
   date: ISODate;
   matchday: number;
+  /** The competition this table belongs to — one per division per matchday. */
+  competitionId: CompetitionId;
   rows: StandingRow[];
   /** Position of the player's club, for history charts. */
   playerClubPosition: number | null;
@@ -80,7 +94,14 @@ export interface GameState {
   /** Thursday nights: the week's plan, what happened, and what it has built. */
   training: TrainingStore;
   competitions: Record<CompetitionId, Competition>;
-  fixtures: FixtureList;
+  /**
+   * The shape of the ladder this career was generated with: divisions, clubs
+   * per division, places swapped at each boundary, and whether the cups run.
+   * Persisted rather than read from the defaults so a save keeps its own shape.
+   */
+  pyramid: PyramidConfig;
+  /** Fixture lists, one per competition. */
+  fixtures: Record<CompetitionId, FixtureList>;
   matches: Record<MatchId, Match>;
   /** Player's own club. */
   userClubId: ClubId;
@@ -89,8 +110,15 @@ export interface GameState {
   /** Match ids in kick-off order for the season. */
   matchOrder: MatchId[];
   news: NewsItem[];
-  /** Weekly standing snapshots — the raw material of the archive. */
+  /** Weekly standing snapshots, one per division per matchday. */
   standingHistory: StandingSnapshot[];
+  /**
+   * Every movement across a boundary, for the whole career.
+   *
+   * Appended to at each season close, so a promoted club's history reads as a
+   * story across seasons rather than a line that stops when it changed tier.
+   */
+  promotionHistory: MovementRecord[];
   settings: GameSettings;
   /** Id of the last match the player's club was involved in. */
   lastMatchId: MatchId | null;
@@ -104,6 +132,8 @@ export interface SeasonSummary {
   seasonId: SeasonId;
   label: string;
   competitionName: string;
+  /** Division the player's club played in this season: 1 is the top. */
+  tier: number | null;
   championClubId: ClubId | null;
   playerClubId: ClubId;
   playerClubPosition: number | null;

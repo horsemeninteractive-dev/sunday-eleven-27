@@ -37,11 +37,14 @@ export function PreMatchPanel({
   match,
   session,
   playerById,
+  onLookAround,
 }: {
   game: GameState;
   match: Match;
   session: MatchSession;
   playerById: (id: string) => Player | undefined;
+  /** The manager wants the card out of the way and the pitch in front of him. */
+  onLookAround: () => void;
 }) {
   const isHome = match.homeClubId === game.userClubId;
   const opponentId = isHome ? match.awayClubId : match.homeClubId;
@@ -51,15 +54,17 @@ export function PreMatchPanel({
   const opponentForm = recentForm(game, opponentId);
 
   return (
-    <section className="briefing" aria-label="Matchday briefing">
-      <header className="briefing__head">
-        <h2>Matchday</h2>
-        <p className="small muted">
-          {formatDayMonth(match.date)} · {match.competitionName}
-        </p>
-      </header>
+    <div className="interval" role="dialog" aria-label="Matchday briefing">
+      <div className="interval__card">
+        <header className="interval__head">
+          <h2>Matchday</h2>
+          <p className="small muted">
+            {formatDayMonth(match.date)} · {match.competitionName}
+          </p>
+        </header>
 
-      <dl className="briefing__facts">
+        <div className="interval__body">
+          <dl className="briefing__facts">
         <div>
           <dt>Kick-off</dt>
           <dd>{match.kickOff}</dd>
@@ -159,7 +164,18 @@ export function PreMatchPanel({
         </div>
         <p className="small muted">{WARM_UP_BLURB[session.warmUp]}</p>
       </div>
-    </section>
+        </div>
+
+        <footer className="interval__foot">
+          <Button variant="ghost" onClick={onLookAround}>
+            Look around
+          </Button>
+          <Button variant="primary" size="lg" onClick={() => gameActions().kickOff()}>
+            Kick off
+          </Button>
+        </footer>
+      </div>
+    </div>
   );
 }
 

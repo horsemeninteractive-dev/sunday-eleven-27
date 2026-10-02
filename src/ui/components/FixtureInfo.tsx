@@ -12,6 +12,7 @@ import { gameActions, useStandings } from '../hooks';
 import { fixtureLabel, playerName } from '../format';
 import { Button, FormPips, Panel, Pill, Stat } from './primitives';
 import { ClubLink, CompetitionLink, PlayerLink } from './Links';
+import { CommentaryTranscript } from '../match/CommentaryTranscript';
 
 /**
  * The manager never has perfect information. Opposition reports are
@@ -228,17 +229,10 @@ export function MatchDetailPanel({ state, match }: { state: GameState; match: Ma
         </div>
       </div>
 
-      <details className="details">
-        <summary>Full commentary ({match.events.length} entries)</summary>
-        <ul className="commentary commentary--static">
-          {match.events.map((event) => (
-            <li key={event.id} className={event.importance === 3 ? 'commentary__item commentary__item--key' : 'commentary__item'}>
-              <span className="commentary__minute">{event.minute}&#39;</span>
-              <span>{event.text}</span>
-            </li>
-          ))}
-        </ul>
-      </details>
+      <section className="details">
+        <h4 className="subhead">Commentary</h4>
+        <CommentaryTranscript match={match} compact />
+      </section>
     </Panel>
   );
 }

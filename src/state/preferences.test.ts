@@ -52,14 +52,16 @@ describe('preferences', () => {
     installStorage(JSON.stringify({ motion: 'sideways', defaultMatchSpeed: 37 }));
     const recovered = loadPreferences();
     expect(recovered.motion).toBe('system');
-    // 37 is not a speed the match runs at, so it becomes the nearest one.
-    expect(recovered.defaultMatchSpeed).toBe(4);
+    // 37 is not a speed the match runs at, so it becomes the nearest one —
+    // which is the fastest there is.
+    expect(recovered.defaultMatchSpeed).toBe(8);
   });
 
   it('takes a speed only from the speeds a match is actually watched at', () => {
     expect(clampSpeed(1)).toBe(1);
     expect(clampSpeed(2)).toBe(2);
     expect(clampSpeed(4)).toBe(4);
+    expect(clampSpeed(8)).toBe(8);
     // 3 is exactly between 2x and 4x, and the slower of the two is the safer guess.
     expect(clampSpeed(3)).toBe(2);
     expect(clampSpeed(3.5)).toBe(4);
@@ -67,6 +69,7 @@ describe('preferences', () => {
     expect(clampSpeed('nonsense')).toBe(1);
     expect(clampSpeed(undefined)).toBe(1);
   });
+
 
   it('lets the manager overrule the system in either direction', () => {
     // Asked for reduced motion: reduced, whether or not the system agrees.

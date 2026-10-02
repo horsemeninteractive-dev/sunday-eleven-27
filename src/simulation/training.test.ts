@@ -16,6 +16,8 @@ import { addCandidate, recruitmentStore } from './recruitment/store';
 import { relationshipStore } from './relationships';
 import { clubCohesionValue } from './training/cohesion';
 import { developmentFor, lastSessionFor, sessionsFor, trainingStore } from './training/store';
+import { overallAbility, applyDecline } from './training/development';
+import { leagueClubIds } from './pyramid';
 import {
   currentPlan,
   currentSessionKey,
@@ -99,12 +101,14 @@ describe('planning a session', () => {
   it('turns the chosen length into minutes on the grass', () => {
     expect(sessionBlockMinutes(['warm-up', 'fitness'], 120).get('fitness')).toBeGreaterThan(50);
 
-    const short = createTestGame('training-length-short');
+    // The same world twice, so the only difference between the two nights is
+    // the plan: two clubs' worth of squad would otherwise be being compared.
+    const short = createTestGame('training-length');
     planFor(short, ['warm-up', 'possession', 'tactical']);
     currentPlan(short.state, short.state.userClubId).length = 'short';
     const shortSession = conductTraining(short.state, short.state.userClubId, 1).session!;
 
-    const long = createTestGame('training-length-long');
+    const long = createTestGame('training-length');
     planFor(long, ['warm-up', 'possession', 'tactical', 'fitness', 'teamwork']);
     currentPlan(long.state, long.state.userClubId).length = 'long';
     const longSession = conductTraining(long.state, long.state.userClubId, 1).session!;
@@ -217,6 +221,10 @@ describe('attendance', () => {
 
       const fullSession = conductTraining(full.state, full.state.userClubId, 1).session!;
       const thinSession = conductTraining(thin.state, thin.state.userClubId, 1).session!;
+      // A night called off for a waterlogged pitch is not a thin night, it is
+      // no night — nobody attended either session, so it says nothing about who
+      // turns up and is not counted.
+      if (fullSession.cancelled || thinSession.cancelled) continue;
       expect(thinSession.attended).toBeLessThan(fullSession.attended);
       if (thinSession.quality < fullSession.quality) judgedWorse += 1;
     }
@@ -340,7 +348,10 @@ describe('development', () => {
     const before = attributeSnapshot(squad);
 
     const sessions: number[] = [];
-    for (let week = 0; week < 10; week++) {
+    // Half a season rather than a fortnight: every player now has his own
+    // ceiling, and the older half of a squad is at or near it, so an
+    // improvement is worth waiting a few months for rather than ten weeks.
+    for (let week = 0; week < 26; week++) {
       const outcome = week === 0
         ? ensureTrainingConducted(game.state, 1)
         : (advanceWeek(game.state), ensureTrainingConducted(game.state, nextMatchday(game.state)));
@@ -354,11 +365,61 @@ describe('development', () => {
       if (previous !== undefined && value > previous) increases += 1;
     }
 
-    // Over ten weeks somebody should have come on a bit...
+    // Over half a season somebody should have come on a bit...
     expect(increases).toBeGreaterThan(0);
     // ...but the average Thursday does not hand out anything at all.
     const meanPerSession = sessions.reduce((sum, value) => sum + value, 0) / sessions.length;
-    expect(meanPerSession).toBeLessThan(1.5);
+    // Across a squad of roughly twenty that is fewer than one lad in ten coming
+    // on in any given week, which is the scarcity this is protecting.
+    expect(meanPerSession).toBeLessThan(2);
+  });
+
+  it('stops improving a player who has reached his ceiling', () => {
+    const game = createTestGame('training-ceiling');
+    const player = squadOf(game)[0]!;
+
+    // A man who is already as good as he is ever going to get has no headroom,
+    // so however much he trains he stays exactly where he is.
+    player.development = { potential: overallAbility(player), peakAge: player.age };
+    const before = player.attributes.physical.pace;
+    for (let week = 0; week < 6; week++) {
+      advanceWeek(game.state);
+      ensureTrainingConducted(game.state, nextMatchday(game.state));
+    }
+    expect(player.attributes.physical.pace).toBe(before);
+  });
+
+  it('takes attributes off a man who is past his peak, and off his legs first', () => {
+    const game = createTestGame('training-decline');
+
+    // Age alone does it: no session, no injury, just a man getting older.
+    const old = squadOf(game)[0]!;
+    old.age = (old.development?.peakAge ?? 27) + 10;
+    const paceBefore = old.attributes.physical.pace;
+    const decisionsBefore = old.attributes.mental.decisions;
+    let physicalDropped = 0;
+    let mentalDropped = 0;
+    for (let day = 1; day <= 400; day += 1) {
+      const date = addDays(game.state.date, day);
+      for (const decline of applyDecline(game.state, old, date)) {
+        if (decline.attribute.startsWith('physical.')) physicalDropped += 1;
+        if (decline.attribute.startsWith('mental.')) mentalDropped += 1;
+      }
+    }
+    expect(physicalDropped).toBeGreaterThan(0);
+    expect(old.attributes.physical.pace).toBeLessThan(paceBefore);
+    // The legs go long before the know-how does.
+    expect(physicalDropped).toBeGreaterThan(mentalDropped);
+    expect(old.attributes.mental.decisions).toBeGreaterThanOrEqual(decisionsBefore - 1);
+
+    // A man still at his best loses nothing at all.
+    const prime = squadOf(game)[1]!;
+    prime.age = Math.max(18, (prime.development?.peakAge ?? 27) - 2);
+    const primeBefore = overallAbility(prime);
+    for (let day = 1; day <= 400; day += 1) {
+      applyDecline(game.state, prime, addDays(game.state.date, day));
+    }
+    expect(overallAbility(prime)).toBe(primeBefore);
   });
 
   it('is concentrated in the younger lads', () => {
@@ -615,7 +676,9 @@ describe('training in the weekly loop', () => {
     const game = createTestGame('training-season');
     for (let week = 0; week < 6; week++) advanceWeek(game.state);
     const store = trainingStore(game.state);
-    const division = Object.values(game.state.competitions)[0]!.clubIds;
+    // Every club in the pyramid trains, not just the first division's: the
+    // whole county plays on Thursday.
+    const division = leagueClubIds(game.state);
     expect(store.history.length).toBeGreaterThan(0);
     // A short recent history per club, never an ever-growing log.
     for (const clubId of division) {

@@ -1,22 +1,22 @@
-import type { Competition } from '@/domain/competition';
+import { DEFAULT_PYRAMID } from '@/domain/competition';
 import type { GameState, StandingSnapshot } from '@/domain/game';
 import { GAME_STATE_VERSION } from '@/domain/game';
 import { emptyRecruitmentStore } from '@/domain/recruitment';
 import { emptyTrainingStore } from '@/domain/training';
-import type { ClubId, GroundId, ISODate, MatchId, PersonId, TownId } from '@/domain/ids';
+import type { ClubId, GroundId, ISODate, PersonId, TownId } from '@/domain/ids';
 import type { Club, ClubStructure, LedgerCategory } from '@/domain/club';
 import { compactBadge, type BadgeChoice } from '@/domain/badge';
 import type { GroundSurface } from '@/domain/world';
 import { ageOn, birthdayForAge, type ManagerProfile } from '@/domain/manager';
-import type { Match } from '@/domain/match';
 import { isPlayer, type Official, type Person, type Player } from '@/domain/person';
 import { defaultTactics } from '@/domain/tactics';
-import { buildSeasonCalendar, kickOffTimeFor, preSeasonStart, seasonLabelFor, toDate, toISO, addDays } from './calendar';
+import { preSeasonStart, seasonLabelFor, toDate, toISO, addDays } from './calendar';
 import { weekStartOf } from './timeline';
 import { emptyScheduleState } from '@/domain/events';
-import { createMatchRecord, prepareMatchday } from './matchday';
+import { prepareMatchday } from './matchday';
 import { arrangePreSeason } from './preseason';
-import { buildFixtureList, generateFixtures, matchdayCount } from './generation/fixtureGenerator';
+import { buildSeasonStructure, openSeasonRecords } from './seasonStructure';
+import { divisionOf, leagueCompetitions, standingsFor, userCompetition } from './pyramid';
 import { generateReferees, generateWorld, reputationFromQuality } from './generation/worldGenerator';
 import { generateSquad } from './generation/playerGenerator';
 import { generateInitialRelationships, linkManagerToClub } from './generation/relationshipGenerator';
@@ -28,7 +28,7 @@ import { rollAvailability } from './availability';
 import { applyWeeklyFinances } from './finance';
 import { ensureTrainingState } from './training/store';
 import { abilityMean } from './queries';
-import { computeStandings, positionOf } from './league';
+import { positionOf } from './league';
 import { matchdaysPlayed } from './timeline';
 import { Rng, stream } from './rng';
 
@@ -44,6 +44,9 @@ export interface WorldDraft {
   people: GameState['people'];
   /** The initial social network, generated with the world. */
   relationships: GameState['relationships'];
+  /** Clubs in each division, tier 1 first, strongest first within a division. */
+  divisions: ClubId[][];
+  /** The clubs of the top division, strongest first. */
   divisionClubIds: ClubId[];
   leagueName: string;
   seed: string;
@@ -120,6 +123,7 @@ export function generateDraft(options: NewGameOptions): WorldDraft {
     clubs: generated.clubs,
     people,
     relationships,
+    divisions: generated.divisions,
     divisionClubIds: generated.divisionClubIds,
     leagueName: generated.leagueName,
     seed: options.seed,
@@ -220,19 +224,35 @@ export function rollWeeklyAvailabilityForAll(state: GameState): void {
   }
 }
 
-export function snapshotStandings(state: GameState): StandingSnapshot {
-  const competition = Object.values(state.competitions)[0]!;
-  const rows = computeStandings({
-    clubIds: competition.clubIds,
-    matches: Object.values(state.matches),
-    competitionId: competition.id,
-    clubName: (id) => state.clubs[id]?.identity.name ?? id,
+/**
+ * Photograph a division's table.
+ *
+ * Every division is snapshotted, not just the manager's own: the archive is the
+ * county's history, and a snapshot of the third division is what lets the soak
+ * ask whether the bottom of the pyramid is stratifying or collapsing.
+ */
+export function snapshotStandings(state: GameState): StandingSnapshot[] {
+  return leagueCompetitions(state).map((competition) => {
+    const rows = standingsFor(state, competition);
+    return {
+      date: state.date,
+      matchday: matchdaysPlayed(state) + 1,
+      competitionId: competition.id,
+      rows,
+      playerClubPosition: positionOf(rows, state.userClubId),
+    };
   });
+}
+
+/** The manager's own division's table, for a screen that only wants one. */
+export function snapshotUserStandings(state: GameState): StandingSnapshot {
+  const competition = userCompetition(state);
   return {
     date: state.date,
     matchday: matchdaysPlayed(state) + 1,
-    rows,
-    playerClubPosition: positionOf(rows, state.userClubId),
+    competitionId: competition?.id ?? '',
+    rows: competition ? standingsFor(state, competition) : [],
+    playerClubPosition: null,
   };
 }
 
@@ -424,14 +444,17 @@ export interface ClubDesign {
 }
 
 /**
- * The club a new side displaces: the weakest in the division.
+ * The club a new side displaces: the weakest in the bottom division.
  *
- * Ties are settled by id so the same seed always rebuilds the same world — and
- * so the club designer can name the side being replaced before the manager has
- * committed to replacing it.
+ * A club the manager builds himself starts at the bottom of the pyramid, so it
+ * takes the place of the weakest club in the lowest division rather than the
+ * weakest in the county. Ties are settled by id so the same seed always rebuilds
+ * the same world — and so the club designer can name the side being replaced
+ * before the manager has committed to replacing it.
  */
 export function displacedClubId(draft: WorldDraft): ClubId {
-  return [...draft.divisionClubIds].sort((a, b) => {
+  const bottomDivision = draft.divisions[draft.divisions.length - 1] ?? draft.divisionClubIds;
+  return [...bottomDivision].sort((a, b) => {
     const diff = (draft.clubs[a]?.reputation ?? 0) - (draft.clubs[b]?.reputation ?? 0);
     return diff !== 0 ? diff : a.localeCompare(b);
   })[0]!;
@@ -635,23 +658,6 @@ export function startGameFromDraft(draft: WorldDraft, options: StartGameOptions)
   const seasonStart = weekStartOf(firstPreSeasonSunday);
   const seasonId = `season_${draft.startYear}_${String((draft.startYear + 1) % 100).padStart(2, '0')}`;
   const seasonLabel = seasonLabelFor(firstLeagueDate);
-  const competitionId = 'comp_league_1';
-
-  const divisionClubIds = [...draft.divisionClubIds];
-  const competition: Competition = {
-    id: competitionId,
-    name: draft.leagueName,
-    kind: 'league',
-    tier: 1,
-    seasonId,
-    clubIds: divisionClubIds,
-    promotionPlaces: 1,
-    relegationPlaces: 2,
-  };
-
-  const calendar = buildSeasonCalendar(firstLeagueDate, matchdayCount(divisionClubIds.length));
-  const fixtureRng = new Rng(`${draft.seed}::fixtures::${seasonId}`);
-  const generatedFixtures = generateFixtures(fixtureRng, divisionClubIds);
 
   const clubs = draft.clubs;
   const people = { ...draft.people };
@@ -685,8 +691,8 @@ export function startGameFromDraft(draft: WorldDraft, options: StartGameOptions)
       id: seasonId,
       label: seasonLabel,
       startDate: seasonStart,
-      endDate: calendar[calendar.length - 1]!.date,
-      calendar,
+      endDate: firstLeagueDate,
+      calendar: [],
       finished: false,
     },
     world: draft.world,
@@ -695,59 +701,40 @@ export function startGameFromDraft(draft: WorldDraft, options: StartGameOptions)
     relationships: structuredClone(draft.relationships),
     recruitment: emptyRecruitmentStore(),
     training: emptyTrainingStore(),
-    competitions: { [competitionId]: competition },
-    fixtures: { competitionId, byMatchday: {}, matchdayOf: {} },
+    competitions: {},
+    pyramid: { ...DEFAULT_PYRAMID },
+    fixtures: {},
     matches: {},
     userClubId: options.clubId,
     managerProfile: managerProfileFor(userManager, options.manager, seasonStart),
     matchOrder: [],
     news: [],
     standingHistory: [],
+    promotionHistory: [],
     settings: { complexity: 'standard', autoAdvanceMatches: false },
     lastMatchId: null,
     pendingMatchId: null,
     counters: {},
   };
 
-  const matches: Record<MatchId, Match> = {};
-  const ordered: MatchId[] = [];
-  generatedFixtures.forEach((fixture, index) => {
-    const matchId = `match_${index + 1}`;
-    const date = calendar[fixture.matchday - 1]!.date;
-    matches[matchId] = createMatchRecord({
-      state,
-      id: matchId,
-      matchday: fixture.matchday,
-      date,
-      homeClubId: fixture.homeClubId,
-      awayClubId: fixture.awayClubId,
-      competitionId,
-      competitionName: competition.name,
-      kickOff: kickOffTimeFor(date),
-    });
-    ordered.push(matchId);
+  // The ladder: every division, ranked by reputation and cut into divisions of
+  // the configured size, then a whole-pyramid cup drawn on top of it.
+  const divisions = draft.divisions.length > 0 ? draft.divisions : [draft.divisionClubIds];
+  const structure = buildSeasonStructure({
+    state,
+    seasonId,
+    seasonLabel,
+    firstLeagueDate,
+    divisions,
+    regionName: draft.world.regionName,
+    announceDraws: false,
   });
+  const calendar = structure.calendar;
+  state.season.calendar = calendar;
+  state.season.endDate = calendar[calendar.length - 1]!.date;
+  const competition = divisionOf(state, options.clubId);
 
-  state.matches = matches;
-  state.matchOrder = ordered;
-  state.fixtures = buildFixtureList(competitionId, generatedFixtures, (_fixture, index) => ordered[index]!);
-
-  for (const clubId of divisionClubIds) {
-    const club = state.clubs[clubId]!;
-    club.history.seasons.unshift({
-      seasonId,
-      seasonLabel,
-      competitionName: competition.name,
-      played: 0,
-      won: 0,
-      drawn: 0,
-      lost: 0,
-      goalsFor: 0,
-      goalsAgainst: 0,
-      points: 0,
-      finalPosition: null,
-    });
-  }
+  openSeasonRecords(state, seasonId, seasonLabel);
 
   // The new manager arrives with no history, so he starts from scratch: he
   // gets to know his own dressing room first and knows nobody else yet.
@@ -777,7 +764,7 @@ export function startGameFromDraft(draft: WorldDraft, options: StartGameOptions)
       clubIds: [options.clubId],
       data: {
         headline: `${seasonLabel} season begins`,
-        body: `${userClub.identity.name} are in ${competition.name}. First up: ${
+        body: `${userClub.identity.name} are in ${competition?.name ?? draft.leagueName}. First up: ${
           openingOpponent ? `${openingOpponent.identity.name}` : 'the opening fixture'
         }. The new manager takes charge with ${userClub.squadIds.length} registered players.`,
       },
@@ -810,7 +797,7 @@ export function startGameFromDraft(draft: WorldDraft, options: StartGameOptions)
 
   applyWeeklyFinances(state, options.clubId);
   prepareMatchday(state, 1);
-  state.standingHistory.push(snapshotStandings(state));
+  state.standingHistory.push(...snapshotStandings(state));
 
   return state;
 }

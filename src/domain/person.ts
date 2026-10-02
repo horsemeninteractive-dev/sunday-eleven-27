@@ -135,6 +135,31 @@ export interface PlayerRecord {
   seasons: PlayerHistoryEntry[];
 }
 
+/**
+ * Where a player is going, as opposed to where he is.
+ *
+ * Training used to raise a man's attributes until he hit the top of the scale,
+ * which meant every player in the world got slowly better every year and the
+ * world's football never stopped improving. Giving each player his own ceiling
+ * and his own age to get there turns that ratchet into a curve: a teenager has
+ * a long way to travel and all the time in the world to travel it, a man of 29
+ * is closing in on what he has, and a man of 34 has stopped getting better and
+ * started losing it.
+ *
+ * Neither number is shown to the manager as a number. The scouting view reads
+ * them as a rough judgement; here they are simply the shape of a career.
+ */
+export interface PlayerDevelopment {
+  /**
+   * The mean ability he is working towards, on the same 1–20 scale as his
+   * attributes. He improves towards this and no further, and once he is level
+   * with it he is done, however much he trains.
+   */
+  potential: number;
+  /** The age he is expected to be at his best. */
+  peakAge: number;
+}
+
 export interface Player extends PersonBase {
   kind: 'player';
   clubId: ClubId | null;
@@ -148,6 +173,8 @@ export interface Player extends PersonBase {
   /** How well he knows this club's shape, instructions and set pieces (0-20). */
   systemFamiliarity: SystemFamiliarity;
   attributes: PlayerAttributes;
+  /** His own ceiling and his own peak: the shape of his career. */
+  development: PlayerDevelopment;
   personality: Personality;
   /** 0-100 match sharpness/freshness. Drops with minutes, recovers weekly. */
   fitness: number;

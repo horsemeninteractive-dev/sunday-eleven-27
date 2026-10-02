@@ -1,0 +1,8 @@
+# Cloudflare Pages caching for a hashed-asset single-page build.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# The entry document names the hashed bundles, so it must never be cached: a
+# browser holding a stale one keeps loading last build's files.
+/index.html
+  Cache-Control: public, max-age=0, must-revalidate

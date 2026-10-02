@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { App } from './ui/App';
 import { flushAutosave, useGameStore } from './state/gameStore';
 import { applyMotion, loadPreferences } from './state/preferences';
+import { captureInstallPrompt, startServiceWorker } from './pwa';
 import './ui/styles.css';
 
 // Reduced motion is settled before the first paint, not after it: the stylesheet
@@ -31,21 +32,12 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') flushAutosave();
 });
 
-// What makes the game installable, and playable on a train. Registered only in
-// a production build: a worker in front of the dev server would serve one
-// session's cached index.html to the next, which is a mystifying way to lose an
-// afternoon. The registration is deliberately not awaited — the game must not
-// wait on it, and it must not care whether it succeeded.
-if (import.meta.env.PROD && 'serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch((error: unknown) => {
-      // Offline play is a bonus, not a promise. Anything that stops here
-      // (private browsing, an unsupported origin) costs the manager nothing but
-      // the feature, so it is reported and swallowed.
-      console.warn('Service worker registration failed; running online-only.', error);
-    });
-  });
-}
+// The install offer and the worker are both one-shot things that fire on the
+// browser's schedule rather than the game's, and both have to be caught before
+// React has mounted to be caught at all. They are set up here, at the top of the
+// program, for that reason — see pwa.ts.
+captureInstallPrompt();
+startServiceWorker();
 
 const container = document.getElementById('root');
 if (!container) throw new Error('Root container missing from index.html');

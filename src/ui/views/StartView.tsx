@@ -6,6 +6,7 @@ import { versionLabel } from '@/version';
 import { gameActions } from '../hooks';
 import { Button } from '../components/primitives';
 import { BrandLockup } from '../components/BrandMark';
+import { InstallCard } from '../components/InstallCard';
 import { SceneBackdrop } from '../components/SceneBackdrop';
 import { Glyph } from '../components/icons';
 
@@ -162,7 +163,13 @@ export function StartView() {
             ))}
           </section>
 
-          <p className="start__version" style={{ '--start-i': 4 } as CSSProperties}>
+          {/* The one thing on this screen that asks for something, so it sits
+              above the build number and below everything the manager came for. */}
+          <div style={{ '--start-i': 4 } as CSSProperties}>
+            <InstallCard />
+          </div>
+
+          <p className="start__version" style={{ '--start-i': 5 } as CSSProperties}>
             Sunday Eleven 27 <span className="start__version-number">{versionLabel()}</span>
           </p>
         </div>

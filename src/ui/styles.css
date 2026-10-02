@@ -2931,6 +2931,94 @@ html[data-motion='reduced'] .start__menu > * {
   color: var(--text-dim);
 }
 
+/* The one card on the menu that asks for something. It is deliberately quieter
+   than the two doors above it — it is an invitation, not a way into the game —
+   and it sits under a hairline so it reads as a separate, optional thing. */
+.installcard {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2) var(--s3);
+  margin-top: var(--s3);
+  padding: var(--s3);
+  text-align: left;
+  background: rgba(11, 18, 14, 0.6);
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--accent);
+}
+.installcard__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 240px;
+}
+.installcard__label {
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+}
+.installcard__detail {
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+}
+.installcard__actions {
+  display: flex;
+  gap: var(--s2);
+  flex: 0 0 auto;
+}
+/* With no button to offer, the manual instructions are the whole card, so the
+   accent edge would be drawing attention to something that cannot be clicked. */
+.installcard--manual {
+  border-left-color: var(--line);
+  padding-bottom: var(--s2);
+}
+
+/* A new build is waiting. Fixed to the bottom of the window and over
+   everything, because it can arrive at any moment — including during a match —
+   and the one thing it must not do is need the manager to navigate to see. */
+.updatebar {
+  position: fixed;
+  left: 50%;
+  bottom: var(--s4);
+  z-index: 40;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2) var(--s4);
+  width: min(560px, calc(100vw - var(--s5) * 2));
+  padding: var(--s3) var(--s4);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--accent);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+}
+.updatebar__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 220px;
+}
+.updatebar__label {
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.updatebar__detail {
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+}
+.updatebar__actions {
+  display: flex;
+  gap: var(--s2);
+  flex: 0 0 auto;
+}
+
 /* Preferences: a row of settings, each one a thing that is actually true. */
 .choices--stacked {
   display: flex;

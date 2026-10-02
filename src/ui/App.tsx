@@ -5,6 +5,7 @@ import { useGame } from './hooks';
 import { clubStyle } from './colour';
 import { AppShell } from './layout/AppShell';
 import { AppDialogs } from './dialogs/AppDialogs';
+import { UpdatePrompt } from './components/UpdatePrompt';
 // The one eager screen: it is the first thing painted, so it stays in the entry
 // chunk rather than waiting behind a fallback that would blank the page.
 import { StartView } from './views/StartView';
@@ -82,10 +83,16 @@ export function App() {
   };
 
   return (
-    <Suspense fallback={null}>
-      {screen()}
-      <AppDialogs />
-    </Suspense>
+    <>
+      <Suspense fallback={null}>
+        {screen()}
+        <AppDialogs />
+      </Suspense>
+      {/* Above the Suspense boundary on purpose: a deploy can land while a
+          screen is still being fetched, and the bar saying so should not be one
+          of the things still waiting. */}
+      <UpdatePrompt />
+    </>
   );
 }
 

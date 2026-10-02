@@ -39,9 +39,27 @@ self.addEventListener('install', (event) => {
       .open(CACHE)
       // addAll is all-or-nothing: one 404 would leave the game with no shell at
       // all, so each piece is added on its own and a miss is not fatal.
-      .then((cache) => Promise.all(SHELL.map((url) => cache.add(url).catch(() => undefined))))
-      .then(() => self.skipWaiting()),
+      .then((cache) => Promise.all(SHELL.map((url) => cache.add(url).catch(() => undefined)))),
   );
+});
+
+/**
+ * Updates wait. Deliberately.
+ *
+ * This worker used to call skipWaiting() here, which is the polite default for
+ * an update nobody is watching: the new worker takes over the moment it is
+ * ready. It is wrong for this game. A worker swapping itself underneath a live
+ * match changes the code out from under a half-played game, and the manager has
+ * no idea it happened — the screen reloads on the next match instead, which
+ * reads as the game losing his career rather than as a deploy.
+ *
+ * So a new worker installs, waits, and says nothing. The page watches for it and
+ * asks the manager, and only then does this worker take over. First installs
+ * need no such ceremony: with no worker already in charge there is nothing to
+ * wait for, and the activate handler below claims the open page either way.
+ */
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {

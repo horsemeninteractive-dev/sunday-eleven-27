@@ -31,6 +31,28 @@ the main menu.
   edge. It is the one file that decides what is cached, so a cached copy of it
   would outlive the deploy it was written for and pin the game to that build.
 
+### Keeping the game, and being told about a new one
+
+- **The main menu offers the install.** The browser decides *once* whether to
+  let a game be installed, offers it in a strip most people dismiss unread, and
+  never asks again. The game now catches that offer and spends it in the one
+  place a manager is looking, in the game's own words and on their own time. It
+  asks quietly, and "Not now" is genuinely never now.
+- **iOS is told how, rather than given a button that cannot work.** There is no
+  install event on an iPhone, so the card explains the way in — Share, then Add
+  to Home Screen. A browser with no way to install at all is shown nothing,
+  because a card offering what the browser has already refused is worse than no
+  card.
+- **A new build now waits to be let in, and says so.** The service worker used
+  to take over the moment a deploy finished, which swapped the code out from
+  under a half-played match with nothing on screen to explain it — and the
+  reload would land on the *previous* deploy, so the update could never actually
+  be applied. A new build now installs and sits, the game says a new version is
+  ready, and it applies when the manager chooses. The career is saved on the way
+  out, so reloading is safe.
+- **Deploys are noticed while the page is open**, when the manager comes back to
+  the tab and hourly after that, rather than only on the next visit.
+
 ### Smaller, and faster to open
 
 - **The pitch is a third of its old size.** The photograph behind the pre-game

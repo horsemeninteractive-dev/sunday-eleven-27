@@ -1,7 +1,7 @@
 {
   "name": "sunday-eleven-27",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.4.1",
   "type": "module",
   "description": "Sunday Eleven 27 - grassroots English Sunday League football management simulation",
   "scripts": {

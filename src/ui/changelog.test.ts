@@ -123,8 +123,14 @@ describe('the changelog reader', () => {
     expect(latest.kind === 'version' && latest.version).toBe(VERSION);
     expect(blocks.filter((block) => block.kind === 'section').length).toBeGreaterThan(2);
     expect(blocks.filter((block) => block.kind === 'item').length).toBeGreaterThan(20);
-    // Every version heading is the only thing on its line, so no stray text.
-    expect(latest.kind === 'version' && latest.detail).toBe('a pyramid, and time passing');
+    // Every version heading is the only thing on its line, so what is left of it
+    // is the release's own title and nothing else. Asserted as a shape rather
+    // than as this release's exact words, so publishing a new version does not
+    // mean editing the test that guards the changelog.
+    const detail = latest.kind === 'version' ? latest.detail : '';
+    expect(detail).not.toBe('');
+    expect(detail).toBe(detail.trim());
+    expect(detail).not.toMatch(/^[-—–\s]|[-—–\s]$/);
   });
 
   it('keeps an Unreleased section readable, and above the build it describes', () => {

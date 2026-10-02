@@ -10,7 +10,11 @@ move (any save from an older build is migrated forward on load). `1.0.0` means
 it is finished. This file is also the changelog inside the game, reachable from
 the main menu.
 
-## [Unreleased]
+## [0.4.1] - 2026-10-02 — a home screen, and a lighter download
+
+The game can be put on a home screen, played with no signal, and told when
+there is a new one to load. It also now takes rather less than half of what it
+used to, which turns out to be mostly one photograph.
 
 ### On a home screen
 

@@ -65,18 +65,46 @@ export function parseInline(text: string): InlinePart[] {
   return parts.length > 0 ? parts : [{ text: '' }];
 }
 
+/**
+ * One block of text, still being read.
+ *
+ * A changelog is hard-wrapped like any other markdown file, so an entry is
+ * usually several lines long. Until something starts a new block — a heading,
+ * a bullet, or a blank line — the lines belong to the same sentence, and are
+ * joined back into it before anybody tries to understand the markup.
+ */
+interface Pending {
+  kind: 'item' | 'paragraph';
+  text: string;
+}
+
 export function parseChangelog(markdown: string): ChangeBlock[] {
   const blocks: ChangeBlock[] = [];
+  let pending: Pending | null = null;
+
+  const flush = (): void => {
+    if (!pending) return;
+    blocks.push({ kind: pending.kind, parts: parseInline(pending.text) });
+    pending = null;
+  };
+
   for (const raw of markdown.split(/\r?\n/)) {
-    const line = raw.trimEnd();
-    const trimmed = line.trim();
-    if (!trimmed) continue;
+    const trimmed = raw.trim();
+    // A blank line ends the block being read. Anything more than one blank
+    // line in a row therefore costs nothing, which is the usual spacing
+    // between a heading and the thing it introduces.
+    if (!trimmed) {
+      flush();
+      continue;
+    }
 
     if (trimmed.startsWith('# ')) {
+      flush();
       blocks.push({ kind: 'title', parts: parseInline(trimmed.slice(2)) });
       continue;
     }
     if (trimmed.startsWith('## ') && !trimmed.startsWith('### ')) {
+      flush();
       const rest = trimmed.slice(3);
       const match = VERSION_IN_HEADING.exec(rest);
       const version = match ? match[1]!.trim() : null;
@@ -90,14 +118,19 @@ export function parseChangelog(markdown: string): ChangeBlock[] {
       continue;
     }
     if (trimmed.startsWith('### ')) {
+      flush();
       blocks.push({ kind: 'section', parts: parseInline(trimmed.slice(4)) });
       continue;
     }
     if (/^[-*]\s+/.test(trimmed)) {
-      blocks.push({ kind: 'item', parts: parseInline(trimmed.replace(/^[-*]\s+/, '')) });
+      flush();
+      pending = { kind: 'item', text: trimmed.replace(/^[-*]\s+/, '') };
       continue;
     }
-    blocks.push({ kind: 'paragraph', parts: parseInline(trimmed) });
+    // A line that starts nothing new is the rest of the sentence above it.
+    pending = pending ? { ...pending, text: `${pending.text} ${trimmed}` } : { kind: 'paragraph', text: trimmed };
   }
+
+  flush();
   return blocks;
 }

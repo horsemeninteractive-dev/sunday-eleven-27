@@ -63,7 +63,11 @@ export function ChangelogDialog() {
                 <span className="changelog__bullet" aria-hidden="true">
                   ·
                 </span>
-                {parts(block.parts)}
+                {/* The bullet and the text are the item's only two grid cells.
+                    Rendering the parts as siblings put every part after the
+                    first into the 12px bullet column, so a bullet with a bold
+                    lead-in and some words after it wrapped one word per line. */}
+                <span className="changelog__text">{parts(block.parts)}</span>
               </p>
             );
           }

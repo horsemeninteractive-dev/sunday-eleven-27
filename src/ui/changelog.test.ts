@@ -64,6 +64,50 @@ describe('the changelog reader', () => {
     expect(version.kind === 'version' && version.detail).toBe('Unreleased');
   });
 
+  it('joins a hard-wrapped entry back into one block', () => {
+    // The changelog is wrapped like any other markdown file, so nearly every
+    // entry in it is several lines long. Read line by line rather than block by
+    // block, a paragraph arrives as one block per line and a bullet arrives as a
+    // bullet followed by a stack of loose words — which is exactly how it
+    // looked in the game before this was fixed.
+    const blocks = parseChangelog(
+      [
+        '## [1.0.0] - 2026-02-01 — wrapped',
+        '',
+        'A sentence that has been',
+        'wrapped over several lines',
+        'because the file is.',
+        '',
+        '### Something',
+        '',
+        '- **A thing** happened, and',
+        '  the rest of the bullet is on',
+        '  lines of its own.',
+        '- A second bullet.',
+      ].join('\n'),
+    );
+
+    expect(blocks.map((block) => block.kind)).toEqual([
+      'version',
+      'paragraph',
+      'section',
+      'item',
+      'item',
+    ]);
+    // One paragraph, not three.
+    const text = (index: number): string => {
+      const block = blocks[index]!;
+      if (block.kind === 'version' || block.kind === 'title') return '';
+      return block.parts.map((part) => part.text).join('');
+    };
+    expect(text(1)).toBe('A sentence that has been wrapped over several lines because the file is.');
+    // One bullet, with its own words and no loose remainder.
+    const bullet = blocks[3]!;
+    expect(bullet.kind === 'item' && bullet.parts[0]).toEqual({ text: 'A thing', bold: true });
+    expect(text(3)).toBe('A thing happened, and the rest of the bullet is on lines of its own.');
+    expect(text(4)).toBe('A second bullet.');
+  });
+
   it('reads the project\u2019s own changelog, and finds this version at the top', () => {
     const blocks = parseChangelog(changelogRaw);
     const versions = blocks.filter((block) => block.kind === 'version');

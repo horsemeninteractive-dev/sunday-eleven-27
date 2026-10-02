@@ -26,13 +26,22 @@ function parts(parts: InlinePart[]) {
 
 export function ChangelogDialog() {
   const blocks = parseChangelog(changelogRaw);
-  const latestVersion = blocks.find((block) => block.kind === 'version' && block.version);
+  // The build in front of him is the newest *numbered* version, not whatever
+  // "Unreleased" heading happens to be sitting above it in the file.
+  const latestVersion = blocks.find(
+    (block) => block.kind === 'version' && block.version && block.version !== 'Unreleased',
+  );
   const latest = latestVersion && latestVersion.kind === 'version' ? latestVersion.version : null;
 
-  // The first version heading in the file is the build in front of him, and it
-  // is worth saying so: in a beta, knowing which side of a change you are on is
-  // the difference between a bug and a missing feature.
-  let seenFirstVersion = false;
+  // The first *numbered* version heading in the file is the build in front of
+  // him, and it is worth saying so: in a beta, knowing which side of a change
+  // you are on is the difference between a bug and a missing feature. An
+  // "Unreleased" section above it is work already done but not yet versioned,
+  // so it is shown as the headline but does not take the badge away from the
+  // build he is actually running.
+  const releasedIndex = blocks.findIndex(
+    (block) => block.kind === 'version' && block.version && block.version !== 'Unreleased',
+  );
 
   return (
     <Dialog
@@ -45,11 +54,14 @@ export function ChangelogDialog() {
         {blocks.map((block: ChangeBlock, index: number) => {
           if (block.kind === 'title') return null;
           if (block.kind === 'version') {
-            const current = !seenFirstVersion;
-            seenFirstVersion = true;
+            const current = index === releasedIndex;
+            const unreleased = block.version === 'Unreleased';
             return (
-              <h3 className={`changelog__version${current ? ' changelog__version--current' : ''}`} key={index}>
-                <span className="changelog__number">{block.version ? `v${block.version}` : 'Unreleased'}</span>
+              <h3
+                className={`changelog__version${current ? ' changelog__version--current' : ''}`}
+                key={index}
+              >
+                <span className="changelog__number">{unreleased ? 'Unreleased' : `v${block.version}`}</span>
                 {current && latest && block.version === latest && <span className="pill pill--accent">this build</span>}
                 {block.date && <span className="muted small">{block.date}</span>}
                 {block.detail && <span className="changelog__name">{block.detail}</span>}

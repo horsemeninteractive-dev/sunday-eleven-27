@@ -6,3 +6,9 @@
 # browser holding a stale one keeps loading last build's files.
 /index.html
   Cache-Control: public, max-age=0, must-revalidate
+
+# The service worker is the one file that decides which of the above rules
+# apply, so a cached copy of it outlives the deploy it was written for and pins
+# the game to it. Nothing else in the build may be treated this way.
+/sw.js
+  Cache-Control: public, max-age=0, must-revalidate

@@ -31,6 +31,22 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') flushAutosave();
 });
 
+// What makes the game installable, and playable on a train. Registered only in
+// a production build: a worker in front of the dev server would serve one
+// session's cached index.html to the next, which is a mystifying way to lose an
+// afternoon. The registration is deliberately not awaited — the game must not
+// wait on it, and it must not care whether it succeeded.
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch((error: unknown) => {
+      // Offline play is a bonus, not a promise. Anything that stops here
+      // (private browsing, an unsupported origin) costs the manager nothing but
+      // the feature, so it is reported and swallowed.
+      console.warn('Service worker registration failed; running online-only.', error);
+    });
+  });
+}
+
 const container = document.getElementById('root');
 if (!container) throw new Error('Root container missing from index.html');
 

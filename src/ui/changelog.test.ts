@@ -113,12 +113,41 @@ describe('the changelog reader', () => {
     const versions = blocks.filter((block) => block.kind === 'version');
     expect(versions.length).toBeGreaterThan(1);
     // The running build is the one the changelog calls "this build", so the
-    // first version in the file must be the version `package.json` carries.
-    const latest = versions[0]!;
+    // first *numbered* version in the file must be the version `package.json`
+    // carries. An "Unreleased" section above it is finished work not yet
+    // versioned, and must not take that place: it would label the heading the
+    // build is not on, and stamp the actual build with nothing at all.
+    const latest = versions.find(
+      (block) => block.kind === 'version' && block.version !== 'Unreleased',
+    )!;
     expect(latest.kind === 'version' && latest.version).toBe(VERSION);
     expect(blocks.filter((block) => block.kind === 'section').length).toBeGreaterThan(2);
     expect(blocks.filter((block) => block.kind === 'item').length).toBeGreaterThan(20);
     // Every version heading is the only thing on its line, so no stray text.
     expect(latest.kind === 'version' && latest.detail).toBe('a pyramid, and time passing');
+  });
+
+  it('keeps an Unreleased section readable, and above the build it describes', () => {
+    const blocks = parseChangelog(
+      [
+        '## [Unreleased]',
+        '',
+        '### Added',
+        '',
+        '- Work that is done but not yet in a version.',
+        '',
+        '## [1.0.0] - 2026-02-01 — released',
+        '',
+        '- The version that shipped.',
+      ].join('\n'),
+    );
+
+    const headings = blocks.filter((block) => block.kind === 'version');
+    expect(headings[0]!.kind === 'version' && headings[0]!.version).toBe('Unreleased');
+    // No date on an unreleased section, and no leftover punctuation from the
+    // em dash convention the released headings use.
+    expect(headings[0]!.kind === 'version' && headings[0]!.date).toBeNull();
+    expect(headings[0]!.kind === 'version' && headings[0]!.detail).toBe('');
+    expect(headings[1]!.kind === 'version' && headings[1]!.version).toBe('1.0.0');
   });
 });

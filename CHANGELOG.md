@@ -10,6 +10,33 @@ move (any save from an older build is migrated forward on load). `1.0.0` means
 it is finished. This file is also the changelog inside the game, reachable from
 the main menu.
 
+## [Unreleased]
+
+### On a home screen
+
+- **The game can be installed.** A manifest, a service worker and a set of icons
+  make it a Progressive Web App: added to a phone's home screen or a desktop's
+  app list, it opens in its own window with no browser chrome, and it keeps
+  working with no signal at all once it has been opened once. The worker caches
+  the hashed bundles (whose names carry their own version, so they can never be
+  stale) and falls back to the last good shell only when the network is gone, so
+  a deploy still reaches the player on their next connection.
+- **Every icon is the same mark.** The taskbar, home screen, splash screen and
+  share sheet icons are all generated from `public/favicon.svg` rather than drawn
+  separately, so there is one mark to change and no way for the icons to drift
+  away from it. The platform-masked variants are prepared properly: bled to the
+  edges, with the wordmark inside the safe zone, because Android may crop a
+  maskable icon to a circle and iOS paints transparent pixels black.
+- **The worker is never served stale.** `sw.js` is sent `must-revalidate` at the
+  edge. It is the one file that decides what is cached, so a cached copy of it
+  would outlive the deploy it was written for and pin the game to that build.
+
+### For developers
+
+- `npm run icons` regenerates every app icon from the favicon. It needs `sharp`,
+  which is a development dependency only: the PNGs are committed, and the script
+  runs when the mark changes, not on every build.
+
 ## [0.4.0] - 2026-10-02 — a pyramid, and time passing
 
 There were twelve clubs, forever. There are now thirty-six in three divisions,

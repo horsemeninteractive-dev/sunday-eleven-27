@@ -10,6 +10,98 @@ move (any save from an older build is migrated forward on load). `1.0.0` means
 it is finished. This file is also the changelog inside the game, reachable from
 the main menu.
 
+## [0.4.2] - 2026-10-02 — careers, somewhere with room
+
+The place a season is kept has changed. Nothing about the season has.
+
+### A bigger cupboard
+
+- **Careers are stored in IndexedDB, not in local storage.** A full county is
+  thirty-six clubs, nine hundred-odd people, four hundred matches and the whole
+  social network between them — around three megabytes of JSON. That is a great
+  deal to ask of local storage, which the browser caps at about five megabytes
+  *in total*, quotes as a string on every write, and does on the main thread
+  while the game is trying to do something else. The database stores it as
+  structured data, asynchronously, with room to grow well past what local
+  storage could ever hold.
+- **The whole world still travels together.** It is one career record, not a
+  table of players and clubs and matches, because nothing here needs to ask the
+  database a question it cannot answer by reading one record.
+- **Nothing about the simulation moved.** `GameState` is still the career, still
+  the source of truth, and still the only thing that is saved. The save format is
+  unchanged at version 9, so an existing career is the same career afterwards.
+- **The save list can no longer fall out of step with the careers.** It used to
+  be a separate index that had to be rewritten on every save and could disagree
+  with what was actually stored. It is now whatever is in the store, which is
+  the one thing that cannot disagree with itself.
+
+### Coming across
+
+- **Existing careers are brought across on the first launch, automatically.** A
+  manager who has been playing for months opens this build and finds his season
+  where he left it. It happens before the menu is drawn, so there is never a
+  moment where the game has told him he has no careers and then changed its
+  mind.
+- **The old careers are not deleted.** They are left exactly where they were, as
+  a fallback if the browser ever refuses the database, and so that a bad
+  migration is recoverable. It costs a few megabytes and is worth every byte.
+- **One bad career does not cost him the rest.** A save that will not parse is
+  named in the console, left untouched, and every other career still comes
+  across.
+- **Doing it twice is harmless.** A slot is only imported if it is not already
+  in the database, so a migration interrupted by a closed tab simply runs again,
+  and a career the manager has played on since can never be overwritten by the
+  older copy.
+
+### Fixed
+
+- **A rapid burst of saves could leave the wrong one on disk.** local storage
+  writes were synchronous, so `autosave(A)` had always finished before
+  `autosave(B)` could be called. Asynchronous writes are not so obliging, and the
+  database is free to complete two in flight in either order — which would have
+  put an older career on top of a newer one. Writes are now queued per slot, so
+  three saves in a burst leave the newest one stored, a failed write no longer
+  freezes the ones behind it, and the manager is never blocked waiting for any
+  of it.
+- **A database the browser refuses no longer stops the game opening.** A missing
+  database, a full disk, a refused write: the game still starts and is still
+  playable, and says so rather than throwing. An autosave that fails leaves the
+  career in memory exactly as it was.
+- **Storage failure and a broken save are no longer the same error.** A browser
+  that will not give the careers back says the browser would not; a save that
+  will not parse says that save is broken. They are different problems with
+  different fixes.
+- **The menu no longer says "nothing saved yet" while the game is still
+  looking.** The store knows whether it has finished asking, and the menu waits
+  for it rather than guessing.
+
+### For developers
+
+- **`src/state/indexedDb.ts`** is the whole of the raw browser-database
+  plumbing, in about two hundred lines. It is a wrapper rather than a dependency
+  on purpose: there was no IndexedDB library here already, and one would be a
+  larger thing to reason about than the thing it replaced. It is careful about
+  two things that are easy to get wrong — a transaction is closed by its event
+  loop rather than by its callback, and a transaction-level error reports
+  `AbortError` rather than the quota error that actually happened.
+- **A `se27` database at version 1**, with a `saves` store keyed by slot and a
+  `metadata` store keyed by name. The database version is its own number and has
+  nothing to do with `GAME_STATE_VERSION`, which is the version of a career's
+  contents: they are different facts, and using one for both would make a
+  simulation change look like a schema upgrade.
+- **`migrateSave()` is untouched** and still runs on every load, exactly as
+  before. A version 7 career with one league and no cups still becomes a
+  pyramid; the change of address is invisible to it.
+- **`serialiseGame()` and `deserialiseGame()` still work** and still operate
+  entirely in memory, and now go through the same reader the database does, so
+  an exported string and a stored career cannot drift apart. They are ready for
+  an export/import screen whenever there is one.
+- **`fake-indexeddb` is a development dependency**, and only that. The
+  persistence tests run against a real transaction implementation rather than a
+  stub that returns success for everything — every bug in this migration was
+  transaction behaviour, and a stub would have passed while all of them were
+  broken.
+
 ## [0.4.1] - 2026-10-02 — a home screen, and a lighter download
 
 The game can be put on a home screen, played with no signal, and told when

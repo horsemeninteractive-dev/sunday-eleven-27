@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { versionLabel } from '@/version';
+import type { SaveSlotInfo } from '@/state/persistence';
 import { gameActions } from '../hooks';
 import { Button } from '../components/primitives';
 import { Glyph } from '../components/icons';
@@ -15,10 +16,26 @@ const SLOTS = ['slot-1', 'slot-2', 'slot-3'];
  */
 export function UtilityMenu({ compact = false, icon = false }: { compact?: boolean; icon?: boolean }) {
   const [open, setOpen] = useState(false);
+  const [autosave, setAutosave] = useState<SaveSlotInfo | undefined>(undefined);
   const ref = useRef<HTMLDivElement | null>(null);
   // Read when the menu opens, like the start screen: the autosave moves on as
-  // the manager plays, and the menu is not watching it.
-  const autosave = open ? gameActions().listSaves().find((save) => save.auto) : undefined;
+  // the manager plays, and the menu is not watching it. The list comes from the
+  // database, so it arrives rather than being there.
+  useEffect(() => {
+    if (!open) {
+      setAutosave(undefined);
+      return;
+    }
+    let current = true;
+    void gameActions()
+      .listSaves()
+      .then((saves) => {
+        if (current) setAutosave(saves.find((save) => save.auto));
+      });
+    return () => {
+      current = false;
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -66,7 +83,7 @@ export function UtilityMenu({ compact = false, icon = false }: { compact?: boole
                   key={slot}
                   size="sm"
                   onClick={() => {
-                    gameActions().saveGame(slot);
+                    void gameActions().saveGame(slot);
                     setOpen(false);
                   }}
                 >
@@ -85,7 +102,7 @@ export function UtilityMenu({ compact = false, icon = false }: { compact?: boole
                   variant="ghost"
                   size="sm"
                   onClick={() => {
-                    gameActions().loadGame(slot);
+                    void gameActions().loadGame(slot);
                     setOpen(false);
                   }}
                 >
@@ -97,7 +114,7 @@ export function UtilityMenu({ compact = false, icon = false }: { compact?: boole
                   variant="ghost"
                   size="sm"
                   onClick={() => {
-                    gameActions().loadGame(autosave.slot);
+                    void gameActions().loadGame(autosave.slot);
                     setOpen(false);
                   }}
                 >
@@ -128,7 +145,7 @@ export function UtilityMenu({ compact = false, icon = false }: { compact?: boole
             variant="danger"
             size="sm"
             onClick={() => {
-              gameActions().quitToMenu();
+              void gameActions().quitToMenu();
               setOpen(false);
             }}
           >

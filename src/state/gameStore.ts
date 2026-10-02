@@ -170,6 +170,16 @@ export interface SetupState {
 export type DialogId = 'preferences' | 'changelog' | 'credits' | 'profiles';
 
 export interface GameStore {
+  /**
+   * Whether the game knows whether there is a career to reopen.
+   *
+   * False only while the database is still opening and any localStorage careers
+   * are still being brought across. The menu waits on it rather than deciding
+   * "there is no career" from a database it has not finished reading — which is
+   * how a manager ends up looking at an empty save list that fills in a moment
+   * later.
+   */
+  ready: boolean;
   game: GameState | null;
   draft: WorldDraft | null;
   setup: SetupState | null;
@@ -219,10 +229,10 @@ export interface GameStore {
   chooseClub: (clubId: ClubId) => void;
   createCustomClub: (design: ClubDesign) => void;
   abandonDraft: () => void;
-  saveGame: (slot: string) => void;
-  loadGame: (slot: string) => void;
-  listSaves: () => persistence.SaveSlotInfo[];
-  quitToMenu: () => void;
+  saveGame: (slot: string) => Promise<void>;
+  loadGame: (slot: string) => Promise<void>;
+  listSaves: () => Promise<persistence.SaveSlotInfo[]>;
+  quitToMenu: () => Promise<void>;
 
   // Matchday and the season.
   startUserMatch: () => void;
@@ -325,12 +335,18 @@ let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
  * else, and needing to remember to save is how a manager loses a month. The
  * write is debounced, not skipped: the last change to the world is always the
  * one that ends up in the file.
+ *
+ * The debounce is unchanged by the move to IndexedDB, and deliberately so. The
+ * cost it exists to avoid is serialising and writing a whole world, and that
+ * cost has not gone away — a career is still a large object to clone. What has
+ * gone away is the *synchronous* block while it happens, which is why the write
+ * being in flight is no longer a reason to fear a burst of them.
  */
 export function scheduleAutosave(state: GameState): void {
   if (autosaveTimer !== null) clearTimeout(autosaveTimer);
   autosaveTimer = setTimeout(() => {
     autosaveTimer = null;
-    persistence.autosave(state);
+    void persistence.autosave(state);
   }, AUTOSAVE_DELAY_MS);
 }
 
@@ -340,13 +356,21 @@ export function scheduleAutosave(state: GameState): void {
  * A tab can be closed or put in the background inside the debounce window, so
  * the page tells the store when it is going away instead of trusting the timer
  * to win the race.
+ *
+ * The write cannot be *awaited* here — the page is on its way out and nothing
+ * is going to hold it open for us — so what this guarantees is only that the
+ * write has been handed to the database rather than still sitting in a timer
+ * that will never fire. That is the honest limit of it, and it is why
+ * `pagehide` and `visibilitychange` are the listeners that call this: both are
+ * handed to the browser while there is still time for the write to land, whereas
+ * `beforeunload` is not reliably given any.
  */
 export function flushAutosave(): void {
   if (autosaveTimer === null) return;
   clearTimeout(autosaveTimer);
   autosaveTimer = null;
   const game = useGameStore.getState().game;
-  if (game) persistence.autosave(game);
+  if (game) void persistence.autosave(game);
 }
 
 /**
@@ -382,20 +406,25 @@ function advanceSpatialFor(game: GameState, live: Match, deltaSeconds: number): 
 }
 
 /**
- * The career to open with, read once as the store is built.
+ * The store starts empty and unready, and `bootStore` fills it in.
  *
- * The manager is put back on his own dashboard: a reload should not cost him
- * his place. `null` — no career, or a mark left pointing at a save that has
- * since gone — leaves the menu in charge, which is where a new one starts.
+ * The career to open with used to be read as the store was built, because
+ * localStorage answers instantly. IndexedDB does not, and pretending otherwise
+ * would mean either showing a menu that says "no careers" for a few milliseconds
+ * before the real one appears, or blocking the first paint on a database.
+ *
+ * So the store is built with nothing in it and a `ready` flag that is false, and
+ * the page calls `bootStore` before it renders anything that could depend on
+ * there being no career. `ready` stays false until that has happened, which is
+ * what the menu waits on.
  */
-const resumedCareer = persistence.resumeCareer();
-
 export const useGameStore = create<GameStore>((set, get) => ({
-  game: resumedCareer,
+  ready: false,
+  game: null,
   draft: null,
   setup: null,
   session: null,
-  view: resumedCareer ? 'dashboard' : 'start',
+  view: 'start',
   selectedPlayerId: null,
   selectedClubId: null,
   notice: null,
@@ -593,26 +622,26 @@ export const useGameStore = create<GameStore>((set, get) => ({
   // manager has already said who he is and does not want to say it again.
   abandonDraft: () => set({ draft: null, view: get().setup ? 'profile' : 'start' }),
 
-  saveGame: (slot) => {
+  saveGame: async (slot) => {
     const game = get().game;
     if (!game) return;
-    const info = persistence.saveGame(game, slot);
+    const info = await persistence.saveGame(game, slot);
     if (!info) {
-      set({ error: 'The browser would not store that save — local storage is full or blocked.' });
+      set({ error: 'The browser would not store that save — its storage is full or blocked.' });
       return;
     }
     set({ notice: `Saved to slot "${slot}" (${info.clubName}).` });
   },
 
-  loadGame: (slot) => {
-    const result = persistence.loadGame(slot);
+  loadGame: async (slot) => {
+    const result = await persistence.loadGame(slot);
     if (!result.state) {
       set({ error: result.error });
       return;
     }
     // Loading a save makes it the career the game is playing, so it is the one
     // the next reload should come back to — until something else is played.
-    persistence.setResumeSlot(slot);
+    await persistence.setResumeSlot(slot);
     // A save written before today's fixtures were prepared would otherwise
     // resume with two empty teams; this fills them in from the same seed.
     readyForManager(result.state);
@@ -632,10 +661,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   listSaves: () => persistence.listSaveSlots(),
 
-  quitToMenu: () => {
+  quitToMenu: async () => {
     // Quitting forgets where to resume, so the menu stays reachable — but the
     // autosave is left on disk, so quitting never costs the manager a career.
-    persistence.setResumeSlot(null);
+    await persistence.setResumeSlot(null);
     set({
       game: null,
       session: null,
@@ -1201,6 +1230,45 @@ export const useGameStore = create<GameStore>((set, get) => ({
 useGameStore.subscribe((state, previous) => {
   if (state.game && state.game !== previous.game) scheduleAutosave(state.game);
 });
+
+/**
+ * Open the storage, bring any old careers across, and find the one to reopen.
+ *
+ * Everything that happens before the game can be shown happens here, in order,
+ * and the store is not marked `ready` until all of it has:
+ *
+ *   1. open the database, and import any localStorage careers into it — so a
+ *      manager who has been playing for months finds his season waiting rather
+ *      than being told he has none;
+ *   2. read the resume mark and the career it names.
+ *
+ * Only then does the store decide what the first screen is. Deciding earlier is
+ * the one mistake that would be visible: a menu that said "nothing saved yet"
+ * for the length of a database read, with the manager's actual career appearing
+ * underneath it a moment later.
+ *
+ * Failure is not fatal at any point. A browser with no database, a full disk, a
+ * refused write — none of them stop the game opening; they cost it the ability
+ * to remember, which is announced rather than thrown. This resolves either way
+ * so the page is never left waiting on a promise that rejected.
+ */
+export async function bootStore(): Promise<void> {
+  let resumed: GameState | null = null;
+  try {
+    await persistence.initialise();
+    resumed = await persistence.resumeCareer();
+  } catch (error) {
+    console.warn('Starting without a stored career.', error);
+  }
+  useGameStore.setState({
+    ready: true,
+    game: resumed,
+    // The manager is put back on his own dashboard: a reload should not cost him
+    // his place. No career — or a mark left pointing at one that has since gone
+    // — leaves the menu in charge, which is where a new one starts.
+    view: resumed ? 'dashboard' : 'start',
+  });
+}
 
 /**
  * Planning Thursday night is a small change to a small part of the state: the

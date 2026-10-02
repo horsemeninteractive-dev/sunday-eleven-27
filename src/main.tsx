@@ -1,7 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './ui/App';
-import { flushAutosave, useGameStore } from './state/gameStore';
+import { bootStore, flushAutosave, useGameStore } from './state/gameStore';
 import { applyMotion, loadPreferences } from './state/preferences';
 import { captureInstallPrompt, startServiceWorker } from './pwa';
 import './ui/styles.css';
@@ -42,8 +42,19 @@ startServiceWorker();
 const container = document.getElementById('root');
 if (!container) throw new Error('Root container missing from index.html');
 
-createRoot(container).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
+// Storage opens before anything is drawn, and old careers are brought across
+// before it is decided which screen to open. Rendering first and catching up
+// afterwards would show the manager a menu claiming he has no careers, and then
+// contradict it a moment later — so the first frame waits on the database
+// instead, and the loading state it shows is honest about why.
+void bootStore().finally(() => {
+  // The placeholder in the document is only ever a placeholder: it is taken off
+  // as the real screen arrives, so there is never a moment where both are shown
+  // or neither is.
+  document.getElementById('booting')?.remove();
+  createRoot(container).render(
+    <StrictMode>
+      <App />
+    </StrictMode>,
+  );
+});

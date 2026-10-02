@@ -1,4 +1,4 @@
-import { Fragment, useState, type CSSProperties } from 'react';
+import { Fragment, useEffect, useState, type CSSProperties } from 'react';
 import { DEFAULT_PYRAMID } from '@/domain/competition';
 import { formatShortDate } from '@/simulation/calendar';
 import { orderSaves, type SaveSlotInfo } from '@/state/persistence';
@@ -36,9 +36,18 @@ const UTILITIES: Array<{ id: 'preferences' | 'profiles' | 'changelog' | 'credits
  * already owns it.
  */
 export function StartView() {
-  const [saves, setSaves] = useState<SaveSlotInfo[]>(() => orderSaves(gameActions().listSaves()));
+  // Listed when the screen appears, not when it is built: the list comes from the
+  // database, which is a promise rather than a value, so there is nothing to
+  // read synchronously. The store is already open by now — the menu is only
+  // reached once it is — so this resolves on the next tick rather than showing
+  // an empty list first.
+  const [saves, setSaves] = useState<SaveSlotInfo[]>([]);
 
-  const refreshSaves = () => setSaves(orderSaves(gameActions().listSaves()));
+  const refreshSaves = () => {
+    void gameActions().listSaves().then((listed) => setSaves(orderSaves(listed)));
+  };
+
+  useEffect(refreshSaves, []);
 
   return (
     <div className="start">
@@ -138,7 +147,7 @@ export function StartView() {
                     </div>
                     <Button
                       variant={save.auto ? 'primary' : 'default'}
-                      onClick={() => gameActions().loadGame(save.slot)}
+                      onClick={() => void gameActions().loadGame(save.slot)}
                     >
                       {save.auto ? 'Continue' : 'Load'}
                     </Button>

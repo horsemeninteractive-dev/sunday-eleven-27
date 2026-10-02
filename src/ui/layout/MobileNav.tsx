@@ -133,16 +133,16 @@ export function MobileNav({
               <h2 className="sheet__label">Save and load</h2>
               <div className="sheet__buttons">
                 {SLOTS.map((slot, index) => (
-                  <Button key={slot} size="sm" onClick={() => { gameActions().saveGame(slot); onOpenChange(false); }}>
+                  <Button key={slot} size="sm" onClick={() => { void gameActions().saveGame(slot); onOpenChange(false); }}>
                     Save {index + 1}
                   </Button>
                 ))}
                 {SLOTS.map((slot, index) => (
-                  <Button key={slot} variant="ghost" size="sm" onClick={() => { gameActions().loadGame(slot); onOpenChange(false); }}>
+                  <Button key={slot} variant="ghost" size="sm" onClick={() => { void gameActions().loadGame(slot); onOpenChange(false); }}>
                     Load {index + 1}
                   </Button>
                 ))}
-                <Button variant="danger" size="sm" onClick={() => { gameActions().quitToMenu(); onOpenChange(false); }}>
+                <Button variant="danger" size="sm" onClick={() => { void gameActions().quitToMenu(); onOpenChange(false); }}>
                   Quit to menu
                 </Button>
               </div>

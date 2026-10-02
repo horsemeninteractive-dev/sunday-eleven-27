@@ -2918,6 +2918,60 @@ html[data-motion='reduced'] .start__menu > * {
   color: var(--text-faint);
 }
 
+/* Opening the game.
+   The one moment the manager is made to wait, and the only thing they are told
+   about it: the game is reading its storage to decide whether there is a career
+   to reopen. Deliberately quiet — no spinner to watch, and above all no save
+   list, because a list that said "nothing saved yet" and then filled in would
+   be the game lying twice. The styles are inline in index.html as well, because
+   this has to be on screen before this stylesheet arrives. */
+.booting {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2);
+  background: var(--bg);
+}
+.booting__body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s2);
+}
+.booting__label {
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.booting__note {
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+}
+/* The in-document placeholder cannot use the variables above, because it is
+   painted before this stylesheet has loaded. */
+#booting.booting {
+  gap: 6px;
+  background: #08090b;
+  font-family: inherit;
+}
+#booting .booting__label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: #7c868f;
+}
+#booting .booting__note {
+  font-size: 11px;
+  color: #5b646c;
+}
+
 /* Which build this is. Small, at the foot of the menu, and never in the way. */
 .start__version {
   margin: 0;

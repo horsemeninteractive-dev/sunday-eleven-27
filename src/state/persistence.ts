@@ -39,6 +39,19 @@ import {
 } from '@/simulation/pyramid';
 import { stream } from '@/simulation/rng';
 import { emptyScheduleState } from '@/domain/events';
+import * as idb from './indexedDb';
+
+/**
+ * Where careers used to live before the database.
+ *
+ * These keys are read and never written. They keep their original names because
+ * renaming them would orphan every career already in every manager's browser,
+ * and they are still worth something: if the database cannot be opened at all,
+ * these are the only copy of a season that exists.
+ */
+const LEGACY_KEY_PREFIX = 'slfm26.save.';
+const LEGACY_INDEX_KEY = 'slfm26.saves';
+const LEGACY_RESUME_KEY = 'slfm26.resume';
 
 /** The competition id a version 7 save used for its one league. */
 const OLD_LEAGUE_ID: CompetitionId = 'comp_league_1';
@@ -51,18 +64,31 @@ const OLD_LEAGUE_ID: CompetitionId = 'comp_league_1';
  * never saved: on load the UI is rebuilt from the simulation.
  */
 
-// The storage keys keep their original prefix. They are invisible to the
-// manager, and renaming them would orphan every career already in the browser.
-const KEY_PREFIX = 'slfm26.save.';
-const INDEX_KEY = 'slfm26.saves';
 /**
  * The slot the game keeps up to date by itself. It is a slot like any other —
  * the manager can load it, and it is listed alongside his own — but nothing
  * writes to it except the autosave.
  */
 export const AUTOSAVE_SLOT = 'autosave';
-/** Whether the next page load should open the career rather than the menu. */
-const RESUME_KEY = 'slfm26.resume';
+
+/**
+ * The metadata key holding the slot the next page load should open.
+ *
+ * It lives in the database rather than in a cookie or a storage key because it
+ * is part of the career's own bookkeeping: it names a slot in the same store the
+ * slot is in, and it is written by the same autosave that writes the slot.
+ */
+const RESUME_KEY = 'resume';
+
+/**
+ * The flag that says the localStorage careers have been brought across.
+ *
+ * It is written *after* the import succeeds and never before, so a migration
+ * interrupted by a closed tab is simply run again next time. The import is
+ * written per slot rather than as one transaction on purpose, which is why that
+ * is safe: see migrateLegacySaves.
+ */
+const LEGACY_MIGRATION_FLAG = 'migration.localStorage.v1';
 
 export interface SaveSlotInfo {
   slot: string;
@@ -80,15 +106,6 @@ export interface SaveFile {
   version: number;
   savedAt: string;
   state: GameState;
-}
-
-function storage(): Storage | null {
-  try {
-    if (typeof localStorage === 'undefined') return null;
-    return localStorage;
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -110,18 +127,51 @@ export function orderSaves(saves: readonly SaveSlotInfo[]): SaveSlotInfo[] {
 }
 
 /**
- * Write, or say that it did not happen.
+ * The browser's old storage, for reading only.
  *
- * A full browser quota throws, and a career being autosaved in the background
- * must never throw into whatever the manager was actually doing.
+ * Careers used to live in localStorage as JSON strings. Nothing writes there
+ * any more, but the keys are still read — once, at startup — so that a manager
+ * who has been playing for months does not open an update and find his season
+ * gone. See migrateLegacySaves.
  */
-function write(store: Storage, key: string, value: string): boolean {
+function legacyStorage(): Storage | null {
   try {
-    store.setItem(key, value);
-    return true;
+    if (typeof localStorage === 'undefined') return null;
+    return localStorage;
   } catch {
-    return false;
+    // Private browsing, or a browser that has storage switched off entirely.
+    return null;
   }
+}
+
+/**
+ * Serialise writes to one slot so they land in the order they were asked for.
+ *
+ * IndexedDB made this problem real. localStorage writes were synchronous, so
+ * `autosave(A)` had always finished before `autosave(B)` could be called; here
+ * both are in flight at once and the database is free to complete them in
+ * whatever order it likes, which would leave an older career sitting in the
+ * slot after a newer one had already put itself there.
+ *
+ * The fix is a promise chain per slot rather than a global lock: each write
+ * waits for the previous write *to that slot* and nothing else, so the
+ * autosave never waits behind a manual save into a different slot, and the
+ * manager is never blocked — a write that is queued has already returned to the
+ * caller. Autosaving A, B and C in a burst therefore ends with C stored.
+ */
+const writeChains = new Map<string, Promise<unknown>>();
+
+function enqueueWrite<T>(slot: string, work: () => Promise<T>): Promise<T> {
+  const previous = writeChains.get(slot) ?? Promise.resolve();
+  // `then(work, work)` rather than `then(work)`: a failed write must not stop
+  // the ones behind it, or one quota error would freeze the autosave for the
+  // rest of the session.
+  const next = previous.then(work, work);
+  writeChains.set(
+    slot,
+    next.catch(() => undefined),
+  );
+  return next;
 }
 
 /**
@@ -551,31 +601,72 @@ function generateLowerTierClubs(state: GameState, count: number): ClubId[] {
   return created;
 }
 
-/** Write a career to a slot. Returns null if the browser would not store it. */
+/** What the database keeps for one slot. */
+export interface IndexedSaveRecord {
+  slot: string;
+  file: SaveFile;
+  info: SaveSlotInfo;
+}
+
+/**
+ * Open the database and bring any old careers across.
+ *
+ * Nothing may ask for a career before this has finished, which is why the store
+ * awaits it before it builds itself. It is safe to call more than once and safe
+ * to call when it fails: a browser that will not give us a database still opens
+ * the game, it just cannot remember anything, which is a far better outcome than
+ * a manager staring at a broken front door.
+ */
+export async function initialise(): Promise<void> {
+  try {
+    await migrateLegacySaves();
+  } catch (error) {
+    // A migration that cannot run is not a reason to refuse to start. The game
+    // works without persistence; what must not happen is the old data being
+    // destroyed on the way past, and nothing here deletes it.
+    console.warn('Bringing localStorage careers across failed; starting without them.', error);
+  }
+}
+
+/** Write a career to a slot. Resolves null if the browser would not store it. */
 export function saveGame(
   state: GameState,
   slot: string,
   options: { auto?: boolean } = {},
-): SaveSlotInfo | null {
-  const file: SaveFile = { version: GAME_STATE_VERSION, savedAt: new Date().toISOString(), state };
+): Promise<SaveSlotInfo | null> {
   const info: SaveSlotInfo = {
     slot,
     saveName: state.saveName,
     clubName: state.clubs[state.userClubId]?.identity.name ?? 'Unknown club',
     date: state.date,
     seasonLabel: state.season.label,
-    savedAt: file.savedAt,
+    savedAt: new Date().toISOString(),
     seed: state.seed,
     ...(options.auto ? { auto: true } : {}),
   };
 
-  const store = storage();
-  if (!store) return null;
-  if (!write(store, KEY_PREFIX + slot, JSON.stringify(file))) return null;
-  const index = listSaveSlots().filter((entry) => entry.slot !== slot);
-  index.push(info);
-  write(store, INDEX_KEY, JSON.stringify(index));
-  return info;
+  // The record holds the state by reference and lets the database clone it. The
+  // store already clones every career it mutates, so a structured clone of this
+  // object is known to work, and it is both faster and more faithful than
+  // stringifying a whole world first. Nothing here mutates `state`: cloning
+  // happens on the way in.
+  const record: IndexedSaveRecord = {
+    slot,
+    file: { version: GAME_STATE_VERSION, savedAt: info.savedAt, state },
+    info,
+  };
+
+  return enqueueWrite(slot, async () => {
+    try {
+      await idb.put(idb.SAVES, record);
+      return info;
+    } catch (error) {
+      // A full disk, a blocked write, a browser that has thrown us out. The
+      // career in memory is untouched and the manager keeps playing.
+      console.warn(`Saving "${slot}" failed.`, error);
+      return null;
+    }
+  });
 }
 
 /**
@@ -586,19 +677,22 @@ export function saveGame(
  * copy of the live career and marks it as the one to reopen, while leaving the
  * manager's own slots exactly as he left them.
  */
-export function autosave(state: GameState): boolean {
-  if (!saveGame(state, AUTOSAVE_SLOT, { auto: true })) return false;
-  setResumeSlot(AUTOSAVE_SLOT);
+export async function autosave(state: GameState): Promise<boolean> {
+  const info = await saveGame(state, AUTOSAVE_SLOT, { auto: true });
+  if (!info) return false;
+  // The resume mark is written only once the career it points at is actually
+  // stored, so a mark never points at a slot that holds nothing.
+  await setResumeSlot(AUTOSAVE_SLOT);
   return true;
 }
 
 /** The slot the next page load should open, if any. */
-export function resumeSlot(): string | null {
-  const store = storage();
-  if (!store) return null;
+export async function resumeSlot(): Promise<string | null> {
   try {
-    return store.getItem(RESUME_KEY);
-  } catch {
+    const record = await idb.get<{ key: string; value: unknown }>(idb.METADATA, RESUME_KEY);
+    return typeof record?.value === 'string' ? record.value : null;
+  } catch (error) {
+    console.warn('Could not read the resume marker.', error);
     return null;
   }
 }
@@ -609,17 +703,15 @@ export function resumeSlot(): string | null {
  * Quitting to the menu forgets it — the menu has to stay reachable — but the
  * autosave itself is left alone, so quitting never costs the manager a career.
  */
-export function setResumeSlot(slot: string | null): void {
-  const store = storage();
-  if (!store) return;
-  if (slot) write(store, RESUME_KEY, slot);
-  else {
-    try {
-      store.removeItem(RESUME_KEY);
-    } catch {
-      // Nothing was marked, or the browser refuses to touch it: either way
-      // there is nothing left to do.
+export async function setResumeSlot(slot: string | null): Promise<void> {
+  try {
+    if (slot) {
+      await idb.put(idb.METADATA, { key: RESUME_KEY, value: slot } satisfies { key: string; value: string });
+    } else {
+      await idb.deleteKey(idb.METADATA, RESUME_KEY);
     }
+  } catch (error) {
+    console.warn('Could not update the resume marker.', error);
   }
 }
 
@@ -630,25 +722,42 @@ export function setResumeSlot(slot: string | null): void {
  * A mark pointing at a save that has gone or will not parse is cleared, so a
  * stale mark cannot lock the game out of its own front door.
  */
-export function resumeCareer(): GameState | null {
-  const slot = resumeSlot();
+export async function resumeCareer(): Promise<GameState | null> {
+  const slot = await resumeSlot();
   if (!slot) return null;
-  const result = loadGame(slot);
+  const result = await loadGame(slot);
   if (!result.state) {
-    setResumeSlot(null);
+    await setResumeSlot(null);
     return null;
   }
   return result.state;
 }
 
-export function loadGame(slot: string): { state: GameState | null; error: string | null } {
-  const store = storage();
-  if (!store) return { state: null, error: 'Local storage is unavailable in this browser.' };
-  const raw = store.getItem(KEY_PREFIX + slot);
-  if (!raw) return { state: null, error: 'No save found in that slot.' };
-
+export async function loadGame(slot: string): Promise<{ state: GameState | null; error: string | null }> {
+  let record: IndexedSaveRecord | undefined;
   try {
-    const file = JSON.parse(raw) as SaveFile;
+    record = await idb.get<IndexedSaveRecord>(idb.SAVES, slot);
+  } catch (error) {
+    // The storage system failed, which is a different thing from the save being
+    // broken, and the manager is told so.
+    console.warn(`Reading save "${slot}" failed.`, error);
+    return { state: null, error: 'This browser would not give the game its stored careers back.' };
+  }
+
+  if (!record) return { state: null, error: 'No save found in that slot.' };
+
+  return readSaveFile(record.file);
+}
+
+/**
+ * Turn a stored save file into a career the game can play.
+ *
+ * Shared by the database and by `deserialiseGame`, so both go through exactly
+ * the same version check and the same migrations and neither can drift from the
+ * other.
+ */
+function readSaveFile(file: SaveFile): { state: GameState | null; error: string | null } {
+  try {
     if (!file || typeof file !== 'object' || !file.state) {
       return { state: null, error: 'That save file is unreadable.' };
     }
@@ -669,29 +778,218 @@ export function loadGame(slot: string): { state: GameState | null; error: string
   }
 }
 
-export function listSaveSlots(): SaveSlotInfo[] {
-  const store = storage();
-  if (!store) return [];
-  const raw = store.getItem(INDEX_KEY);
-  if (!raw) return [];
+export async function listSaveSlots(): Promise<SaveSlotInfo[]> {
   try {
-    const parsed = JSON.parse(raw) as SaveSlotInfo[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
+    const records = await idb.getAll<IndexedSaveRecord>(idb.SAVES);
+    // The list of what is saved is not a separate index that can drift out of
+    // step with the careers themselves — it is whatever is in the store, which
+    // is the one thing that cannot disagree with itself.
+    return records.map((record) => record.info).filter((info): info is SaveSlotInfo => Boolean(info?.slot));
+  } catch (error) {
+    console.warn('Could not list the saved careers.', error);
     return [];
   }
 }
 
-export function deleteSave(slot: string): void {
-  const store = storage();
-  if (!store) return;
+export async function deleteSave(slot: string): Promise<void> {
   try {
-    store.removeItem(KEY_PREFIX + slot);
-  } catch {
-    // Nothing stored under that slot to begin with.
+    await enqueueWrite(slot, () => idb.deleteKey(idb.SAVES, slot));
+    // A mark pointing at a save that has just been deleted would, on the next
+    // load, resolve to nothing and be cleared — but clearing it here means the
+    // manager is not relying on that to get back to the menu.
+    if ((await resumeSlot()) === slot) await setResumeSlot(null);
+  } catch (error) {
+    console.warn(`Deleting save "${slot}" failed.`, error);
   }
-  write(store, INDEX_KEY, JSON.stringify(listSaveSlots().filter((entry) => entry.slot !== slot)));
-  if (resumeSlot() === slot) setResumeSlot(null);
+}
+
+/* ------------------------------------------------------------------------ *
+ * Bringing localStorage careers across
+ * ------------------------------------------------------------------------ */
+
+/** How the import went, for the console and for the tests to read. */
+export interface LegacyMigrationReport {
+  /** True when there was nothing to do, or it had already been done. */
+  skipped: boolean;
+  imported: string[];
+  /** Slots that were in localStorage but could not be brought across. */
+  failed: string[];
+  /** True when every old career that could be read is now in the database. */
+  complete: boolean;
+}
+
+/**
+ * Move careers out of localStorage and into the database, exactly once.
+ *
+ * The rules this follows, and why:
+ *
+ *  - **Nothing is deleted.** localStorage is left exactly as it was, as a
+ *    fallback for a manager whose browser refuses us the database, and so that a
+ *    bad migration is recoverable. It costs a few megabytes and is worth every
+ *    byte of it.
+ *  - **A slot is only imported if that slot is not already here.** This is what
+ *    makes the migration idempotent *and* safe to retry: the flag is written
+ *    last, so a migration interrupted halfway leaves no flag and runs again, and
+ *    on the second run the slots it already brought across are skipped. It also
+ *    means a career the manager has played on since can never be overwritten by
+ *    the older copy in localStorage.
+ *  - **One bad save does not stop the others.** A career that will not parse is
+ *    named in the report and left alone in localStorage; every valid career
+ *    still comes across.
+ *  - **The flag means "I looked", not "I found something".** With no legacy
+ *    keys present the migration still records completion, so a player who has
+ *    never used the old storage does not pay for the check on every load.
+ */
+export async function migrateLegacySaves(): Promise<LegacyMigrationReport> {
+  try {
+    if ((await idb.get<{ key: string; value: unknown }>(idb.METADATA, LEGACY_MIGRATION_FLAG))?.value === 'complete') {
+      return { skipped: true, imported: [], failed: [], complete: true };
+    }
+  } catch (error) {
+    // Without a database there is nothing to migrate into. Not an error worth
+    // raising: the game simply starts without memory.
+    console.warn('Cannot migrate legacy saves without a database.', error);
+    return { skipped: true, imported: [], failed: [], complete: false };
+  }
+
+  const store = legacyStorage();
+  if (!store) {
+    await markLegacyMigrationComplete();
+    return { skipped: true, imported: [], failed: [], complete: true };
+  }
+
+  const imported: string[] = [];
+  const failed: string[] = [];
+
+  // Every career the old storage held, whether or not its index still listed it.
+  // The index could itself be stale or half-written, and a career the manager
+  // can see in the list must not be the one thing left behind.
+  const slots = new Set<string>();
+  let legacyIndex: SaveSlotInfo[] = [];
+  try {
+    const raw = store.getItem(LEGACY_INDEX_KEY);
+    if (raw) {
+      const parsed: unknown = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        legacyIndex = parsed.filter(
+          (entry): entry is SaveSlotInfo => Boolean(entry) && typeof (entry as SaveSlotInfo).slot === 'string',
+        );
+        for (const entry of legacyIndex) slots.add(entry.slot);
+      }
+    }
+  } catch {
+    // A corrupt index costs us the ordering nicety, not the careers.
+    legacyIndex = [];
+  }
+  try {
+    for (let index = 0; index < store.length; index += 1) {
+      const key = store.key(index);
+      if (key?.startsWith(LEGACY_KEY_PREFIX)) slots.add(key.slice(LEGACY_KEY_PREFIX.length));
+    }
+  } catch {
+    // As above: keys unlistable, careers still readable by name.
+  }
+
+  for (const slot of slots) {
+    // Already in the database, so either this migration ran before or the
+    // manager has played on since. Either way the copy here is not better.
+    if (await idb.has(idb.SAVES, slot)) continue;
+
+    let raw: string | null = null;
+    try {
+      raw = store.getItem(LEGACY_KEY_PREFIX + slot);
+    } catch {
+      failed.push(slot);
+      continue;
+    }
+    if (!raw) {
+      // Listed in the index but no career behind it. Nothing to bring across.
+      failed.push(slot);
+      continue;
+    }
+
+    let file: SaveFile;
+    try {
+      file = JSON.parse(raw) as SaveFile;
+      if (!file || typeof file !== 'object' || !file.state || typeof file.version !== 'number') {
+        throw new Error('not a save file');
+      }
+      // A save that could never be loaded anyway is not brought across. The
+      // same two things `readSaveFile` insists on are checked here, so a
+      // career is never imported only to be refused when the manager opens it.
+      const state = file.state as Partial<GameState>;
+      if (!state.clubs || !state.userClubId || !state.clubs[state.userClubId]) {
+        throw new Error('no club of its own');
+      }
+    } catch {
+      // A corrupt career is reported and left where it is, and the rest carry
+      // on. This is the case where aborting would cost the manager everything.
+      console.warn(`Legacy career "${slot}" could not be read and was left where it was.`);
+      failed.push(slot);
+      continue;
+    }
+
+    const known = legacyIndex.find((entry) => entry.slot === slot);
+    const info: SaveSlotInfo = known ?? describeSlot(file, slot, slot === AUTOSAVE_SLOT);
+    try {
+      await idb.put(idb.SAVES, { slot, file, info } satisfies IndexedSaveRecord);
+      imported.push(slot);
+    } catch (error) {
+      console.warn(`Legacy career "${slot}" could not be written to the database.`, error);
+      failed.push(slot);
+    }
+  }
+
+  // The resume mark is carried across only if the career it names made it. A
+  // mark pointing at a save that never arrived would be cleared on the first
+  // resume anyway; not carrying it avoids a pointless load of a slot we know is
+  // not there.
+  try {
+    const legacyResume = store.getItem(LEGACY_RESUME_KEY);
+    if (legacyResume && (imported.includes(legacyResume) || (await idb.has(idb.SAVES, legacyResume)))) {
+      await setResumeSlot(legacyResume);
+    }
+  } catch (error) {
+    console.warn('Could not carry the resume marker across.', error);
+  }
+
+  const complete = failed.length === 0;
+  if (complete) await markLegacyMigrationComplete();
+  return { skipped: false, imported, failed, complete };
+}
+
+async function markLegacyMigrationComplete(): Promise<void> {
+  try {
+    await idb.put(idb.METADATA, { key: LEGACY_MIGRATION_FLAG, value: 'complete' });
+  } catch (error) {
+    // Without the flag this runs again next time, which is merely slower: the
+    // per-slot skip means it imports nothing the second time.
+    console.warn('Could not record that the localStorage migration finished.', error);
+  }
+}
+
+/**
+ * The listing a save would get, built from the save itself.
+ *
+ * Used only when the old index had no entry for this slot, so there is nothing
+ * else to describe it from. Every field is read defensively: this is running
+ * over data written by an older build of the game, and a save that is shaped
+ * wrongly enough to throw here would take the import of every *other* career
+ * down with it.
+ */
+function describeSlot(file: SaveFile, slot: string, auto: boolean): SaveSlotInfo {
+  const state = (file.state ?? {}) as Partial<GameState>;
+  const clubs = state.clubs ?? {};
+  return {
+    slot,
+    saveName: state.saveName ?? slot,
+    clubName: (state.userClubId ? clubs[state.userClubId]?.identity.name : undefined) ?? 'Unknown club',
+    date: state.date ?? '',
+    seasonLabel: state.season?.label ?? '',
+    savedAt: file.savedAt,
+    seed: state.seed ?? '',
+    ...(auto ? { auto: true } : {}),
+  };
 }
 
 /** Used by tests and by "export save" style features. */
@@ -700,13 +998,16 @@ export function serialiseGame(state: GameState): string {
 }
 
 export function deserialiseGame(raw: string): { state: GameState | null; error: string | null } {
+  let file: SaveFile;
   try {
-    const file = JSON.parse(raw) as SaveFile;
-    if (typeof file.version !== 'number' || file.version > GAME_STATE_VERSION) {
-      return { state: null, error: 'Version mismatch.' };
-    }
-    return { state: migrateSave(file).state, error: null };
+    file = JSON.parse(raw) as SaveFile;
   } catch {
     return { state: null, error: 'Unreadable save data.' };
   }
+  if (typeof file.version !== 'number' || file.version > GAME_STATE_VERSION) {
+    return { state: null, error: 'Version mismatch.' };
+  }
+  // The same reader the database goes through, so an exported string and a
+  // stored career are held to exactly the same version check and migrations.
+  return readSaveFile(file);
 }

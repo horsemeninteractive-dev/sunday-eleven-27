@@ -17,6 +17,13 @@
     <meta name="apple-mobile-web-app-title" content="Sunday Eleven" />
   </head>
   <body>
+    <!-- Shown until the game has opened its storage and decided what to open.
+         It carries its own styles because the stylesheet arrives with the
+         bundle, and the whole point of this is to be on screen *before* that. -->
+    <div id="booting" class="booting">
+      <span class="booting__label">Sunday Eleven 27</span>
+      <span class="booting__note">Opening your career…</span>
+    </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

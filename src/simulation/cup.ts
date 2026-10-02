@@ -534,8 +534,7 @@ export function newCupState(consolationFor?: CompetitionId, matchdayOffset = 0):
 }
 
 /** When a cup round's ties were drawn, for the archive and the UI. */
-export function roundDrawDate(state: GameState, competition: Competition, round: number): ISODate | null {
-  const list = state.fixtures?.[competition.id];
+export function roundDrawDate(state: GameState, competition: Competition, round: number): ISODate | null {  const list = state.fixtures?.[competition.id];
   if (!list) return null;
   const matchday = cupRoundMatchday(state, competition, round);
   const ids = Object.entries(list.matchdayOf)
@@ -543,6 +542,57 @@ export function roundDrawDate(state: GameState, competition: Competition, round:
     .map(([id]) => id);
   const match = ids.map((id) => state.matches[id]).find((entry): entry is Match => Boolean(entry));
   return match?.date ?? null;
+}
+
+/**
+ * The round number a cup tie belongs to, or 0 if it is not one of this
+ * competition's.
+ *
+ * A cup round is numbered on a matchday above the league's own, so the round is
+ * read back out of the same arithmetic rather than stored on the tie: there is
+ * nowhere to keep it that a postponed or rearranged game would have to be
+ * updated in as well.
+ */
+export function cupRoundOf(state: GameState, competition: Competition, match: Match): number {
+  const cup = competition.cup;
+  if (!cup || match.competitionId !== competition.id) return 0;
+  const league = state.season.calendar.filter((entry) => isLeagueMatchday(state, entry.matchday));
+  const base = league.length || state.season.calendar.length;
+  return match.matchday - (base + (cup.matchdayOffset ?? 0));
+}
+
+/** One round of a cup, read back for the screen that shows the competition. */
+export interface CupRoundSummary {
+  round: number;
+  date: ISODate | null;
+  ties: Match[];
+  /** True when every tie in the round has been settled. */
+  complete: boolean;
+}
+
+/**
+ * A cup's rounds so far, oldest first.
+ *
+ * `cup.round` is the round about to be played, so the rounds worth showing are
+ * the ones before it, and the round in hand if it has been drawn. The tie count
+ * halves each time, which is how the bracket is read on the screen: round one
+ * is the widest and the final is two clubs and a date.
+ */
+export function cupRoundSummaries(state: GameState, competition: Competition): CupRoundSummary[] {
+  const cup = competition.cup;
+  if (!cup) return [];
+  const summaries: CupRoundSummary[] = [];
+  for (let round = 1; round <= cup.round; round += 1) {
+    const ties = matchesForRound(state, competition, round);
+    if (ties.length === 0) break;
+    summaries.push({
+      round,
+      date: roundDrawDate(state, competition, round),
+      ties,
+      complete: ties.every((tie) => !isActiveFixture(tie)),
+    });
+  }
+  return summaries;
 }
 
 /** How many days before a date, for a phrase in the news. */

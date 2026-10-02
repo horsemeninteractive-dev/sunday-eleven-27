@@ -106,6 +106,7 @@ export const NAV_SECTIONS: NavSection[] = [
     icon: 'league',
     leaves: [
       { id: 'league', label: 'League table', short: 'League', icon: 'league', hint: 'The table and results elsewhere' },
+      { id: 'cup', label: 'Cups', short: 'Cups', icon: 'league', hint: 'The League Cup and the Plate' },
       { id: 'fixtures', label: 'Schedule', short: 'Matches', icon: 'fixtures', hint: 'The season, week by week' },
     ],
   },
@@ -162,6 +163,7 @@ export const VIEW_LABEL: Record<ViewId, string> = {
   recruitment: 'Recruitment',
   fixtures: 'Schedule',
   league: 'League table',
+  cup: 'Cups',
   news: 'News',
   finances: 'Finances',
   kit: 'The kit',

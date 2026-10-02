@@ -101,6 +101,7 @@ export type ViewId =
   | 'tactics'
   | 'fixtures'
   | 'league'
+  | 'cup'
   | 'finances'
   | 'history'
   | 'kit'

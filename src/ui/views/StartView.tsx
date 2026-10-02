@@ -1,4 +1,5 @@
 import { Fragment, useState, type CSSProperties } from 'react';
+import { DEFAULT_PYRAMID } from '@/domain/competition';
 import { formatShortDate } from '@/simulation/calendar';
 import { orderSaves, type SaveSlotInfo } from '@/state/persistence';
 import { versionLabel } from '@/version';
@@ -74,8 +75,9 @@ export function StartView() {
               <span className="menucard__kicker">Career mode</span>
               <span className="menucard__title">Start a new career</span>
               <span className="menucard__desc">
-                Generate a local football world from a seed and take charge of one of fourteen clubs. The squad,
-                the bank balance and the history come with it.
+                Generate a local football world from a seed and take charge of one of{' '}
+                {DEFAULT_PYRAMID.tiers * DEFAULT_PYRAMID.clubsPerTier} clubs in {DEFAULT_PYRAMID.tiers} divisions.
+                The squad, the bank balance and the history come with it.
               </span>
             </span>
             <span className="menucard__go">

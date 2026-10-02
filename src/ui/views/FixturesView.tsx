@@ -1,12 +1,51 @@
 import { useState } from 'react';
+import type { Competition } from '@/domain/competition';
 import type { GameState } from '@/domain/game';
 import type { Match } from '@/domain/match';
 import { formatDayMonth } from '@/simulation/calendar';
-import { clubMatches, currentMatchday as currentMatchdayNumber, matchVenueLabel } from '@/simulation/queries';
+import { cupRoundOf } from '@/simulation/cup';
+import { ordinal } from '@/simulation/news';
+import { clubMatches, matchVenueLabel } from '@/simulation/queries';
 import { NextFixturePanel } from '../components/FixtureInfo';
 import { MatchReportModal } from '../components/MatchReportModal';
 import { gameActions, useGame, useNextFixture } from '../hooks';
 import { Button, PageHeader, Panel, Pill } from '../components/primitives';
+
+/**
+ * What a fixture is for.
+ *
+ * A club's season is no longer one list of Sundays. It is twenty-two league
+ * games, eleven midweek cup ties — each of which is a round of something — and
+ * whatever friendlies somebody arranged in July. A schedule that only said
+ * "MD 27" was asking the manager to work out all of that themselves, and the
+ * matchday numbers are worse than useless on a cup tie because the two
+ * competitions are numbered off different bases.
+ */
+function fixtureKind(
+  state: GameState,
+  match: Match,
+): { label: string; detail: string; tone: 'accent' | 'ok' | 'muted' } {
+  const competition: Competition | undefined = state.competitions[match.competitionId];
+  // A friendly is arranged between two clubs and belongs to no competition, so
+  // it never touches a table, a record or a career appearance.
+  if (!competition) {
+    return { label: 'Friendly', detail: 'pre-season', tone: 'muted' };
+  }
+  if (competition.kind === 'cup' && competition.cup) {
+    const round = cupRoundOf(state, competition, match);
+    const name = competition.name.replace(/^.*Sunday League /, '');
+    return {
+      label: round > 0 ? `${name} · ${ordinal(round)} round` : name,
+      detail: 'midweek cup tie',
+      tone: 'accent',
+    };
+  }
+  return {
+    label: competition.name.replace(/^.*Sunday League /, ''),
+    detail: 'league',
+    tone: 'ok',
+  };
+}
 
 /**
  * The schedule.
@@ -15,6 +54,10 @@ import { Button, PageHeader, Panel, Pill } from '../components/primitives';
  * already settled and the games still to come in the same run, with the results
  * sitting in the list where the manager left them. Nothing is split into a
  * "results" panel — reading a season means reading it straight through.
+ *
+ * The list is one column. A fixture is a line of text and a score, and putting
+ * two of them side by side on a page of dates makes the manager read across
+ * rather than down, which is the wrong way round for a season diary.
  *
  * Opening a report is a detour rather than a destination, so it opens over the
  * top of the page and the list is exactly where it was when it closes.
@@ -26,10 +69,15 @@ export function FixturesView() {
 
   if (!game) return null;
   const club = game.clubs[game.userClubId]!;
-  const matches = clubMatches(game, club.id).sort((a, b) => a.matchday - b.matchday);
+  // By date, not by matchday. League matchdays are 1..22 and a cup round is
+  // numbered above all of them, so a midweek tie in September sorted on its
+  // matchday lands in November's month and at the end of the list. The list is
+  // a season diary: it runs in the order the days do.
+  const matches = clubMatches(game, club.id).sort(
+    (a, b) => a.date.localeCompare(b.date) || a.matchday - b.matchday,
+  );
   const played = matches.filter((match) => match.played);
   const upcoming = matches.filter((match) => !match.played);
-  const currentMatchday = currentMatchdayNumber(game);
   const months = groupByMonth(matches);
   const monthInHand = monthLabel((nextFixture ?? matches[matches.length - 1])?.date ?? game.date);
   const report = reportId ? (game.matches[reportId] ?? null) : null;
@@ -39,7 +87,7 @@ export function FixturesView() {
       <PageHeader
         eyebrow="Competition"
         title="Fixtures"
-        subtitle={`${game.season.label} · ${matches.length} league fixtures, ${played.length} played, ${upcoming.length} to come`}
+        subtitle={`${game.season.label} · ${matches.length} fixtures, ${played.length} played, ${upcoming.length} to come`}
         meta={
           nextFixture ? (
             <span className="small muted">
@@ -60,7 +108,12 @@ export function FixturesView() {
         }
       />
 
-      <div className="flow">
+      <div className="stack">
+        {/* The next game first, at full width: it is the one fixture the manager
+            came to this screen for, and it used to sit beside the list in a
+            column that made the list itself read two-up. */}
+        {nextFixture && <NextFixturePanel state={game} match={nextFixture} />}
+
         {months.map(({ label, matches: monthMatches }) => {
           const monthPlayed = monthMatches.filter((match) => match.played).length;
           const monthToCome = monthMatches.length - monthPlayed;
@@ -83,7 +136,7 @@ export function FixturesView() {
                     key={match.id}
                     state={game}
                     match={match}
-                    isCurrent={!match.played && match.matchday === currentMatchday}
+                    isCurrent={match.id === nextFixture?.id}
                     onOpenReport={match.played ? () => setReportId(match.id) : undefined}
                   />
                 ))}
@@ -91,11 +144,6 @@ export function FixturesView() {
             </Panel>
           );
         })}
-
-        {/* The next game, with everything known about it, so the space beside
-            the schedule is the most useful thing on the screen rather than an
-            empty column. */}
-        {nextFixture && <NextFixturePanel state={game} match={nextFixture} />}
       </div>
 
       {report && <MatchReportModal state={game} match={report} onClose={() => setReportId(null)} />}
@@ -125,12 +173,13 @@ function FixtureRow({
   const opponent = state.clubs[opponentId]!;
   const result = match.result;
   const ground = state.world.grounds[match.groundId];
+  const kind = fixtureKind(state, match);
 
   const row = (
     <>
       <span className="fixture__when">
         <strong>{formatDayMonth(match.date)}</strong>
-        <span className="muted small">MD {match.matchday}</span>
+        <span className="muted small">{match.kickOff}</span>
       </span>
       <span className="fixture__teams">
         <strong>
@@ -141,6 +190,9 @@ function FixtureRow({
           {venue} · {ground?.name}
           {isCurrent ? ' · next up' : ''}
         </span>
+      </span>
+      <span className="fixture__kind">
+        <Pill tone={kind.tone}>{kind.label}</Pill>
       </span>
       <span className="fixture__score">
         {result ? (

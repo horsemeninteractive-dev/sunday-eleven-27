@@ -14,6 +14,7 @@ import { TeamSelectionView } from './views/TeamSelectionView';
 import { TacticsView } from './views/TacticsView';
 import { FixturesView } from './views/FixturesView';
 import { LeagueView } from './views/LeagueView';
+import { CupView } from './views/CupView';
 import { FinancesView } from './views/FinancesView';
 import { KitView } from './views/KitView';
 import { HistoryView } from './views/HistoryView';
@@ -90,6 +91,8 @@ function ViewRouter({ view }: { view: ViewId }) {
       return <FixturesView />;
     case 'league':
       return <LeagueView />;
+    case 'cup':
+      return <CupView />;
     case 'finances':
       return <FinancesView />;
     case 'kit':

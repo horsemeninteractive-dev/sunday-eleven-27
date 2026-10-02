@@ -2231,7 +2231,7 @@ select.input {
 }
 .fixture {
   display: grid;
-  grid-template-columns: 78px minmax(0, 1fr) auto;
+  grid-template-columns: 78px minmax(0, 1fr) auto auto;
   gap: var(--s3);
   align-items: center;
   width: 100%;
@@ -2283,6 +2283,55 @@ select.input {
 }
 .fixture__score {
   text-align: right;
+}
+/* What the fixture is for: a friendly, a league game, or a cup round. It sits
+   between the fixture and its score so a column of pills reads as the kind of
+   competition the week was, and the pill is allowed to wrap rather than pushing
+   the score off the end of a narrow screen. */
+.fixture__kind {
+  justify-self: end;
+  text-align: right;
+}
+.fixture__kind .pill {
+  white-space: nowrap;
+}
+
+/* Cup ties: the round, and the list of ties that made it up. */
+.cup__ties {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.cup__tie {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--s3);
+  align-items: center;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+.cup__tie:last-child {
+  border-bottom: none;
+}
+/* The manager's own ties, marked the way his own league games are. */
+.cup__tie--mine {
+  border-left: 2px solid var(--club);
+  padding-left: var(--s2);
+}
+.cup__tie-teams {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s2);
+}
+.cup__tie-result {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  text-align: right;
+}
+.cup__mine + .cup__mine {
+  margin-left: var(--s1);
 }
 .fixture__footnote {
   display: block;

@@ -1,8 +1,10 @@
 import { useGameStore } from '@/state/gameStore';
-import { ChangelogDialog } from './ChangelogDialog';
-import { CreditsDialog } from './CreditsDialog';
-import { PreferencesDialog } from './PreferencesDialog';
-import { ProfilesDialog } from './ProfilesDialog';
+import {
+  ChangelogDialog,
+  CreditsDialog,
+  PreferencesDialog,
+  ProfilesDialog,
+} from '../lazyViews';
 
 /**
  * The dialogs that belong to the game rather than to a screen.

@@ -2452,13 +2452,19 @@ select.input {
    dragging the pitch along with them. `cover` keeps the pitch filling whatever
    shape the window is, and the position holds the treeline near the top rather
    than letting it fall off a tall or a short screen. The green underneath is
-   what shows if the photograph has not arrived yet. */
+   what shows if the photograph has not arrived yet.
+   *
+   * The photograph is WebP at quality 85, which is 315 KB rather than the
+   * 2.1 MB it was as a PNG. That figure is measured rather than guessed, and
+   * the file is rebuilt by `npm run scene` from the master kept in assets/,
+   * which deliberately sits outside public/ so it is never copied into the
+   * build. */
 .scene {
   position: fixed;
   inset: 0;
   pointer-events: none;
   background-color: #0d2617;
-  background-image: url('/scene-ground.png');
+  background-image: url('/scene-ground.webp');
   background-position: center 42%;
   background-size: cover;
   background-repeat: no-repeat;

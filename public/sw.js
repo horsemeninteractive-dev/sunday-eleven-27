@@ -15,24 +15,23 @@
  * fetched from the network first and only falls back to the cache when there is
  * no network at all.
  *
- * There is no build step in here and no list of files to keep in step. A cache
- * name carries the release, and an old release's cache is deleted on activate,
- * so a new deploy quietly takes over with a cache of its own.
+ * There is no build step in here. The list of files is written in at build time
+ * (see the precacheManifest plugin in vite.config.ts) so that it describes the
+ * build that is actually deployed rather than the one somebody remembered. A
+ * cache name carries the release, and an old release's cache is deleted on
+ * activate, so a new deploy quietly takes over with a cache of its own.
  */
 
 const CACHE = 'sunday-eleven-v1';
 
-/** The shell: enough to start the game with no network at all. */
-const SHELL = [
-  '/',
-  '/index.html',
-  '/favicon.svg',
-  '/icons/icon-192.png',
-  '/icons/icon-512.png',
-  '/icons/icon-maskable-512.png',
-  '/apple-touch-icon.png',
-  '/manifest.webmanifest',
-];
+/**
+ * Every file in the build, injected by the build.
+ *
+ * Written as a placeholder here and replaced in dist/sw.js. An empty list is a
+ * worker that caches nothing, which is a game that does not work offline, so
+ * the build fails if this line ever goes missing rather than shipping that.
+ */
+const SHELL = self.__PRECACHE__;
 
 self.addEventListener('install', (event) => {
   event.waitUntil(

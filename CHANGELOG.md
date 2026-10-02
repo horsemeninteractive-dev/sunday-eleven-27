@@ -31,11 +31,39 @@ the main menu.
   edge. It is the one file that decides what is cached, so a cached copy of it
   would outlive the deploy it was written for and pin the game to that build.
 
+### Smaller, and faster to open
+
+- **The pitch is a third of its old size.** The photograph behind the pre-game
+  screens was a 2.1 MB PNG, which was most of what the game had to download and
+  most of what it had to keep for offline play. It is now a 315 KB WebP, cut by
+  85% at a measured 37 dB PSNR against the original — visually faithful, and the
+  only copy of it that ships.
+- **You download the game you are playing, not the game you might.** The twenty
+  screens are fetched the first time they are shown rather than all up front, so
+  opening the game to look at your inbox no longer costs you the recruitment
+  screen, the finances and the match commentary. The main menu is the deliberate
+  exception: it is the first thing painted, and is worth 4 KB to never wait for.
+- **React is chunked separately**, so a release of the game no longer
+  invalidates 145 KB of framework that has not changed.
+- **Offline play is now guaranteed rather than hoped for.** The service worker
+  precaches every file the build produces, from a list written in at build time
+  rather than kept by hand. That is what makes splitting the bundle safe: a
+  screen whose code has not been fetched yet can still run with no signal,
+  because the chunk is already in the cache before anyone clicks.
+
 ### For developers
 
 - `npm run icons` regenerates every app icon from the favicon. It needs `sharp`,
   which is a development dependency only: the PNGs are committed, and the script
   runs when the mark changes, not on every build.
+- `npm run scene` rebuilds the pitch photograph as WebP from the master kept in
+  `assets/`, which sits outside `public/` precisely so the build does not copy
+  it. It measures the result and refuses to write it below 36 dB PSNR.
+- A `precacheManifest` plugin writes the build's own file list into `sw.js`. If
+  the placeholder it replaces is ever missing, the build fails rather than
+  quietly shipping a game that caches nothing.
+- `public/sw.js` keeps a `self.__PRECACHE__` placeholder for that list. The
+  built copy has it replaced; the source must always still contain it.
 
 ## [0.4.0] - 2026-10-02 — a pyramid, and time passing
 

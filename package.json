@@ -13,7 +13,8 @@
     "test:watch": "vitest",
     "balance": "vite-node tools/balance.ts",
     "soak": "vite-node tools/soak.ts",
-    "icons": "vite-node tools/icons.ts"
+    "icons": "vite-node tools/icons.ts",
+    "scene": "vite-node tools/scene.ts"
   },
   "dependencies": {
     "react": "^18.3.1",

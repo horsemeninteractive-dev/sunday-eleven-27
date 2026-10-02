@@ -1,29 +1,34 @@
+import { Suspense } from 'react';
 import type { ViewId } from '@/state/gameStore';
 import { useGameStore } from '@/state/gameStore';
 import { useGame } from './hooks';
 import { clubStyle } from './colour';
 import { AppShell } from './layout/AppShell';
-import { StartView } from './views/StartView';
-import { ProfileView } from './views/ProfileView';
-import { ClubSelectView } from './views/ClubSelectView';
-import { CreateClubView } from './views/CreateClubView';
-import { DashboardView } from './views/DashboardView';
-import { ManagerView } from './views/ManagerView';
-import { SquadView } from './views/SquadView';
-import { TeamSelectionView } from './views/TeamSelectionView';
-import { TacticsView } from './views/TacticsView';
-import { FixturesView } from './views/FixturesView';
-import { LeagueView } from './views/LeagueView';
-import { CupView } from './views/CupView';
-import { FinancesView } from './views/FinancesView';
-import { KitView } from './views/KitView';
-import { HistoryView } from './views/HistoryView';
-import { WorldView } from './views/WorldView';
-import { NewsView } from './views/NewsView';
-import { RecruitmentView } from './views/RecruitmentView';
-import { TrainingView } from './views/TrainingView';
-import { MatchView } from './views/MatchView';
 import { AppDialogs } from './dialogs/AppDialogs';
+// The one eager screen: it is the first thing painted, so it stays in the entry
+// chunk rather than waiting behind a fallback that would blank the page.
+import { StartView } from './views/StartView';
+import {
+  ClubSelectView,
+  CreateClubView,
+  CupView,
+  DashboardView,
+  FixturesView,
+  FinancesView,
+  HistoryView,
+  KitView,
+  LeagueView,
+  ManagerView,
+  MatchView,
+  NewsView,
+  ProfileView,
+  RecruitmentView,
+  SquadView,
+  TacticsView,
+  TeamSelectionView,
+  TrainingView,
+  WorldView,
+} from './lazyViews';
 
 /**
  * The application is four things: a menu screen, a club-choice screen, the game
@@ -33,6 +38,13 @@ import { AppDialogs } from './dialogs/AppDialogs';
  * and the calendar all get out of the way, because for ninety minutes there is
  * only the game in front of you. The 3D presentation will slot into this same
  * full-screen frame without touching the shell.
+ *
+ * The screens themselves arrive on demand (see lazyViews), so there is a moment
+ * between the click and the screen. It is brief — the service worker has the
+ * chunk already — but it is real, and the fallback below is deliberately
+ * nothing at all rather than a spinner: a blank frame for a few milliseconds
+ * reads as the screen settling, where a spinner reads as something being
+ * fetched and invites the manager to wait for it.
  */
 export function App() {
   const game = useGame();
@@ -70,10 +82,10 @@ export function App() {
   };
 
   return (
-    <>
+    <Suspense fallback={null}>
       {screen()}
       <AppDialogs />
-    </>
+    </Suspense>
   );
 }
 

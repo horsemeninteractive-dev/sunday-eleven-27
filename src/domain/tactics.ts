@@ -20,6 +20,49 @@ export interface Tactics {
   pressing: PressingIntensity;
   defensiveLine: DefensiveLine;
   attackingFocus: AttackingFocus;
+  /**
+   * The set pieces this side has actually worked on.
+   *
+   * Optional, and optional *forwards*: a club that has never drilled a corner
+   * simply has no routine, and its corners are then aimed at whoever happens to
+   * be nearest rather than at a rehearsed run. That is the honest state of most
+   * grassroots football, and it is why this is here as a block a manager fills
+   * in rather than as six tactics every side is assumed to own.
+   *
+   * It decides *where* a delivery goes and *who* takes it. It never decides
+   * whether it worked — that belongs to the possession model, and a drilled
+   * routine is not a better roll.
+   */
+  setPieceRoutines?: SetPieceRoutines;
+}
+
+/**
+ * What a side has drilled.
+ *
+ * Each field is a named choice rather than a number, because the difference
+ * between a corner routine that finds the near post and one that finds nobody in
+ * particular is not a percentage — it is a different idea about where the ball
+ * should go.
+ */
+export interface SetPieceRoutines {
+  /**
+   * Where a corner is aimed.
+   *
+   * `near-post` is the six-yard header; `far-post` is the far side of the goal
+   * and the harder ball; `short` is played to a team-mate at the edge of the
+   * area to keep possession; `central` is a delivery to the penalty spot for a
+   * shot or a lay-off. A side with no routine aims at the middle of the box.
+   */
+  corner?: 'near-post' | 'far-post' | 'short' | 'central' | 'untrained';
+  /** Where a free kick is aimed: straight at goal, into the box, or short. */
+  freeKick?: 'direct' | 'into-box' | 'short' | 'untrained';
+  /**
+   * Who steps up to take a penalty, by player id.
+   *
+   * Absent means "let the model choose", which is what an untrained side wants;
+   * naming somebody is a manager saying this one is our penalty taker.
+   */
+  penaltyTakerId?: string;
 }
 
 export const MENTALITY_LABEL: Record<Mentality, string> = {

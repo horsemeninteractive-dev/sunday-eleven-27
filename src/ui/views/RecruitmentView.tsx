@@ -14,6 +14,7 @@ import { squadNeeds } from '@/simulation/recruitment/needs';
 import { candidatesOf, recruitmentStore } from '@/simulation/recruitment/store';
 import { gameActions, useGame } from '../hooks';
 import { Button, PageHeader, Panel, Pill, SortTh } from '../components/primitives';
+import { MetricTile, Section, Tile, TileGrid } from '../components/hierarchy';
 import { PlayerLink } from '../components/Links';
 import { applySort, UNSORTED, type SortAccessors, type SortState } from '../tableSort';
 
@@ -66,7 +67,6 @@ export function RecruitmentView() {
       <PageHeader
         eyebrow="Club"
         title="Recruitment"
-        subtitle="Names come from people, places and football — the lads, Wednesday five-a-side, an open session, or somebody who asks you first. There is no list of every unattached player in the county."
         meta={
           <>
             <span className="small muted">{open.length} on the list</span>
@@ -76,11 +76,32 @@ export function RecruitmentView() {
         }
       />
 
-      <Panel
-        title="Where you are short"
-        subtitle="Numbers, not recommendations. What you do about it is up to you."
-        tone={needs.thinGroups.length > 0 ? 'warn' : 'default'}
-      >
+      <Section title="Squad needs">
+        <TileGrid min={160}>
+          {needs.positions.map((need) => (
+            <MetricTile
+              key={need.group}
+              label={need.label}
+              value={`${need.available}/${need.registered}`}
+              note={
+                need.verdict === 'thin' ? 'Light' : need.verdict === 'strong' ? 'Well covered' : 'Alright'
+              }
+              tone={need.verdict === 'thin' ? 'warn' : need.verdict === 'strong' ? 'ok' : 'default'}
+            />
+          ))}
+        </TileGrid>
+        {needs.summary.length > 0 && (
+          <ul className="bullets" style={{ marginTop: 'var(--s2)' }}>
+            {needs.summary.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        )}
+      </Section>
+
+      <details className="more">
+        <summary className="small muted">Full breakdown by area</summary>
+        <Panel tone={needs.thinGroups.length > 0 ? 'warn' : 'default'}>
         <div className="table-wrapper">
         <table className="table table--compact table--stack">
           <thead>
@@ -115,26 +136,12 @@ export function RecruitmentView() {
           </tbody>
         </table>
         </div>
-        {needs.summary.length > 0 && (
-          <ul className="bullets">
-            {needs.summary.map((line) => (
-              <li key={line}>{line}</li>
-            ))}
-          </ul>
-        )}
-        <p className="muted small">
-          {Object.entries(needs.byPosition)
-            .sort((a, b) => b[1] - a[1])
-            .map(([code, count]) => `${count} ${code}`)
-            .join(' · ')}
-        </p>
-      </Panel>
+        </Panel>
+      </details>
 
-      <Panel
-        level={open.length === 0 ? 'primary' : 'default'}
+      <Section
         title="Get the word out"
-        subtitle="Local players are found through people, places and football, not through a list."
-        actions={
+        action={
           <div className="row row--wrap">
             <Button variant="primary" onClick={() => gameActions().askForRecommendations()} disabled={alreadyAsked}>
               {alreadyAsked ? 'Asked this week' : 'Ask the lads for names'}
@@ -153,32 +160,28 @@ export function RecruitmentView() {
           </div>
         }
       >
-        <p className="small">
-          Wednesday five-a-side is at <strong>{fiveASideVenueFor(game, club.townId).name}</strong>. An open session costs
-          a bit in pitch hire and brings whoever it brings — usually two or three lads, occasionally somebody who can
-          really play.
+        <p className="small muted">
+          Five-a-side at <strong>{fiveASideVenueFor(game, club.townId).name}</strong>. An open session costs £20–£40.
         </p>
-      </Panel>
+      </Section>
 
-      <Panel
-        level={open.length > 0 ? 'primary' : 'default'}
-        title={`Who you have heard about — ${open.length} on the list`}
-        subtitle="Click a name to talk terms — his profile, what you know about him, and what you could do next"
+      <Section
+        title={`Discovered — ${open.length} on the list`}
       >
         {open.length === 0 && (
           <p className="empty">
             Nobody yet. Ask the lads, get down to five-a-side, or put a session on and see who turns up.
           </p>
         )}
-        <ul className="tight-list">
+        <TileGrid min={250}>
           {open.map((candidate) => (
             <CandidateRow key={candidate.personId} state={game} candidate={candidate} />
           ))}
-        </ul>
+        </TileGrid>
 
         {closed.length > 0 && (
-          <>
-            <h4 className="subhead">Off the list</h4>
+          <details className="more" style={{ marginTop: 'var(--s3)' }}>
+            <summary className="small muted">Off the list ({closed.length})</summary>
             <ul className="tight-list">
               {closed.map((candidate) => (
                 <li key={candidate.personId}>
@@ -195,9 +198,9 @@ export function RecruitmentView() {
                 </li>
               ))}
             </ul>
-          </>
+          </details>
         )}
-      </Panel>
+      </Section>
     </div>
   );
 }
@@ -238,24 +241,28 @@ function CandidateRow({
   const sourceName = candidate.sourcePersonId ? personName(state, candidate.sourcePersonId) : null;
 
   return (
-    <li
-      className="rating-row rating-row--clickable"
+    <Tile
+      label={
+        <span className="news-tile__meta">
+          <span className={`chip ${candidate.status === 'invited' || candidate.status === 'trialled' ? 'chip--accent' : ''}`}>
+            {CANDIDATE_STATUS_LABEL[candidate.status]}
+          </span>
+        </span>
+      }
       onClick={() => gameActions().openNegotiation(candidate.personId)}
       title={`Talk terms with ${personName(state, candidate.personId)}`}
     >
-      <span>
-        <strong>{personName(state, candidate.personId)}</strong>
-        <span className="muted small"> {personHint(state, candidate.personId)}</span>
-        <div className="muted small">{candidate.sourceNote}</div>
+      <span className="player-tile__top">
+        <span className="player-tile__name">{personName(state, candidate.personId)}</span>
+        <span className="player-tile__position">{personHint(state, candidate.personId)}</span>
       </span>
-      <Pill tone={candidate.status === 'invited' || candidate.status === 'trialled' ? 'accent' : 'muted'}>
-        {CANDIDATE_STATUS_LABEL[candidate.status]}
-      </Pill>
       <span className="muted small">
         {DISCOVERY_SOURCE_LABEL[candidate.discoveredVia]}
         {sourceName ? ` · ${sourceName}` : ''}
-        <div>{counts.total === 0 ? 'nothing yet' : `${counts.known} seen · ${counts.reported} reported`}</div>
       </span>
-    </li>
+      <span className="player-tile__secondary">
+        {counts.total === 0 ? 'nothing known yet' : `${counts.known} seen · ${counts.reported} reported · ${counts.total} attributes`}
+      </span>
+    </Tile>
   );
 }

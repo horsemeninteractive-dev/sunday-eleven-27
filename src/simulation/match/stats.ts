@@ -40,6 +40,7 @@ export interface MatchStats {
 /** Event types that say something about who is on top, and how much. */
 const ACTIVITY_WEIGHT: Partial<Record<MatchEventType, number>> = {
   goal: 4,
+  'own-goal': 4,
   'penalty-scored': 4,
   'penalty-missed': 3,
   'shot-saved': 2,

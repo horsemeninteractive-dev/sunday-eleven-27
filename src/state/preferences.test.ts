@@ -42,8 +42,20 @@ describe('preferences', () => {
 
   it('remembers what was chosen, and gives it back next time', () => {
     installStorage();
-    savePreferences({ motion: 'reduced', defaultMatchSpeed: 4 });
-    expect(loadPreferences()).toEqual({ motion: 'reduced', defaultMatchSpeed: 4 });
+    savePreferences({ motion: 'reduced', defaultMatchSpeed: 4, renderer: '2d' });
+    expect(loadPreferences()).toEqual({ motion: 'reduced', defaultMatchSpeed: 4, renderer: '2d' });
+  });
+
+  it('remembers the chosen renderer, and opens in 2D without one', () => {
+    installStorage();
+    expect(loadPreferences().renderer).toBe('2d');
+    savePreferences({ ...DEFAULT_PREFERENCES, renderer: '3d' });
+    expect(loadPreferences().renderer).toBe('3d');
+  });
+
+  it('falls back to the 2D renderer when the saved one is nonsense', () => {
+    installStorage(JSON.stringify({ renderer: 'hologram' }));
+    expect(loadPreferences().renderer).toBe('2d');
   });
 
   it('opens with the defaults rather than failing on rubbish', () => {

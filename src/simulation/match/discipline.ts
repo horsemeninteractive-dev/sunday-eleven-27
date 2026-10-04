@@ -37,6 +37,15 @@ export interface FoulResult {
   penalty: boolean;
   /** True when the offender was sent off for it. */
   sentOff: boolean;
+  /**
+   * Where it happened, on the pitch.
+   *
+   * Read from the spatial frame when there is one, so the free kick is given from
+   * the place the challenge actually was rather than from wherever the decision
+   * layer's own arithmetic had got to.
+   */
+  x: number;
+  y: number;
 }
 
 /** The defender who went into the challenge. */
@@ -54,6 +63,12 @@ export function chooseAggressor(
     if (!player) return null;
     const performance = performanceOf(match, slot.playerId);
     const eff = playerEffectiveness(player, slot.position, { energy: performance?.energy });
+    // Deliberately *not* weighted by where he is on the pitch. This is the
+    // decision layer, and it must not read the spatial frame: a match pressed on
+    // at a different rate has to produce the same result. Weighting the aggressor
+    // by where the picture happens to have put him made the outcome depend on
+    // how far the pitch had been driven, which is the one thing this architecture
+    // forbids.
     const weight = Math.max(
       0.0001,
       positionRoleWeights(slot.position).def * Math.pow(Math.max(1, eff.effective.aggression), 2),
@@ -193,15 +208,46 @@ export function commitFoul(
   rng: Rng,
   sink: MatchEvent[],
 ): FoulResult | null {
+  const victimSide = otherSide(offenderSide);
+
+  // The victim is chosen first, because he is where the foul happened, and the
+  // aggressor is then chosen among the men who can actually reach him.
+  const victim = chooseVictim(match, env, victimSide, rng, victimId);
+  const spatial = match.spatial;
+  const victimNode = victim ? spatial?.players.find((node) => node.playerId === victim.id) : undefined;
+  // A foul happens where the ball and the man who was fouled are. When there is a
+  // pitch that is a place on the pitch; when there is not, it is the field
+  // model's own answer, which is where this all came from.
+  const foulX = victimNode?.x ?? spatial?.ball.x ?? match.field?.ball.x ?? 0.5;
+  const foulY = victimNode?.y ?? spatial?.ball.y ?? match.field?.ball.y ?? 0.5;
+
   const offender = chooseAggressor(match, env, offenderSide, rng, offenderId);
   if (!offender) return null;
-  const victimSide = otherSide(offenderSide);
-  const victim = chooseVictim(match, env, victimSide, rng, victimId);
 
   const offenderPerf = performanceOf(match, offender.id);
   if (offenderPerf) offenderPerf.fouls += 1;
 
-  const coords = eventCoords(match, inBox ? (offenderSide === 'home' ? 0.06 : 0.94) : match.field?.ball.x ?? 0.5, match.field?.ball.y ?? 0.5);
+  // The two men are brought together *here*, in the spatial frame, as part of
+  // arranging the dead ball. This is presentation: no roll below depends on it,
+  // and the free kick that follows is taken from where they now stand. It is
+  // still the only movement in the match that is not made on legs, and
+  // `spatial.test.ts` exempts this one frame for the same reason it exempts a
+  // corner taker being put on his flag: arranging a dead ball is not play.
+  const offenderNode = spatial?.players.find((node) => node.playerId === offender.id);
+  for (const node of [victimNode, offenderNode]) {
+    if (!node) continue;
+    node.x = foulX;
+    node.y = foulY;
+    node.px = node.x;
+    node.py = node.y;
+    node.tx = node.x;
+    node.ty = node.y;
+    node.vx = 0;
+    node.vy = 0;
+    node.restUntil = undefined;
+  }
+
+  const coords = eventCoords(match, inBox ? (offenderSide === 'home' ? 0.06 : 0.94) : foulX, foulY);
   pushEvent(
     match,
     makeEvent(match, 'foul', {
@@ -218,5 +264,13 @@ export function commitFoul(
   );
 
   const judged = judgeChallenge(match, env, context, offenderSide, offender, rng, sink, coords);
-  return { offenderId: offender.id, victimId: victim?.id ?? null, penalty: inBox, sentOff: judged.sentOff };
+  return {
+    offenderId: offender.id,
+    victimId: victim?.id ?? null,
+    penalty: inBox,
+    sentOff: judged.sentOff,
+    /** Where it happened, on the pitch — the free kick is taken from here. */
+    x: foulX,
+    y: foulY,
+  };
 }

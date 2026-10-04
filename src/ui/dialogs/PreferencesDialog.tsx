@@ -8,7 +8,9 @@ import {
   setFullscreen,
   watchFullscreen,
   type MotionPreference,
+  type RendererPreference,
 } from '@/state/preferences';
+import { MATCH_RENDERERS } from '@/presentation/matchRenderers';
 import { gameActions } from '../hooks';
 import { Button, Callout, Panel } from '../components/primitives';
 import { Dialog } from './Dialog';
@@ -112,6 +114,35 @@ export function PreferencesDialog() {
           </div>
           <p className="small muted">
             A match can always be slowed down or sped up while it is being played; this is only where it starts.
+          </p>
+        </Panel>
+
+        <Panel title="Match view" subtitle="How the match is drawn">
+          <div className="choices choices--stacked" role="radiogroup" aria-label="Match view">
+            {(['2d', '3d'] as RendererPreference[]).map((kind) => {
+              const option = MATCH_RENDERERS[kind];
+              return (
+                <button
+                  key={kind}
+                  type="button"
+                  role="radio"
+                  aria-checked={preferences.renderer === kind}
+                  disabled={!option.available}
+                  className={`choice choice--wide${preferences.renderer === kind ? ' choice--on' : ''}`}
+                  onClick={() => gameActions().setPreferences({ renderer: kind })}
+                >
+                  <span className="choice__label">
+                    {option.label}
+                    {option.available ? '' : ' — coming soon'}
+                  </span>
+                  <span className="choice__detail">{option.description}</span>
+                </button>
+              );
+            })}
+          </div>
+          <p className="small muted">
+            The renderer only draws the match; it never changes it. Choosing a view that is not built yet falls back to the
+            2D pitch.
           </p>
         </Panel>
       </div>

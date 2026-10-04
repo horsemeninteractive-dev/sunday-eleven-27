@@ -186,6 +186,15 @@ function PlayerProfile({ personId }: { personId: string }) {
         </div>
       </div>
 
+      <div className="quickstats">
+        <QuickStat label="Availability" value={player.availability.status} />
+        <QuickStat label="Condition" value={`${Math.round(player.fitness)}%`} />
+        <QuickStat label="Form" value={`${Math.round(player.form)}%`} />
+        <QuickStat label="Apps" value={player.record.appearances} />
+        <QuickStat label="Goals" value={player.record.goals} />
+        <QuickStat label="Assists" value={player.record.assists} />
+      </div>
+
       <div className="overlay__body">
         <div className="profile-grid profile-grid--person">
           {/* Where he plays: one small pitch instead of twelve rows. */}
@@ -195,11 +204,6 @@ function PlayerProfile({ personId }: { personId: string }) {
             level="default"
           >
             <PositionMap player={player} />
-            <p className="muted small">
-              {isMine
-                ? 'Playing him out of position is allowed — the match engine works out what it costs you.'
-                : 'Roles are your impression from what you have seen, not what he would tell you.'}
-            </p>
           </Panel>
 
           {/* Everything about the man himself, said once. */}
@@ -391,7 +395,6 @@ function PlayerProfile({ personId }: { personId: string }) {
                     >
                       Thursday's session
                     </Button>
-                    <p className="muted small">He is yours. What happens to him happens on the pitch and on Thursdays.</p>
                   </>
                 ) : club ? (
                   <>

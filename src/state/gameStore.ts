@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { GameState } from '@/domain/game';
 import type { ClubId, ISODate, MatchId, PersonId, PlayerId } from '@/domain/ids';
 import { isCompetitiveMatch, type Match } from '@/domain/match';
+import { settleShortSides } from '@/simulation/forfeit';
 import type { GameEvent } from '@/domain/news';
 import { isPlayer } from '@/domain/person';
 import type { Tactics } from '@/domain/tactics';
@@ -14,8 +15,20 @@ import {
   type Preferences,
 } from './preferences';
 import { rememberProfile } from './managerProfiles';
-import { advanceMinute, beginMatch, currentScore, simulateToCompletion } from '@/simulation/match/engine';
-import { advanceSpatial } from '@/simulation/match/spatial';
+import { currentScore, simulateMatchEngine } from '@/simulation/match/matchEngine';
+import {
+  currentLiveEngine,
+  forgetLiveEngine,
+  liveEngineEnv,
+  liveEngineFor,
+  livePlayback,
+  liveTimelineFor,
+  narrateDrained,
+  setAutoManageBenches,
+  setLivePlayback,
+  syncEnginePossession,
+} from './liveEngine';
+import { beginSkip, tickPlayback, VIEWING_MODES, type ViewingMode } from '@/presentation/matchPlayback';
 import {
   applyWarmUpToFamiliarity,
   fullTimeOutcome,
@@ -33,7 +46,7 @@ import { applyMatchdayFinances } from '@/simulation/finance';
 import { ensureUserXi, matchEnvironment } from '@/simulation/matchday';
 import { publishEvents } from '@/simulation/news';
 import { ensureClubTrained } from '@/simulation/training/session';
-import { currentPlan, currentSessionKey, savePlan } from '@/simulation/training/plan';
+import { currentPlan, currentSessionKey, savePlan, sessionDateFor } from '@/simulation/training/plan';
 import { describeSessionQuality, type TrainingBlockId, type TrainingLength } from '@/domain/training';
 import {
   applyCustomClub,
@@ -58,6 +71,7 @@ import { inviteToTrial as inviteCandidate, runTrialSession as runSession } from 
 // The kit planner is pure decisions about colours — no React, no rendering — so
 // the action that changes the club's kit can name the kit it just changed to.
 import { clubKit, KIT_OPTION_COUNT } from '@/ui/kit';
+import { defaultRoleFor } from '@/simulation/match/roles';
 import {
   approachCandidate as askCandidate,
   passOnCandidate,
@@ -107,6 +121,7 @@ export type ViewId =
   | 'kit'
   | 'world'
   | 'news'
+  | 'replay'
   | 'recruitment'
   | 'training'
   | 'match';
@@ -117,12 +132,34 @@ export interface ProfileTarget {
   id: string;
 }
 
+/**
+ * A finished match being watched back.
+ *
+ * Transient, like the live session: only the match's id and where to return
+ * when it is over are held, because the replay is read from the record in the
+ * game state rather than kept beside it. Nothing about a replay is ever saved.
+ */
+export interface ReplayTarget {
+  matchId: MatchId;
+  /** The screen to come back to when the replay is closed. */
+  from: ViewId;
+}
+
 export interface MatchSession {
   matchId: MatchId;
   live: Match;
   side: 'home' | 'away';
-  /** 1x, 2x or 4x minutes per second. */
+  /**
+   * The manager's speed multiplier: higher is less real time per football
+   * second. Presentation only — it never changes the football, only how quickly
+   * the presentation spends the simulation it has already been given.
+   */
   speed: number;
+  /**
+   * How much of the match the manager wants to see: full, extended, key moments
+   * or commentary. Also presentation only.
+   */
+  viewingMode: ViewingMode;
   paused: boolean;
   /**
    * Where the manager is in the day. The match is an appointment in the
@@ -184,6 +221,7 @@ export interface GameStore {
   draft: WorldDraft | null;
   setup: SetupState | null;
   session: MatchSession | null;
+  replay: ReplayTarget | null;
   view: ViewId;
   selectedPlayerId: PersonId | null;
   selectedClubId: ClubId | null;
@@ -202,6 +240,13 @@ export interface GameStore {
 
   // Navigation and selection are presentation-only state.
   setView: (view: ViewId) => void;
+  /**
+   * Watch a finished match back from its own record. Does nothing for a fixture
+   * with no events to replay.
+   */
+  openReplay: (matchId: MatchId, from?: ViewId) => void;
+  /** Leave the replay and return to the screen it was opened from. */
+  closeReplay: () => void;
   openDialog: (dialog: DialogId) => void;
   closeDialog: () => void;
   setPreferences: (patch: Partial<Preferences>) => void;
@@ -255,6 +300,9 @@ export interface GameStore {
   advanceSpatial: (deltaSeconds: number) => void;
   simulateMatchToEnd: () => void;
   setMatchSpeed: (speed: number) => void;
+  setViewingMode: (mode: ViewingMode) => void;
+  /** Fast-forward to the next passage the viewing mode would show. */
+  skipToNextHighlight: () => void;
   toggleMatchPause: () => void;
   finishMatchSession: () => void;
   makeSubstitution: (outgoingId: PersonId, incomingId: PersonId) => void;
@@ -390,19 +438,40 @@ function recruitmentAction(
 }
 
 /**
- * The match environment, kept between frames.
+ * Start the football for a watched match.
  *
- * The spatial loop asks for this sixty times a second, and rebuilding it every
- * time would be a pile of closures a second for no reason. It is rebuilt only
- * when the game or the live match it points at is replaced.
+ * The engine is created here and held beside the session (see `liveEngine`),
+ * because it is not serialisable. The manager's own bench is left to him, so the
+ * AI only makes his changes if he skips to the whistle. Starting a match is the
+ * whistle: nothing has been played until this runs.
  */
-let spatialEnv: { game: GameState; live: Match; env: ReturnType<typeof matchEnvironment> } | null = null;
+function startLiveEngine(game: GameState, live: Match): void {
+  const env = matchEnvironment(game, live, { autoManageAllBenches: false });
+  const engine = liveEngineFor(live, env);
+  live.status = 'in-progress';
+  live.half = 1;
+  live.played = false;
+  syncEnginePossession(live, engine);
+}
 
-function advanceSpatialFor(game: GameState, live: Match, deltaSeconds: number): void {
-  if (!spatialEnv || spatialEnv.game !== game || spatialEnv.live !== live) {
-    spatialEnv = { game, live, env: matchEnvironment(game, live, { autoManageAllBenches: false }) };
-  }
-  advanceSpatial(live, spatialEnv.env, deltaSeconds);
+/**
+ * Advance the live football by the real time the match view has spent.
+ *
+ * This is the whole of the clock: the engine takes real seconds and plays the
+ * fixed steps they are worth, so a frame rate cannot change a result. The events
+ * it produced are drained into the commentary, the possession clock is mirrored
+ * onto the match for the statistics, and the store is told whenever the football
+ * actually said something, so the bar can redraw without the pitch re-rendering
+ * sixty times a second.
+ */
+function advanceLiveEngine(game: GameState, live: Match, deltaSeconds: number, maxCatchUpSeconds = 1): boolean {
+  const env = liveEngineEnv() ?? matchEnvironment(game, live, { autoManageAllBenches: false });
+  const engine = liveEngineFor(live, env);
+  const toldBefore = live.commentary?.length ?? 0;
+  const events = engine.advance(deltaSeconds, maxCatchUpSeconds);
+  narrateDrained(live, env, events);
+  syncEnginePossession(live, engine);
+  return (live.commentary?.length ?? 0) !== toldBefore;
 }
 
 /**
@@ -424,6 +493,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   draft: null,
   setup: null,
   session: null,
+  replay: null,
   view: 'start',
   selectedPlayerId: null,
   selectedClubId: null,
@@ -435,7 +505,28 @@ export const useGameStore = create<GameStore>((set, get) => ({
   dialog: null,
   preferences: loadPreferences(),
 
-  setView: (view) => set({ view, profile: null, negotiationId: null, plannerOpen: false, dialog: null }),
+  setView: (view) =>
+    set({ view, replay: null, profile: null, negotiationId: null, plannerOpen: false, dialog: null }),
+
+  openReplay: (matchId, from) => {
+    const game = get().game;
+    const match = game?.matches[matchId];
+    if (!match || match.events.length === 0) return;
+    const previous = get().view;
+    set({
+      replay: { matchId, from: from ?? (previous === 'replay' ? 'fixtures' : previous) },
+      view: 'replay',
+      profile: null,
+      negotiationId: null,
+      plannerOpen: false,
+      dialog: null,
+    });
+  },
+
+  closeReplay: () => {
+    const target = get().replay;
+    set({ replay: null, view: target?.from ?? 'dashboard' });
+  },
   openDialog: (dialog) => set({ dialog, profile: null, negotiationId: null, plannerOpen: false }),
   closeDialog: () => set({ dialog: null }),
 
@@ -647,9 +738,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
     readyForManager(result.state);
     // A loaded save is never mid-match: the session is dropped and the engine
     // state inside the match object is authoritative.
+    forgetLiveEngine();
     set({
       game: result.state,
       session: null,
+      replay: null,
       view: 'dashboard',
       profile: null,
       negotiationId: null,
@@ -665,9 +758,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
     // Quitting forgets where to resume, so the menu stays reachable — but the
     // autosave is left on disk, so quitting never costs the manager a career.
     await persistence.setResumeSlot(null);
+    forgetLiveEngine();
     set({
       game: null,
       session: null,
+      replay: null,
       setup: null,
       view: 'start',
       selectedPlayerId: null,
@@ -682,6 +777,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
   startUserMatch: () => {
     const game = get().game;
     if (!game) return;
+    // A new afternoon: whatever engine was playing the last one is forgotten.
+    forgetLiveEngine();
     const state = clone(game);
     // Nobody kicks off against a side that has not been picked.
     readyForManager(state);
@@ -695,10 +792,32 @@ export const useGameStore = create<GameStore>((set, get) => ({
     // Thursday comes before Sunday: whatever the squad did in training this
     // week is already in their legs and in their heads when the whistle goes.
     // A friendly is not a league week, so it does not consume the week's session.
-    if (isCompetitiveMatch(state, match)) ensureClubTrained(state, state.userClubId, matchday);
+    //
+    // Only once that Thursday has actually been and gone, though. A midweek cup
+    // tie falls *before* the week's session, and running it here would bank the
+    // session — and mark the Thursday as trained — before the evening it is
+    // supposed to happen.
+    if (isCompetitiveMatch(state, match) && sessionDateFor(state, matchday) <= state.date) {
+      ensureClubTrained(state, state.userClubId, matchday);
+    }
     // The phone calls come just before you leave for the ground.
     const lateCalls = callLateWithdrawals(state, match, state.date);
     if (lateCalls.length > 0) publishEvents(state, lateCalls);
+
+    // A side that cannot field seven has no game to play. Choosing to play with
+    // fewer than that abandons the fixture: the opposition is awarded the win
+    // and the manager is handed straight back to the week, rather than into a
+    // match he cannot field a team for.
+    const forfeit = settleShortSides(state, match);
+    if (forfeit) {
+      publishEvents(state, forfeit.events);
+      state.lastMatchId = match.id;
+      state.pendingMatchId = null;
+      readyForManager(state);
+      set({ game: state, session: null, notice: forfeit.note, error: null });
+      return;
+    }
+
     const working = clone(match);
     const side: 'home' | 'away' = working.homeClubId === state.userClubId ? 'home' : 'away';
     state.pendingMatchId = working.id;
@@ -716,6 +835,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
         // The speed the manager asked for, not the speed the match happens to
         // open at. The controls still change it mid-match.
         speed: clampSpeed(get().preferences.defaultMatchSpeed),
+        // The manager watches the whole match until he says otherwise; the
+        // controls change it mid-afternoon, exactly as they change the speed.
+        viewingMode: 'full',
         paused: true,
         phase: 'pre-match',
         revision: 0,
@@ -756,11 +878,18 @@ export const useGameStore = create<GameStore>((set, get) => ({
       if (isPlayer(player)) applyWarmUpToFamiliarity(session.warmUp, player);
     }
 
-    const env = matchEnvironment(game, live, { autoManageAllBenches: false });
-    beginMatch(live, env);
+    // The whistle: the engine is built, the performances are created, and the
+    // warm-up is put into their legs before the first step is played. The engine
+    // carries stamina on its own player nodes, so the warm-up has to reach both
+    // the record and the legs the movement rules read.
+    startLiveEngine(game, live);
+    const engine = currentLiveEngine();
     for (const slot of live.lineups[session.side].starting) {
       const performance = live.performances[slot.playerId];
-      if (performance) performance.energy = Math.max(5, Math.min(100, performance.energy + energy));
+      if (!performance) continue;
+      performance.energy = Math.max(5, Math.min(100, performance.energy + energy));
+      const node = engine?.getState().players.find((player) => player.playerId === slot.playerId);
+      if (node) node.stamina = performance.energy;
     }
 
     const line = session.teamTalk ? teamTalkVerdict(session.teamTalk, deltas) : null;
@@ -776,6 +905,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const session = get().session;
     const game = get().game;
     if (!session || !game || session.phase !== 'half-time') return;
+
+    // The engine is stopped in the interval; this is the whistle that starts the
+    // second half. The presentation resumes from the same second, so the clock
+    // does not jump the fifteen minutes nobody watched. That second is the
+    // engine's own — 45:00 plus the first half's added time — not 45:00: the
+    // clock never rewinds across the interval, only the displayed minute does.
+    const engine = currentLiveEngine();
+    engine?.startSecondHalf();
+    setLivePlayback({ cursor: engine?.getState().clock ?? 45 * 60, skipping: false });
 
     // Fifteen minutes is enough time to change the message as well as the team.
     let line: string | null = null;
@@ -837,9 +975,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
     lineup.starting[startIndex] = {
       playerId: incomingId,
       position: outgoingSlot.position,
+      role: defaultRoleFor(outgoingSlot.position),
       outOfPosition: (incoming.positionalFamiliarity[outgoingSlot.position] ?? 0) < 12,
     };
-    lineup.bench[benchIndex] = { playerId: outgoingId, position: benchSlot.position };
+    lineup.bench[benchIndex] = { playerId: outgoingId, position: benchSlot.position, role: benchSlot.role };
     set({ session: { ...session, live: session.live, revision: session.revision + 1 } });
   },
 
@@ -854,17 +993,34 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const state = clone(game);
     readyForManager(state);
     const matchday = nextMatchday(state);
-    if (isCompetitiveMatch(state, match)) ensureClubTrained(state, state.userClubId, matchday);
+    if (isCompetitiveMatch(state, match) && sessionDateFor(state, matchday) <= state.date) {
+      ensureClubTrained(state, state.userClubId, matchday);
+    }
+    // Even handed to somebody else, a side with fewer than seven players cannot
+    // take the field: the fixture is forfeited rather than simulated.
+    const forfeit = settleShortSides(state, match);
+    if (forfeit) {
+      publishEvents(state, forfeit.events);
+      state.lastMatchId = match.id;
+      state.pendingMatchId = null;
+      readyForManager(state);
+      set({ game: state, session: null, replay: null, view: 'dashboard', notice: forfeit.note });
+      return;
+    }
+
     const working = state.matches[match.id]!;
+    forgetLiveEngine();
     const env = matchEnvironment(state, working, { autoManageAllBenches: true });
-    simulateToCompletion(working, env);
+    const instant = simulateMatchEngine(working, env);
+    narrateDrained(working, env, instant.drain());
+    syncEnginePossession(working, instant);
     const events = [...applyMatchConsequences(state, working).events, matchReportEvent(state, working)];
     applyMatchdayFinances(state, working);
     state.lastMatchId = working.id;
     state.pendingMatchId = null;
     publishEvents(state, events);
     readyForManager(state);
-    set({ game: state, session: null, view: 'dashboard' });
+    set({ game: state, session: null, replay: null, view: 'dashboard' });
   },
 
   advanceSpatial: (deltaSeconds) => {
@@ -873,52 +1029,74 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (!session || !game) return;
     if (session.phase !== 'in-progress' || session.paused) return;
     const live = session.live;
-    if (!live.spatial) return;
-    // The environment is the same one the engine has been using, so a player's
-    // pace and the state of his legs come from where they already live.
-    advanceSpatialFor(game, live, deltaSeconds);
-  },
+    const engine = currentLiveEngine();
+    if (!engine) return;
 
-  tickMatch: () => {
-    const session = get().session;
-    const game = get().game;
-    if (!session || !game) return;
-    if (session.phase !== 'in-progress') return;
-    if (session.paused) return;
+    // The presentation decides how much football this frame is worth. The
+    // cursor moves through simulation seconds at whatever rate the passage it
+    // is inside deserves — fast through ordinary play, slow through a chance —
+    // and the engine is then asked to have played exactly that far. Nothing
+    // about the football changes with the viewing mode or the speed: the same
+    // steps are played, only spent at a different rate on screen. Because the
+    // engine never leads the picture by more than the moment a skip is still
+    // spending, the clock, the score and the commentary all describe the second
+    // the manager is looking at rather than one that has not been shown yet.
+    const playback = livePlayback() ?? { cursor: engine.getState().clock, skipping: false };
+    const tick = tickPlayback(playback, session.viewingMode, session.speed, liveTimelineFor(live), deltaSeconds);
+    const played = engine.getState().clock;
+    const need = tick.cursor - played;
+    const spoke = need > 0 ? advanceLiveEngine(game, live, need, Math.max(1, need)) : false;
+    setLivePlayback({ cursor: tick.cursor, skipping: tick.skipping });
+    // The skip ending is itself worth telling the screen about: the control says
+    // "skipping" while it runs, and a skip that lands on a quiet passage would
+    // otherwise leave the word up until the football next said something.
+    const skipEnded = playback.skipping && !tick.skipping;
 
-    const live = session.live;
-    const env = matchEnvironment(game, live, { autoManageAllBenches: false });
-    const result = advanceMinute(live, env);
-
-    if (result.finished) {
+    // Half time and full time are the engine's own phases; the store turns them
+    // into the afternoon's shape (the clock stopping, the card coming up) rather
+    // than the engine knowing anything about a manager's screen.
+    if (engine.finished) {
       commitFinishedMatch(set, get, live);
       return;
     }
-    // The half-time whistle stops the clock: fifteen minutes in the changing
-    // room is the manager's, and the match waits for him.
-    if (result.halfTime) {
+    if (engine.getState().phase === 'half-time') {
+      // The interval stops the clock, so the presentation stops with it: the
+      // cursor is pinned to the whistle rather than running on into nothing.
+      setLivePlayback({ cursor: engine.getState().clock, skipping: false });
       set({
-        session: { ...session, live, phase: 'half-time', paused: true, revision: session.revision + 1, lastMinuteEvents: result.events.length },
+        session: { ...session, live, phase: 'half-time', paused: true, revision: session.revision + 1 },
       });
       return;
     }
-    set({
-      session: { ...session, live, revision: session.revision + 1, lastMinuteEvents: result.events.length },
-    });
+
+    if (spoke || skipEnded) set({ session: { ...session, live, revision: session.revision + 1 } });
   },
+
+  tickMatch: () => tickMatch(set, get),
 
   simulateMatchToEnd: () => {
     const session = get().session;
     const game = get().game;
     if (!session || !game) return;
     const live = session.live;
-    if (live.status === 'finished') {
+    const engine = currentLiveEngine();
+    if (live.status === 'finished' || engine?.finished) {
       commitFinishedMatch(set, get, live);
       return;
     }
     // When the manager skips ahead the bench is managed for them: somebody has
-    // to make the changes while they are in the tea hut.
-    simulateToCompletion(live, matchEnvironment(game, live, { autoManageAllBenches: true }));
+    // to make the changes while they are in the tea hut. The engine plays the
+    // rest out at full speed — the fixed-step guarantee is unchanged, because
+    // the steps are the same steps whatever pace they are taken at.
+    setAutoManageBenches(true);
+    const env = liveEngineEnv() ?? matchEnvironment(game, live, { autoManageAllBenches: true });
+    const played = engine ?? liveEngineFor(live, env);
+    played.runToCompletion();
+    narrateDrained(live, env, played.drain());
+    syncEnginePossession(live, played);
+    // The whole match has been played out, so the presentation has seen all of
+    // it: the cursor goes to the final whistle with the engine.
+    setLivePlayback({ cursor: played.getState().clock, skipping: false });
     commitFinishedMatch(set, get, live);
   },
 
@@ -926,6 +1104,31 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const session = get().session;
     if (!session) return;
     set({ session: { ...session, speed, paused: false, revision: session.revision + 1 } });
+  },
+
+  setViewingMode: (mode) => {
+    const session = get().session;
+    if (!session || !VIEWING_MODES.includes(mode)) return;
+    // Presentation only: the football does not change, only how much of it is
+    // watched from here on. A fast-forward in progress is abandoned so the new
+    // mode takes effect now rather than when the old one's skip runs out.
+    const playback = livePlayback();
+    if (playback) setLivePlayback({ cursor: playback.cursor, skipping: false });
+    set({ session: { ...session, viewingMode: mode, revision: session.revision + 1 } });
+  },
+
+  skipToNextHighlight: () => {
+    const session = get().session;
+    if (!session || session.phase !== 'in-progress') return;
+    const engine = currentLiveEngine();
+    if (!engine) return;
+    // Fast-forward the *presentation*, not the simulation: the cursor runs to
+    // the next passage this mode would show and stops there. The football is
+    // played at the pace the cursor spends it, so nothing is skipped in the
+    // record — only in what has been watched.
+    const playback = livePlayback() ?? { cursor: engine.getState().clock, skipping: false };
+    setLivePlayback(beginSkip(playback));
+    set({ session: { ...session, paused: false, revision: session.revision + 1 } });
   },
 
   toggleMatchPause: () => {
@@ -975,70 +1178,24 @@ export const useGameStore = create<GameStore>((set, get) => ({
     // Before kick-off, changing the XI is selection, not substitution — that is
     // swapSessionPlayers, and it does not spend one of the three.
     if (session.phase === 'pre-match') return;
-    const lineup = live.lineups[side];
     if (live.substitutions[side] >= 3) {
       set({ error: 'No substitutions left.' });
       return;
     }
-    const slotIndex = lineup.starting.findIndex((slot) => slot.playerId === outgoingId);
-    const benchIndex = lineup.bench.findIndex((slot) => slot.playerId === incomingId);
-    if (slotIndex < 0 || benchIndex < 0) return;
 
-    const outgoingPlayer = game.people[outgoingId];
-    const incomingPlayer = game.people[incomingId];
-    if (!isPlayer(outgoingPlayer) || !isPlayer(incomingPlayer)) return;
-
-    const slot = lineup.starting[slotIndex]!;
-    const outgoingPerf = live.performances[outgoingId];
-    if (outgoingPerf) outgoingPerf.wentOffMinute = live.minute;
-
-    lineup.bench.splice(benchIndex, 1);
-    lineup.starting[slotIndex] = {
-      playerId: incomingId,
-      position: slot.position,
-      outOfPosition: (incomingPlayer.positionalFamiliarity[slot.position] ?? 0) < 12,
-    };
-    live.performances[incomingId] = {
-      playerId: incomingId,
-      clubId: lineup.clubId,
-      started: false,
-      minutesPlayed: 0,
-      positionPlayed: slot.position,
-      goals: 0,
-      assists: 0,
-      shots: 0,
-      shotsOnTarget: 0,
-      passes: 0,
-      passesCompleted: 0,
-      tackles: 0,
-      interceptions: 0,
-      saves: 0,
-      fouls: 0,
-      yellowCards: 0,
-      redCards: 0,
-      rating: 6,
-      cameOnMinute: live.minute,
-      wentOffMinute: null,
-      energy: incomingPlayer.fitness,
-      injuryDetail: null,
-      sentOff: false,
-    };
-    live.substitutions[side] += 1;
-    live.events.push({
-      id: `${live.id}_sub${live.events.length + 1}`,
-      minute: live.minute,
-      type: 'substitution',
-      clubId: lineup.clubId,
-      playerId: incomingId,
-      secondaryPlayerId: outgoingId,
-      text: `${incomingPlayer.firstName.charAt(0)}. ${incomingPlayer.surname} replaces ${outgoingPlayer.firstName.charAt(0)}. ${outgoingPlayer.surname}.`,
-      x: 0.5,
-      y: 0.5,
-      scoreAfter: { home: 0, away: 0 },
-      importance: 2,
-    });
-
-    set({ session: { ...session, live, revision: session.revision + 1 } });
+    // The change is the engine's to make: it swaps the man on the pitch, keeps
+    // his slot, writes the substitution event and the new performance. The store
+    // only carries the message back to the screen.
+    const engine = currentLiveEngine();
+    const env = liveEngineEnv();
+    if (!engine || !env) return;
+    const made = engine.substitute(side, outgoingId, incomingId);
+    if (!made) {
+      set({ error: 'That change could not be made.' });
+      return;
+    }
+    narrateDrained(live, env, engine.drain());
+    set({ session: { ...session, live, revision: session.revision + 1 }, error: null });
   },
 
   setMatchTactics: (tactics) => {
@@ -1047,12 +1204,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const live = session.live;
     live.lineups[session.side].tactics = tactics;
     live.lineups[session.side].formation = tactics.formation;
+    // The shape is the engine's to play: it re-reads the formation and moves the
+    // slot anchors, and the men walk to the new shape under the ordinary rules.
+    currentLiveEngine()?.refreshFormation(session.side);
     set({ session: { ...session, live, revision: session.revision + 1 } });
   },
 
   rollOverSeason: () => {
     const game = get().game;
     if (!game) return;
+    forgetLiveEngine();
     const state = clone(game);
     const events = startNextSeason(state);
     publishEvents(state, events);
@@ -1286,6 +1447,49 @@ function trainingPlanAction(
   edit(plan);
   savePlan(state, plan);
   set({ game: state, error: null });
+}
+
+/**
+ * Advance the watched match by a second of football.
+ *
+ * Pulled out of the store action so the clock pump and the tests can call it
+ * directly. The engine plays the football; this is only the shape of the
+ * afternoon around it — stopping at the interval, stopping at the whistle — and
+ * telling the screen when either has happened.
+ */
+function tickMatch(
+  set: (partial: Partial<GameStore>) => void,
+  get: () => GameStore,
+): void {
+  const session = get().session;
+  const game = get().game;
+  if (!session || !game) return;
+  if (session.phase !== 'in-progress') return;
+  if (session.paused) return;
+
+  const live = session.live;
+  // A tick is a minute of football, the unit the world has always been advanced
+  // in; the engine plays the steps that minute is worth.
+  const spoke = advanceLiveEngine(game, live, 60, 60);
+  const engine = currentLiveEngine();
+  if (!engine) return;
+  // A minute of football at a time, with the presentation taken with it: this
+  // is the coarse clock used by callers that do not run a frame loop.
+  setLivePlayback({ cursor: engine.getState().clock, skipping: false });
+
+  if (engine.finished) {
+    commitFinishedMatch(set, get, live);
+    return;
+  }
+  // The half-time whistle stops the clock: fifteen minutes in the changing
+  // room is the manager's, and the match waits for him.
+  if (engine.getState().phase === 'half-time') {
+    set({
+      session: { ...session, live, phase: 'half-time', paused: true, revision: session.revision + 1 },
+    });
+    return;
+  }
+  if (spoke) set({ session: { ...session, live, revision: session.revision + 1 } });
 }
 
 /** Commit a finished match back into the durable game state and apply consequences. */

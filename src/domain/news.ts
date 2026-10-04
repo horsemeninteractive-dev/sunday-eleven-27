@@ -38,6 +38,8 @@ export type GameEventType =
   | 'season-milestone'
   /** A fixture called off, with the reason, and when it will be played instead. */
   | 'postponement'
+  /** A side could not field a team, so the fixture went to the opposition 3–0. */
+  | 'forfeit'
   /** The club off the pitch: AGM, committee, fundraising, sponsors, the ground. */
   | 'club-event'
   /** Five-a-side, a social, a testimonial — the life around the football. */

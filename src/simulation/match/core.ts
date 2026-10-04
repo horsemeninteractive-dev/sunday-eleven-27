@@ -105,7 +105,27 @@ export function sideOfClub(match: Match, clubId: ClubId | null): Side | null {
   return null;
 }
 
+/**
+ * The bounds of *measured* added time, so a stop-start match cannot invent a
+ * twenty-minute half. Separate from the seeded draw below on purpose: these
+ * clamp what the engine counted, they do not set the range of the fallback.
+ */
+export const STOPPAGE_BOUNDS: Record<1 | 2, { min: number; max: number }> = {
+  1: { min: 1, max: 8 },
+  2: { min: 2, max: 12 },
+};
+
+/**
+ * Added time for a half, in minutes.
+ *
+ * The engine measures its own stoppages and records them on the match as each
+ * half is played out; once it has, that measurement is the truth. Until then —
+ * the first half before it ends, the old engine, a save written before any of
+ * this existed — the figure is drawn from the seed exactly as it always was.
+ */
 export function stoppageMinutes(match: Match, half: 1 | 2): number {
+  const recorded = half === 1 ? match.stoppage?.first : match.stoppage?.second;
+  if (typeof recorded === 'number') return recorded;
   return stream(match.seed, 'stoppage', half).int(half === 1 ? 1 : 2, half === 1 ? 5 : 7);
 }
 
@@ -142,7 +162,7 @@ export function currentScore(match: Match): { home: number; away: number } {
   let home = 0;
   let away = 0;
   for (const event of match.events) {
-    if (event.type === 'goal' || event.type === 'penalty-scored') {
+    if (event.type === 'goal' || event.type === 'own-goal' || event.type === 'penalty-scored') {
       if (event.clubId === match.homeClubId) home += 1;
       else if (event.clubId === match.awayClubId) away += 1;
     }
@@ -183,6 +203,7 @@ export function buildContext(match: Match, env: MatchEnvironment): MatchContext 
       conditions: match.conditions,
       energy: (id) => performanceOf(match, id)?.energy ?? 100,
       carryingInjury: (id) => Boolean(performanceOf(match, id)?.injuryDetail),
+      sentOff: (id) => Boolean(performanceOf(match, id)?.sentOff),
       tacticalFamiliarity: env.tacticalFamiliarity?.(clubId),
       cohesion: env.cohesion?.(clubId),
     });
@@ -200,6 +221,8 @@ export function makeEvent(
   type: MatchEventType,
   options: {
     minute: number;
+    /** Simulation seconds since kick-off, when the caller keeps a continuous clock. */
+    second?: number;
     side: Side | null;
     playerId?: PlayerId | null;
     secondaryPlayerId?: PlayerId | null;
@@ -214,6 +237,7 @@ export function makeEvent(
   return {
     id: `${match.id}_e${match.events.length + 1}`,
     minute: options.minute,
+    second: options.second ?? options.minute * 60,
     type,
     clubId: options.side ? sideClubId(match, options.side) : null,
     playerId: options.playerId ?? null,

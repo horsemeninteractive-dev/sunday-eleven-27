@@ -58,6 +58,7 @@ const CATEGORY_BY_TYPE: Record<GameEventType, NewsCategory> = {
   'weather-warning': 'Match',
   'season-milestone': 'League',
   postponement: 'Match',
+  forfeit: 'Match',
   'club-event': 'Club',
   social: 'Club',
   world: 'World',
@@ -234,6 +235,22 @@ function writePostponement(event: GameEvent): Headline {
   };
 }
 
+function writeForfeit(event: GameEvent): Headline {
+  const fixture = stringValue(event, 'fixture');
+  const short = stringValue(event, 'short');
+  const awarded = stringValue(event, 'awarded');
+  const score = stringValue(event, 'score');
+  return {
+    headline: stringValue(event, 'headline') || `${fixture || 'The fixture'} is abandoned`,
+    body: [
+      short
+        ? `${short} could not field a side — fewer than seven players available.`
+        : 'One side could not field a team.',
+      awarded ? `${awarded} are awarded the game ${score}.` : `The game is awarded ${score}.`,
+    ].join(' '),
+  };
+}
+
 function writePlayerUnavailable(event: GameEvent): Headline {
   const player = stringValue(event, 'player');
   const note = stringValue(event, 'note');
@@ -311,6 +328,9 @@ export function renderNewsItem(state: GameState, event: GameEvent): NewsItem {
       break;
     case 'postponement':
       written = writePostponement(event);
+      break;
+    case 'forfeit':
+      written = writeForfeit(event);
       break;
     default:
       written = writeClubNews(event);

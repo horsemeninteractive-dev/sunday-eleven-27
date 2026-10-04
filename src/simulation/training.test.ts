@@ -10,7 +10,7 @@ import {
   type TrainingBlockId,
 } from '@/domain/training';
 import { deserialiseGame, serialiseGame } from '@/state/persistence';
-import { addDays } from './calendar';
+import { addDays, dayOfWeek } from './calendar';
 import { advanceWeek } from './progression';
 import { addCandidate, recruitmentStore } from './recruitment/store';
 import { relationshipStore } from './relationships';
@@ -30,7 +30,7 @@ import {
 import { currentAttention } from './day';
 import { conductTraining, ensureClubTrained, ensureTrainingConducted } from './training/session';
 import { createTestGame, type TestGame } from './testSupport';
-import { nextMatchday } from '@/simulation/timeline';
+import { nextMatchday, weekStartOf } from '@/simulation/timeline';
 
 function clubOf(game: TestGame) {
   return game.state.clubs[game.state.userClubId]!;
@@ -129,6 +129,20 @@ describe('planning a session', () => {
     const sessionDate = sessionDateFor(game.state, 1);
     expect(sessionDate < matchdayDate).toBe(true);
     expect(sessionDate).toBe('2026-09-03');
+  });
+
+  it('trains on every Thursday, and never twice in a week', () => {
+    // The club's week is anchored to the Thursday, not to "three days before
+    // the next game". A midweek cup tie used to drag a session onto the Sunday
+    // morning, so a week trained twice — and the Thursday after a cup tie could
+    // read as already done before it had happened.
+    const game = createTestGame('training-thursdays');
+    const dates = sessionDatesFor(game.state);
+    expect(dates.length).toBeGreaterThan(1);
+    expect(dates.every((date) => dayOfWeek(date) === 4)).toBe(true);
+    // Exactly one session per week, Christmas break aside.
+    const weeks = new Set(dates.map((date) => weekStartOf(date)));
+    expect(weeks.size).toBe(dates.length);
   });
 });
 

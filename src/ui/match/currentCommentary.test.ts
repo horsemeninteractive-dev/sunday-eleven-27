@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CommentaryEvent } from '@/domain/match';
-import { caughtUpIndex, currentCommentaryLine, isGoalLine, newestMinuteLines } from './CurrentCommentary';
+import { currentCommentaryLine, isGoalLine, lineHoldMs } from './CurrentCommentary';
 
 /**
  * The live screen shows exactly one line. These pin the two rules that make it
@@ -30,10 +30,12 @@ describe('current commentary', () => {
     expect(currentCommentaryLine([], 0)).toBeNull();
   });
 
-  it('shows the first line, then walks forward one at a time', () => {
+  it('shows the first line, then reaches the newest', () => {
     const commentary = [line(10, true, 'One.'), line(10, true, 'Two.'), line(11, true, 'Three.')];
     expect(currentCommentaryLine(commentary, 1)?.text).toBe('One.');
     expect(currentCommentaryLine(commentary, 2)?.text).toBe('Two.');
+    // The bar jumps to the newest rather than walking, so a busy minute never
+    // leaves it describing something the pitch finished long ago.
     expect(currentCommentaryLine(commentary, 3)?.text).toBe('Three.');
   });
 
@@ -54,23 +56,22 @@ describe('current commentary', () => {
 
   it('knows how much the match has said in the minute it is on', () => {
     const commentary = [line(10, true, 'One.'), line(11, true, 'Two.'), line(11, true, 'Three.'), line(11, true, 'Four.')];
-    expect(newestMinuteLines(commentary)).toBe(3);
-    expect(newestMinuteLines([])).toBe(0);
-    // The two halves run their minutes separately, so the same number in each
-    // is two different minutes.
-    const halves = [line(46, false, 'Second half.'), line(47, true, 'Stoppage.'), line(46, false, 'Back under way.')];
-    expect(newestMinuteLines(halves)).toBe(1);
+    // The bar reaches the newest line, so the count it shows is the whole of
+    // what has been told — never a stale one from before the minute turned.
+    expect(currentCommentaryLine(commentary, commentary.length)?.text).toBe('Four.');
   });
 
-  it('never leaves a minute on screen once the match has moved past it', () => {
-    const commentary = [line(10, true, 'One.'), line(10, true, 'Two.'), line(11, true, 'Three.'), line(11, true, 'Four.')];
-    // Still reading minute ten while minute eleven has lines: jump to the start
-    // of the new minute rather than finishing a passage that has gone.
-    expect(caughtUpIndex(commentary, 1)).toBe(3);
-    // Already on the newest minute: left alone to walk it a line at a time.
-    expect(caughtUpIndex(commentary, 3)).toBe(3);
-    expect(caughtUpIndex(commentary, 4)).toBe(4);
-    expect(caughtUpIndex([], 0)).toBe(0);
+  it('holds a line long enough to read, and never longer than the football takes', () => {
+    // At 1x a minute is six seconds on screen, so a line is held for a readable
+    // moment against that pace.
+    expect(lineHoldMs(6000)).toBeGreaterThanOrEqual(260);
+    // Compressed watching scales the hold down, because there is less time for
+    // everything — but never below the floor at which a line is a flash.
+    expect(lineHoldMs(750)).toBeGreaterThanOrEqual(260);
+    expect(lineHoldMs(750)).toBeLessThan(lineHoldMs(6000));
+    // Watching at a tenth speed does not stretch a line for ten seconds; the
+    // hold is bounded by what the eye can do, not by how slow the clock is.
+    expect(lineHoldMs(60_000)).toBe(900);
   });
 
   it('flashes only for a goal, not for anything else that matters', () => {

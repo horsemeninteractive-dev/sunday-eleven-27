@@ -19,12 +19,19 @@ export function TeamSheet({
   lineup,
   match,
   playerById,
+  colour,
 }: {
   side: 'home' | 'away';
   club: Club;
   lineup: MatchLineup;
   match: Match;
   playerById: (id: string) => Player | undefined;
+  /**
+   * The first colour of the strip this side is wearing, not the club's own
+   * colour — the sheet is headed in the shirt, so a side in a white away strip
+   * is headed in white.
+   */
+  colour: string;
 }) {
   const starters = lineup.starting.map((slot, index) => {
     const player = playerById(slot.playerId);
@@ -37,7 +44,7 @@ export function TeamSheet({
     <aside
       className={`teamsheet teamsheet--${side}`}
       aria-label={`${club.identity.name} line-up`}
-      style={{ '--sheet-colour': club.identity.colours.primary } as CSSProperties}
+      style={{ '--sheet-colour': colour } as CSSProperties}
     >
       <header className="teamsheet__head">
         <span className="teamsheet__club">{club.identity.shortName}</span>

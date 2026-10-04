@@ -1,6 +1,7 @@
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { CommentaryEvent } from '@/domain/match';
-import { inkForColour, withAlpha, type ClubColours } from '../colour';
+import { inkForColour, withAlpha } from '../colour';
+import { BASE_MINUTE_MS } from '../matchPace';
 
 /**
  * The match's voice, one line at a time.
@@ -17,84 +18,125 @@ import { inkForColour, withAlpha, type ClubColours } from '../colour';
  * is at the top of the screen and repeating it here only spends the line's room
  * on something already known.
  *
- * The lines a minute produces are paced out as the minute is played, so a move
- * reads as a move rather than appearing whole. That pacing is presentation only:
- * the clock and the football still come from the engine, and the lines
- * themselves were written by it.
- */
-
-/**
- * How long each line stays up.
+ * A line is told as the step it describes takes the pitch, so the words and the
+ * football are the same moment: the pass is played and the bar says so, rather
+ * than the bar running a queue that the picture had already left behind. The bar
+ * then shows the newest of those lines, holding each one only long enough to
+ * read. That is the whole design — a minute of football is a few seconds on
+ * screen, and a bar that tried to show every line in order would be permanently
+ * behind, describing a move the pitch had finished. Anything the hold overruns
+ * is a tab away in the transcript.
  *
- * A minute's worth of lines is spread across that minute, so the words keep
- * pace with the move they are describing rather than racing through a passage
- * the pitch has not played yet. The busier the minute, the faster the walk.
+ * The pacing is presentation only: the lines themselves, and the football, come
+ * from the engine.
  */
-function paceFor(minuteMs: number, linesInMinute: number): number {
-  return Math.max(140, Math.round(minuteMs / Math.max(1, linesInMinute)));
-}
 
 /**
- * How far behind the newest line the reader is allowed to drift before the
- * screen gives up walking and catches up. The busier a minute is, the more
- * lines it writes, and at some point the only honest thing to do is show the
- * latest rather than walk through a minute that has already gone.
+ * How long a line stays on screen before the bar moves on.
+ *
+ * The bar shows one line, so a line that is replaced instantly is a line that is
+ * never read. But this is a *hold*, not a walk: when the timer runs out the bar
+ * jumps to the newest line there is, not to the next one in sequence. That is
+ * the whole difference between a bar that keeps up with the football and one that
+ * does not — walking one line at a time could only ever fall further behind, and
+ * a bar behind the pitch describes a move the pitch finished long ago.
+ *
+ * It is set near the rate lines are actually told at (a busy passage is told
+ * something every few hundred milliseconds at 1x) so that the bar normally shows
+ * each line as it is said rather than skipping every other one. A line is a
+ * sentence or two; this is about how long it takes to read one.
+ *
+ * Overrunning a hold costs at most that one line, and the transcript has it. Being
+ * behind costs every line from here to the end of the match.
  */
-const BEHIND_LIMIT = 6;
+const LINE_HOLD_MS = 900;
+
+/**
+ * The shortest a hold may be, however fast the match is being watched.
+ *
+ * At high speed a minute of football is a couple of seconds and a busy one says
+ * a dozen things, so a hold scaled purely by speed would put a line on screen for
+ * a few frames. This floor keeps it legible — the bar shows the newest line, so
+ * the lines it overruns are lost from the bar, but the bar is never behind.
+ */
+const MIN_LINE_MS = 260;
+
+/**
+ * How long the bar holds a line, given how long a minute of football is on
+ * screen.
+ *
+ * The hold is a floor on legibility, not a pace: it is what stops a line being
+ * replaced before it can be read. It scales with the compression of the watch,
+ * because at 8x a minute is three quarters of a second and a fixed hold would be
+ * several minutes of the pitch — but it is capped, because a line the manager
+ * has had time to read does not need holding for the rest of the minute.
+ */
+export function lineHoldMs(minuteMs: number): number {
+  const scaled = (LINE_HOLD_MS * minuteMs) / BASE_MINUTE_MS;
+  return Math.max(MIN_LINE_MS, Math.min(LINE_HOLD_MS, scaled));
+}
 
 export function CurrentCommentary({
   commentary,
   revision,
   paused,
-  speed,
   minuteMs,
   live,
-  homeColours,
-  awayColours,
+  homeColour,
+  awayColour,
 }: {
   commentary: CommentaryEvent[];
   revision: number;
   paused: boolean;
-  speed: number;
   /** How long one match minute lasts on screen at this speed. */
   minuteMs: number;
   live: boolean;
-  homeColours: ClubColours;
-  awayColours: ClubColours;
+  /**
+   * The first colour of the strip each side is actually wearing. The bar is
+   * tinted in the shirt rather than the club colour, so a line about the
+   * visitors in a white away strip arrives on white.
+   */
+  homeColour: string;
+  awayColour: string;
 }) {
   const [seen, setSeen] = useState(0);
+  // When the line now on screen arrived, so a hold can be timed from the line
+  // itself rather than from whenever the effect last happened to re-arm.
+  const shownAt = useRef(0);
 
-  // How much the match has said this minute, which is how long each line gets.
-  const linesInMinute = newestMinuteLines(commentary);
-  const pace = paceFor(minuteMs, linesInMinute);
+  // The hold is a floor on how long a line stays legible, not a pace to be
+  // divided between lines: the football decides how often something happens, and
+  // the bar shows the latest of it.
+  const holdMs = lineHoldMs(minuteMs);
 
   // A whistle, a pause or the end of the match puts the screen on the last
   // word; there is nothing left to pace.
   useEffect(() => {
-    if (!live || paused) setSeen(commentary.length);
+    if (!live || paused) {
+      setSeen(commentary.length);
+      shownAt.current = performance.now();
+    }
   }, [live, paused, commentary.length]);
 
   useEffect(() => {
     if (!live || paused) return;
     if (seen >= commentary.length) return;
-    // At the fastest setting the football is already outrunning the prose, so
-    // the current line simply is the newest one.
-    if (speed >= 4 || commentary.length - seen > BEHIND_LIMIT) {
+    // A line that is already on screen keeps the bar for its hold, however many
+    // lines land during it. Without this the timer restarted on every arrival,
+    // so on a busy minute — where a line lands every few hundred milliseconds
+    // and the hold is longer than that — it would never once run out, and the
+    // bar would sit on the same line for the whole match.
+    const held = performance.now() - shownAt.current;
+    const wait = Math.max(0, holdMs - held);
+    const timer = window.setTimeout(() => {
+      shownAt.current = performance.now();
+      // To the *newest* line, not the next one. A busy minute says more than can
+      // be read at the pace the football is being played, and the bar's job is
+      // to say what is happening now, not to be a queue that is served in order.
       setSeen(commentary.length);
-      return;
-    }
-    // The walk may lag a little so a move reads as a move, but it may never
-    // still be reading a minute the match has already left — that is the one
-    // way the bar could show something the pitch is not doing.
-    const caught = caughtUpIndex(commentary, seen);
-    if (caught !== seen) {
-      setSeen(caught);
-      return;
-    }
-
-    const timer = window.setTimeout(() => setSeen((value) => Math.min(commentary.length, value + 1)), pace);
+    }, wait);
     return () => window.clearTimeout(timer);
-  }, [seen, commentary.length, live, paused, speed, pace, revision]);
+  }, [seen, commentary.length, live, paused, revision, holdMs]);
 
   const current = currentCommentaryLine(commentary, seen);
 
@@ -106,8 +148,8 @@ export function CurrentCommentary({
     );
   }
 
-  const colours = current.side === 'home' ? homeColours : current.side === 'away' ? awayColours : null;
-  const primary = colours?.primary ?? null;
+  const primary =
+    current.side === 'home' ? homeColour : current.side === 'away' ? awayColour : null;
   // The whole bar is tinted with the club's colour from the left and carries its
   // stripe, so whose passage this is reads before the sentence does.
   const barStyle = primary
@@ -143,39 +185,6 @@ export function CurrentCommentary({
   );
 }
 
-/** Two lines belong to the same minute of the same half. */
-function sameMinute(a: CommentaryEvent, b: CommentaryEvent): boolean {
-  return a.minute === b.minute && a.firstHalf === b.firstHalf;
-}
-
-/** How many of the match's most recent lines belong to the minute it is on. */
-export function newestMinuteLines(commentary: readonly CommentaryEvent[]): number {
-  const newest = commentary[commentary.length - 1];
-  if (!newest) return 0;
-  let count = 0;
-  for (let index = commentary.length - 1; index >= 0; index -= 1) {
-    if (!sameMinute(commentary[index]!, newest)) break;
-    count += 1;
-  }
-  return count;
-}
-
-/**
- * How far the reader should be brought, given what is already on screen.
- *
- * The walk is allowed to lag a beat behind so a move reads as a move, but never
- * across a minute boundary: if a newer minute has produced lines while an older
- * one was still being read, the reader jumps to the start of the newest minute
- * rather than finishing a passage the match has already moved on from.
- */
-export function caughtUpIndex(commentary: readonly CommentaryEvent[], seen: number): number {
-  if (commentary.length === 0) return seen;
-  const newest = commentary[commentary.length - 1]!;
-  const showing = commentary[Math.min(commentary.length, Math.max(1, seen)) - 1]!;
-  if (sameMinute(showing, newest)) return seen;
-  return commentary.length - newestMinuteLines(commentary) + 1;
-}
-
 /**
  * Whether a line is the one thing in a match that should be impossible to miss.
  * Only a goal gets the flash; a booking or a whistle is important but not that.
@@ -191,6 +200,10 @@ export function isGoalLine(event: CommentaryEvent): boolean {
  * everything the match has said and how far the manager has been brought, which
  * line is he looking at? It never runs ahead of what was written, and it always
  * ends on the last line rather than past it.
+ *
+ * `seen` is the count of lines the bar has *reached*, not a promise to show
+ * them all: it jumps forward when the football outruns the hold, because a bar
+ * behind the pitch is worse than a bar that has skipped a line.
  */
 export function currentCommentaryLine(commentary: readonly CommentaryEvent[], seen: number): CommentaryEvent | null {
   if (commentary.length === 0) return null;

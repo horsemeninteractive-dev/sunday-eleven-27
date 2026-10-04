@@ -23,6 +23,7 @@ export function Panel({
   className,
   tone = 'default',
   level = 'default',
+  flush = false,
   id,
 }: {
   title?: ReactNode;
@@ -32,6 +33,8 @@ export function Panel({
   className?: string;
   tone?: PanelTone;
   level?: PanelLevel;
+  /** Drop the body padding, for a table or a flush list. */
+  flush?: boolean;
   id?: string;
 }) {
   return (
@@ -45,7 +48,7 @@ export function Panel({
           {actions && <div className="panel__actions">{actions}</div>}
         </header>
       )}
-      <div className="panel__body">{children}</div>
+      <div className={`panel__body${flush ? ' panel__body--flush' : ''}`}>{children}</div>
     </section>
   );
 }
@@ -157,6 +160,7 @@ export function Button({
   variant = 'default',
   disabled,
   title,
+  ariaLabel,
   type = 'button',
   size = 'md',
   block = false,
@@ -166,6 +170,8 @@ export function Button({
   variant?: 'default' | 'primary' | 'ghost' | 'danger';
   disabled?: boolean;
   title?: string;
+  /** For a button whose only content is an icon, so it still has a name. */
+  ariaLabel?: string;
   type?: 'button' | 'submit';
   size?: 'sm' | 'md' | 'lg';
   block?: boolean;
@@ -176,6 +182,7 @@ export function Button({
       onClick={onClick}
       disabled={disabled}
       title={title}
+      aria-label={ariaLabel}
       type={type}
     >
       {children}

@@ -24,6 +24,7 @@ import {
   NewsView,
   ProfileView,
   RecruitmentView,
+  ReplayView,
   SquadView,
   TacticsView,
   TeamSelectionView,
@@ -53,6 +54,7 @@ export function App() {
   const draft = useGameStore((state) => state.draft);
   const view = useGameStore((state) => state.view);
   const session = useGameStore((state) => state.session);
+  const replay = useGameStore((state) => state.replay);
 
   // The game's own dialogs — settings, the changelog, the credits, the managers
   // already saved — sit above whichever screen is showing, because the header of
@@ -86,6 +88,16 @@ export function App() {
       return (
         <div className="takeover" style={clubStyle(game.clubs[game.userClubId]!.identity.colours)}>
           <MatchView />
+        </div>
+      );
+    }
+
+    if (view === 'replay' && replay) {
+      // Watching an afternoon back is a takeover too: nothing about the career
+      // should be reachable while the replay has the screen.
+      return (
+        <div className="takeover" style={clubStyle(game.clubs[game.userClubId]!.identity.colours)}>
+          <ReplayView />
         </div>
       );
     }

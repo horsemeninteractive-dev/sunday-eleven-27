@@ -7,6 +7,7 @@ import { divisionOf, fixtureIdsFor, leagueCompetitions, standingsFor } from '@/s
 import { ordinal } from '@/simulation/news';
 import { gameActions, useGame, useStandings } from '../hooks';
 import { Button, FormPips, PageHeader, Panel, Pill, SortTh } from '../components/primitives';
+import { MetricTile, Section, TileGrid } from '../components/hierarchy';
 import { ClubLink } from '../components/Links';
 import { applySort, UNSORTED, type SortAccessors, type SortState } from '../tableSort';
 
@@ -35,6 +36,30 @@ function promotionLabel(competition: Competition): string {
 function relegationLabel(competition: Competition): string {
   const places = competition.relegationPlaces ?? 0;
   return places === 0 ? 'nothing to lose' : places === 1 ? 'one relegated' : `${places} relegated`;
+}
+
+/** The one number around us that matters: the gap to the place that counts. */
+function contextLabel(competition: Competition): string {
+  if ((competition.promotionPlaces ?? 0) > 0) return 'To promotion';
+  if ((competition.relegationPlaces ?? 0) > 0) return 'Above the drop';
+  return 'Mid-table';
+}
+
+function contextValue(standings: StandingRow[], myPosition: number, competition: Competition): string {
+  const promotionPlaces = competition.promotionPlaces ?? 0;
+  const relegationPlaces = competition.relegationPlaces ?? 0;
+  const mine = standings[myPosition - 1]?.points ?? 0;
+  if (promotionPlaces > 0) {
+    if (myPosition <= promotionPlaces) return 'in the places';
+    const target = standings[promotionPlaces - 1]?.points ?? 0;
+    return `${Math.max(0, target - mine + 1)} pts`;
+  }
+  if (relegationPlaces > 0) {
+    const safeIndex = standings.length - relegationPlaces - 1;
+    const above = standings[safeIndex]?.points ?? 0;
+    return `${Math.max(0, mine - above)} pts`;
+  }
+  return '—';
 }
 
 /** A standing row that still knows where it sits, whatever the table is sorted by. */
@@ -150,7 +175,21 @@ export function LeagueView() {
         </div>
       )}
 
-      <Panel level="primary" title="The table" subtitle="Where everyone stands right now">
+      {myPosition > 0 && (
+        <TileGrid min={170}>
+          <MetricTile label="Position" value={ordinal(myPosition)} note={`${myRow?.points ?? 0} points from ${myRow?.played ?? 0}`} tone="accent" />
+          <MetricTile
+            label="Goal difference"
+            value={(myRow?.goalDifference ?? 0) > 0 ? `+${myRow?.goalDifference}` : (myRow?.goalDifference ?? 0)}
+            note="For and against"
+          />
+          <MetricTile label="Form" value={<FormPips form={myRow?.form ?? []} />} note="Last five" />
+          <MetricTile label={contextLabel(competition)} value={contextValue(standings, myPosition, competition)} note="Around us" />
+        </TileGrid>
+      )}
+
+      <Section title="The table">
+      <Panel level="primary">
         <div className="table-wrapper">
           <table className="table table--league">
             <thead>
@@ -221,6 +260,7 @@ export function LeagueView() {
           </table>
         </div>
       </Panel>
+      </Section>
 
       <div className="split">
         <Panel title="This week" subtitle={`Matchday ${matchday}`}>

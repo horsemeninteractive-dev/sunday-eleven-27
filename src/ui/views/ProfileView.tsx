@@ -64,7 +64,6 @@ export function ProfileView() {
       <PageHeader
         eyebrow={mode === 'create-club' ? 'Create a club' : 'New career'}
         title="Your profile"
-        subtitle="Who you are, before you take charge of anybody."
         actions={
           <Button variant="ghost" onClick={() => gameActions().cancelSetup()}>
             Back to menu
@@ -73,12 +72,12 @@ export function ProfileView() {
       />
 
       <div className="profile-setup__grid">
-        <Panel title="Your details" subtitle="This is how the local game will know you">
+        <Panel title="Your details">
           {/* A manager who has been here before should not have to type his own
               birthday in again: the profiles he has used are one click away. */}
           {saved.length > 0 && (
             <div className="savedmanagers">
-              <p className="small muted">You have been one of these before</p>
+              <p className="small muted">Saved profiles</p>
               <div className="row row--wrap">
                 {saved.map((entry) => (
                   <Button
@@ -155,16 +154,14 @@ export function ProfileView() {
           </div>
         </Panel>
 
-        <Panel
-          title="The world"
-          subtitle={
-            mode === 'create-club'
-              ? 'Generate the local game you are putting a club into.'
-              : 'The same seed always makes the same towns, clubs and players.'
-          }
-        >
+        <Panel title="The world">
           <label className="field">
-            <span className="field__label">World seed</span>
+            <span
+              className="field__label"
+              title="The same seed always makes the same towns, clubs and players."
+            >
+              World seed
+            </span>
             <input
               className="input"
               value={seed}

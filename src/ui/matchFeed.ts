@@ -49,6 +49,7 @@ export const FEED_LIMIT = 30;
 
 const KIND_LABEL: Partial<Record<MatchEventType, string>> = {
   goal: 'Goal',
+  'own-goal': 'Own goal',
   'penalty-scored': 'Penalty scored',
   'penalty-missed': 'Penalty missed',
   'red-card': 'Red card',
@@ -60,15 +61,29 @@ const KIND_LABEL: Partial<Record<MatchEventType, string>> = {
   'shot-off-target': 'Off target',
   chance: 'Chance',
   corner: 'Corner',
+  'goal-kick': 'Goal kick',
   foul: 'Foul',
   offside: 'Offside',
   'half-time': 'Half time',
   'full-time': 'Full time',
+  'extra-time': 'Extra time',
+  penalties: 'Penalties',
   'kick-off': 'Kick-off',
+  tackle: 'Tackle',
 };
 
+/**
+ * The texture of the match rather than a line of it.
+ *
+ * A pass and a carry are the record's ordinary weave — the timeline groups them
+ * into passages and the pitch draws them — but reading two thousand of them back
+ * would drown the afternoon. The narrated transcript already leaves them out, and
+ * the raw fallback does the same, so both read the same way.
+ */
+const TEXTURE_TYPES: ReadonlySet<MatchEventType> = new Set(['pass', 'carry']);
+
 /** Incidents that are the match, whatever the engine's importance says. */
-const MAJOR_TYPES: ReadonlySet<MatchEventType> = new Set(['goal', 'penalty-scored', 'penalty-missed', 'red-card', 'half-time', 'full-time']);
+const MAJOR_TYPES: ReadonlySet<MatchEventType> = new Set(['goal', 'own-goal', 'penalty-scored', 'penalty-missed', 'red-card', 'half-time', 'full-time']);
 /** Incidents worth marking out, but not worth stopping the game for. */
 const IMPORTANT_TYPES: ReadonlySet<MatchEventType> = new Set(['yellow-card', 'substitution', 'injury', 'shot-saved', 'chance']);
 
@@ -92,7 +107,7 @@ function toneFor(event: MatchEvent): FeedTone {
  * belongs to is decided by the half-time marker: everything before it is the
  * first half, everything after is the second.
  */
-function minuteLabel(minute: number, firstHalf: boolean): string {
+export function minuteLabel(minute: number, firstHalf: boolean): string {
   if (minute === 0) return '0';
   if (firstHalf) return minute <= 45 ? String(minute) : `45+${minute - 45}`;
   return minute <= 90 ? String(minute) : `90+${minute - 90}`;
@@ -120,6 +135,7 @@ function entriesFromEvents(match: Match, limit: number, keyOnly: boolean): Match
   let previousText: string | null = null;
   for (let index = match.events.length - 1; index >= 0; index -= 1) {
     const event = match.events[index]!;
+    if (TEXTURE_TYPES.has(event.type)) continue;
     // The half-time whistle itself belongs to the first half it ends.
     const firstHalf = halfTimeIndex < 0 || index <= halfTimeIndex;
     const tone = toneFor(event);
@@ -138,7 +154,7 @@ function entriesFromEvents(match: Match, limit: number, keyOnly: boolean): Match
       kind: KIND_LABEL[event.type] ?? null,
       side: event.clubId === match.homeClubId ? 'home' : event.clubId === match.awayClubId ? 'away' : null,
       text: event.text,
-      scoreAfter: event.type === 'goal' || event.type === 'penalty-scored' ? event.scoreAfter : null,
+      scoreAfter: event.type === 'goal' || event.type === 'own-goal' || event.type === 'penalty-scored' ? event.scoreAfter : null,
     });
     if (entries.length >= limit) break;
   }

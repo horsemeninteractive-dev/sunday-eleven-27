@@ -4,7 +4,7 @@ import { isPlayer, type Player } from '@/domain/person';
 import { POSITIONS } from '@/domain/positions';
 import { formatDayMonth } from '@/simulation/calendar';
 import { expectedAttendanceFor } from '@/simulation/matchday';
-import { currentScore } from '@/simulation/match/engine';
+import { currentScore } from '@/simulation/match/matchEngine';
 import {
   FULL_TIME_TALK_BLURB,
   FULL_TIME_TALK_LABEL,
@@ -15,7 +15,6 @@ import {
   WARM_UP_BLURB,
   WARM_UP_LABEL,
   WARM_UP_ORDER,
-  fullTimeOutcome,
   type TeamTalk,
   type WarmUp,
 } from '@/simulation/match/preparation';
@@ -107,15 +106,13 @@ export function PreMatchPanel({
             </li>
           ))}
         </ul>
-        <p className="small muted">
-          Word from around the village, not a scout's report — treat it as an impression.
-        </p>
+
       </div>
 
       <div className="briefing__block">
-        <h3>Before you send them out</h3>
+        <h3>Warnings</h3>
         {warnings.length === 0 ? (
-          <p className="small muted">Nothing is wrong with this team. Pick your words and go.</p>
+          <p className="small muted">None.</p>
         ) : (
           <ul className="warnings">
             {warnings.map((warning) => (
@@ -125,7 +122,6 @@ export function PreMatchPanel({
             ))}
           </ul>
         )}
-        <p className="small muted">Change the XI in the Players tab — it does not cost you a substitution.</p>
       </div>
 
       <div className="briefing__block">
@@ -140,11 +136,9 @@ export function PreMatchPanel({
               title={TEAM_TALK_BLURB[talk]}
             >
               <strong>{TEAM_TALK_LABEL[talk]}</strong>
-              <span className="small muted">{TEAM_TALK_BLURB[talk]}</span>
             </button>
           ))}
         </div>
-        {session.teamTalk && <p className="small muted">It will land differently on different lads. That is the job.</p>}
       </div>
 
       <div className="briefing__block">
@@ -162,7 +156,6 @@ export function PreMatchPanel({
             </button>
           ))}
         </div>
-        <p className="small muted">{WARM_UP_BLURB[session.warmUp]}</p>
       </div>
         </div>
 
@@ -242,7 +235,7 @@ export function HalfTimePanel({
               {tired.length > 0 ? (
                 <li className="small">Running on empty: {shortNames(tired.map((entry) => entry.player))}.</li>
               ) : (
-                <li className="small muted">Legs are holding up.</li>
+                <li className="small muted">No tired legs.</li>
               )}
               {carded.length > 0 && (
                 <li className="small">On a booking: {shortNames(carded.map((entry) => entry.player))}.</li>
@@ -268,11 +261,6 @@ export function HalfTimePanel({
                 </button>
               ))}
             </div>
-            <p className="small muted">
-              {session.halfTimeTalk
-                ? TEAM_TALK_BLURB[session.halfTimeTalk]
-                : 'Say nothing and let them work it out. It is a choice too.'}
-            </p>
             <MatchStatsPanel match={match} />
           </div>
         </div>
@@ -321,13 +309,6 @@ export function FullTimePanel({
   const scorers = match.events.filter((event) => event.type === 'goal' || event.type === 'penalty-scored');
   const cards = match.events.filter((event) => event.type === 'yellow-card' || event.type === 'red-card');
   const squad = [...match.lineups[session.side].starting, ...match.lineups[session.side].bench];
-  const outcome = fullTimeOutcome(score, session.side);
-  const talkNote =
-    outcome.result === 'win'
-      ? 'You won. They know what they did — decide whether to say it out loud.'
-      : outcome.result === 'draw'
-        ? 'A point. Say what was good, and what was not.'
-        : 'You lost. What you say now is the one thing about today you still control.';
 
   return (
     <div className="interval" role="dialog" aria-label="Full time">
@@ -348,7 +329,7 @@ export function FullTimePanel({
           <div>
             <h3>The goals</h3>
             {scorers.length === 0 ? (
-              <p className="small muted">A goalless one. It happens.</p>
+              <p className="small muted">No goals.</p>
             ) : (
               <ul className="tight-list">
                 {scorers.map((event) => (
@@ -400,7 +381,7 @@ export function FullTimePanel({
             </div>
           </div>
           <div>
-            <h3>The last word</h3>
+            <h3>Team talk</h3>
             <div className="choices choices--inline">
               {FULL_TIME_TALK_ORDER.map((talk) => (
                 <button
@@ -414,17 +395,15 @@ export function FullTimePanel({
                 </button>
               ))}
             </div>
-            <p className="small muted">
-              {session.fullTimeTalk ? FULL_TIME_TALK_BLURB[session.fullTimeTalk] : talkNote}
-            </p>
-            <p className="small muted">It lands on the whole squad as you leave them.</p>
             <MatchStatsPanel match={match} />
-            <h3>Full time</h3>
             <p className="small muted">{feed.entries[0]?.text ?? 'Full time.'}</p>
           </div>
         </div>
 
         <footer className="interval__foot">
+          <Button variant="ghost" onClick={() => gameActions().openReplay(match.id, 'match')}>
+            Watch back
+          </Button>
           <Button variant="ghost" onClick={onReport}>
             Full report
           </Button>

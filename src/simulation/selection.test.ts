@@ -64,10 +64,18 @@ describe('team selection', () => {
     const clean = validateLineup(selection.starting, selection.bench, (id) => (lookup(id)?.kind === 'player' ? (lookup(id) as Player) : undefined));
     expect(clean.filter((problem) => problem.severity === 'error')).toHaveLength(0);
 
-    // Remove the keeper and the problems should call it out.
+    // Below the minimum there is no team to field at all.
+    const short = selection.starting.slice(0, 6);
+    const shortProblems = validateLineup(short, [], (id) => (lookup(id)?.kind === 'player' ? (lookup(id) as Player) : undefined));
+    expect(
+      shortProblems.some((problem) => problem.severity === 'error' && problem.message.includes('at least 7')),
+    ).toBe(true);
+
+    // Remove the keeper and the problems should call it out — ten outfielders is
+    // short-handed, but a legal side.
     const noKeeper = selection.starting.filter((slot) => slot.position !== 'GK');
     const problems = validateLineup(noKeeper, selection.bench, (id) => (lookup(id)?.kind === 'player' ? (lookup(id) as Player) : undefined));
-    expect(problems.some((problem) => problem.message.includes('11 starters'))).toBe(true);
+    expect(problems.some((problem) => problem.severity === 'error' && problem.message.includes('at least 7'))).toBe(false);
     expect(problems.some((problem) => problem.message.includes('goalkeeper'))).toBe(true);
 
     const duplicated = [...selection.starting.slice(0, 10), selection.starting[0]!];

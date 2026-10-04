@@ -6,25 +6,31 @@ import { BASE_MINUTE_MS, matchMinuteMs, spatialSecondsPerRealSecond } from './ma
 /**
  * How fast a match is watched.
  *
- * A match at 1x has to be followable — that is the whole point of a speed called
- * "normal" — and the only way to be sure of that is to make the pitch run at true
- * speed. These pin the property rather than the number: at 1x, one real second
- * buys exactly one second of football, and every other setting is a division of
- * the same minute rather than a different one.
+ * The pitch clock is now the match clock — one spatial second is one second of
+ * football — so watching it at true speed would take ninety real minutes.
+ * `BASE_MINUTE_MS` is the compression that makes it followable: at 1x a minute of
+ * football is watched over a few seconds, and every other setting divides that
+ * same minute rather than changing it. These pin the property rather than the
+ * number: whatever the base is, a whole match minute is exactly one base long at
+ * 1x, the pitch covers the whole minute in that time, and faster settings only
+ * ever spend less real time on the same football.
  */
 
 describe('match pace', () => {
-  it('plays the pitch at true speed at 1x', () => {
-    expect(spatialSecondsPerRealSecond(1)).toBe(1);
+  it('watches a whole minute at 1x, and covers the whole pitch in it', () => {
     expect(matchMinuteMs(1)).toBe(BASE_MINUTE_MS);
-    expect(BASE_MINUTE_MS).toBe(SPATIAL_SECONDS_PER_MINUTE * 1000);
+    // At 1x, one minute of watching is worth exactly one minute of football.
+    expect(spatialSecondsPerRealSecond(1)).toBe((SPATIAL_SECONDS_PER_MINUTE * 1000) / BASE_MINUTE_MS);
+    // And that is more than true speed: the match is compressed, not stretched.
+    expect(spatialSecondsPerRealSecond(1)).toBeGreaterThan(1);
   });
 
   it('compresses the same minute rather than changing it above 1x', () => {
+    const atOne = spatialSecondsPerRealSecond(1);
     for (const speed of MATCH_SPEEDS) {
-      // The rate is the setting, exactly, so a match is never watched at a pace
-      // nobody asked for.
-      expect(spatialSecondsPerRealSecond(speed)).toBe(speed);
+      // The rate is the setting times the base, exactly, so a match is never
+      // watched at a pace nobody asked for.
+      expect(spatialSecondsPerRealSecond(speed)).toBe(atOne * speed);
       // And every speed is the base minute divided, never anything else.
       expect(matchMinuteMs(speed)).toBe(BASE_MINUTE_MS / speed);
     }
@@ -41,6 +47,6 @@ describe('match pace', () => {
     // is the safe way to be wrong.
     expect(matchMinuteMs(0)).toBe(BASE_MINUTE_MS);
     expect(matchMinuteMs(Number.NaN)).toBe(BASE_MINUTE_MS);
-    expect(spatialSecondsPerRealSecond(Number.NaN)).toBe(1);
+    expect(spatialSecondsPerRealSecond(Number.NaN)).toBe(spatialSecondsPerRealSecond(1));
   });
 });

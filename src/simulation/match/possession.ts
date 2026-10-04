@@ -3,6 +3,7 @@ import type { Match, MatchEvent } from '@/domain/match';
 import type { PositionCode } from '@/domain/positions';
 import type { Rng } from '../rng';
 import { chooseAction, weighActions, type ActionContext, type ActionKind } from './actions';
+import { roleProfile } from './roles';
 import {
   currentScore,
   eventCoords,
@@ -21,6 +22,7 @@ import { commitFoul } from './discipline';
 import {
   clamp01,
   ensureField,
+  linesFor,
   phaseForZone,
   pressureFor,
   progressOf,
@@ -36,6 +38,8 @@ import {
 import { takeCorner, takeFreeKick, takePenalty, takeThrowIn, goalKick, type RoutineOutcome } from './setPieces';
 import { resolveShot } from './shot';
 import { playerEffectiveness } from './teamStrength';
+import type { MatchActionKind, RestartState } from '@/domain/matchState';
+import { shotAction, type TimelineAction } from './actionTimeline';
 
 /**
  * The football itself.
@@ -79,8 +83,26 @@ const POSSESSION_BASE_SECONDS = 7;
 const MAX_ACTIONS = 8;
 /** A match minute is sixty seconds of football. */
 const MINUTE_SECONDS = 60;
-/** A safety rail, not a quota: a minute cannot turn into an endless passage. */
-const MAX_POSSESSIONS = 9;
+/**
+ * How far ahead of the clock the football is decided.
+ *
+ * The engine is asked to advance the clock by a minute, and answers with a
+ * minute's worth of football — so it decides a little past the target, to be
+ * sure the slice it hands back is full. The surplus is not thrown away: it is
+ * kept on the match as a starting offset, so the *next* minute carries on from
+ * where the football actually got to rather than from the clock. That is what
+ * lets a possession run across a minute mark. The clock is the label; the
+ * football is the truth.
+ */
+const DECISION_LOOKAHEAD_SECONDS = 8;
+/**
+ * A safety rail, not a quota: one slice cannot turn into an endless passage.
+ *
+ * Sized from the clock, not from a per-minute expectation: it is the most
+ * possessions a little over a minute of football could plausibly contain, and it
+ * exists so a pathological minute cannot spin forever.
+ */
+const MAX_POSSESSIONS = 14;
 
 const WIDE_ROLES: ReadonlySet<PositionCode> = new Set(['RM', 'LM', 'RW', 'LW', 'RB', 'LB']);
 
@@ -255,6 +277,50 @@ interface PossessionOutcome {
   goal: boolean;
   counter: boolean;
   receivers: PlayerId[];
+  /** The decisions this possession made, in order, as timed actions. */
+  actions: TimelineAction[];
+  /**
+   * The dead ball this possession ended on, if it ended on one.
+   *
+   * A corner, a free kick, a throw or a goal kick all leave the football stopped
+   * for a few seconds while twenty-two men arrange themselves. That pause used to
+   * exist only as arithmetic — seconds added to the possession budget — and the
+   * pitch showed the ball appearing at somebody's feet at the other end of it.
+   * Carrying the restart on the outcome is what lets the picture show the pause
+   * itself rather than skipping over it.
+   */
+  restart?: RestartState | null;
+  /**
+   * The delivery that ended it, as the model decided it.
+   *
+   * Empty for a possession that ended without one, and for everything that is not
+   * a restart at all.
+   */
+  restartActions?: TimelineAction[];
+}
+
+/** The contract's verb for one of the possession model's decisions. */
+function timelineKind(decision: string): MatchActionKind {
+  switch (decision) {
+    case 'carry':
+      return 'carry';
+    case 'dribble':
+      return 'dribble';
+    case 'cross':
+      return 'cross';
+    case 'clear':
+      return 'clear';
+    case 'hold':
+      return 'hold';
+    case 'switch':
+      return 'switch';
+    case 'through':
+      return 'through';
+    case 'shoot':
+      return 'shot';
+    default:
+      return 'pass';
+  }
 }
 
 interface StepEnd {
@@ -281,30 +347,47 @@ function runPossession(
 ): PossessionOutcome {
   const opponent = otherSide(side);
   const receivers: PlayerId[] = [];
+  /** The decisions of this possession, written down as they are made. */
+  const log: TimelineAction[] = [];
   refreshField(match, context, field);
 
   const carrierId = resolveCarrier(match, env, side, startPlayerId, rng);
   if (!carrierId) {
-    return { side, seconds: 2, nextSide: opponent, nextPlayerId: null, x: field.ball.x, y: field.ball.y, goal: false, counter: false, receivers };
+    return { side, seconds: 2, nextSide: opponent, nextPlayerId: null, x: field.ball.x, y: field.ball.y, goal: false, counter: false, receivers, actions: log };
   }
   setPossession(field, side, carrierId);
   setPhase(field, options.fromCounter ? 'transition' : phaseForZone(zoneOf(side, field.ball.x)));
 
   let seconds = POSSESSION_BASE_SECONDS;
   let current = carrierId;
+  // Whether this side shielded the ball last time it had it. Kept on the field so
+  // it survives across the possessions a hold ends, which is the only way two
+  // shields can end up back to back.
+
+  /** A fresh ball is a fresh choice about what to do with it. */
+  const clearHeld = (): void => {
+    if (field.heldRecently) field.heldRecently[side] = false;
+  };
   /** The man who played the last pass, so a goal can credit the assist. */
   let lastPasser: PlayerId | null = null;
 
-  const end = (outcome: StepEnd, x: number, y: number): PossessionOutcome => ({
+  const end = (outcome: StepEnd, x: number, y: number, routine?: RoutineOutcome): PossessionOutcome => ({
     side,
     seconds,
     receivers,
+    actions: log,
     goal: outcome.goal,
     counter: outcome.counter,
     nextSide: outcome.nextSide,
     nextPlayerId: outcome.nextPlayerId,
     x,
     y,
+    // A routine's delivery is appended to this chain's timeline rather than kept
+    // beside it: the cross really is the last thing this possession did, and the
+    // pitch plays one chain at a time. The restart rides along with it, so the
+    // dead ball is arranged immediately before the ball that ends it.
+    restart: routine?.restart ?? null,
+    restartActions: routine?.actions ?? [],
   });
 
   /** After a foul: judge it, then run the restart it earns. */
@@ -312,29 +395,47 @@ function runPossession(
     const inBox = progress > 0.83;
     const foul = commitFoul(match, env, context, opponent, offenderId, victimId, inBox, rng, sink);
     seconds += 20;
+    // The free kick is taken from where the fouled man actually is, not from the
+    // field model's idea of where the ball was. That is the difference between a
+    // foul whose two men are standing together on the pitch and a foul written at
+    // coordinates nobody was ever at — and it is read from the spatial layer when
+    // there is a pitch to read it from.
+    const spot = foul ? { x: foul.x, y: foul.y } : foulSpot(match, null);
     if (foul?.penalty) {
       const routine = takePenalty(match, env, context, side, rng, sink);
-      return end(routineToStep(routine), routine.x, routine.y);
+      return end(routineToStep(routine), routine.x, routine.y, routine);
     }
-    const routine = takeFreeKick(match, env, context, side, rng, sink);
-    return end(routineToStep(routine), routine.x, routine.y);
+    const routine = takeFreeKick(match, env, context, side, rng, sink, spot);
+    return end(routineToStep(routine), routine.x, routine.y, routine);
   };
 
   /** After the ball goes out: a corner, a throw, or the keeper starting again. */
   const afterOutOfPlay = (behindTheirGoal: boolean): PossessionOutcome => {
+    // Where the ball actually left the pitch is the field model's own answer,
+    // and it is the right one.
+    //
+    // It used to be overridden with the *continuous* ball's current position,
+    // which is not the same thing at all: by the time the decision layer decides
+    // the ball has gone out, the spatial frame has carried on for a few more steps
+    // and its ball is somewhere else entirely — usually halfway up the pitch. The
+    // throw was then placed from wherever the picture happened to be, which is
+    // how a throw-in ended up taken from the wrong touchline with the ball twenty
+    // yards from where it went out. The frame has no better answer to this
+    // question than the model that noticed the ball leaving.
+    const spot = { x: field.ball.x, y: field.ball.y };
     if (behindTheirGoal) {
       if (rng.chance(0.5)) {
         const routine = takeCorner(match, env, context, side, rng, sink);
         seconds += 18;
-        return end(routineToStep(routine), routine.x, routine.y);
+        return end(routineToStep(routine), routine.x, routine.y, routine);
       }
       const routine = goalKick(match, opponent, rng);
       seconds += 14;
-      return end(routineToStep(routine), routine.x, routine.y);
+      return end(routineToStep(routine), routine.x, routine.y, routine);
     }
-    const routine = takeThrowIn(match, env, context, side, rng, sink);
+    const routine = takeThrowIn(match, env, context, side, rng, sink, spot);
     seconds += 9;
-    return end(routineToStep(routine), routine.x, routine.y);
+    return end(routineToStep(routine), routine.x, routine.y, routine);
   };
 
   for (let action = 0; action < MAX_ACTIONS; action += 1) {
@@ -356,13 +457,24 @@ function runPossession(
     const teammates = match.lineups[side].starting.filter((slot) => slot.playerId !== current && slot.position !== 'GK');
     const optionsAhead = teammates.filter((slot) => roleDepth(slot.position) > carrierDepth + 0.08).length;
     const optionsWide = teammates.filter((slot) => WIDE_ROLES.has(slot.position)).length;
+    // Only roles that make runs beyond the ball count as somewhere to put one.
+    const runnersAhead = teammates.filter((entry) => {
+      if (roleDepth(entry.position) <= carrierDepth + 0.08) return false;
+      return roleProfile(entry.role).runsInBehind;
+    }).length;
 
     const score = currentScore(match);
     const goalDifference = side === 'home' ? score.home - score.away : score.away - score.home;
     const urgency = urgencyFor(side, { minute: match.minute, goalDifference });
 
+    // His role comes from the lineup, never from his position: a deep-lying and a
+    // mezzala play the same position and are different footballers, and reading
+    // the position back would quietly collapse the two into one.
+    const slot = match.lineups[side].starting.find((entry) => entry.playerId === current);
+
     const actionContext: ActionContext = {
       position: performance.positionPlayed,
+      role: roleProfile(slot?.role),
       isKeeper: performance.positionPlayed === 'GK',
       progress,
       y: field.ball.y,
@@ -371,6 +483,7 @@ function runPossession(
       optionsTotal: teammates.length,
       optionsAhead,
       optionsWide,
+      runnersAhead,
       effective,
       energy: performance.energy,
       profile: context[side].profile,
@@ -381,7 +494,29 @@ function runPossession(
     };
 
     const choice = chooseAction(actionContext, rng);
+    const actionStart = seconds;
     seconds += ACTION_SECONDS[choice.kind];
+    const duration = ACTION_SECONDS[choice.kind];
+    /**
+     * Record the decision before it is resolved, and annotate the record as the
+     * branch below settles it. The record is a reference into `log`, so an early
+     * return still carries the action it just made with the outcome it reached.
+     */
+    const timeline: TimelineAction = {
+      kind: timelineKind(choice.kind),
+      decision: choice.kind,
+      side,
+      playerId: current,
+      targetPlayerId: null,
+      fromX: field.ball.x,
+      fromY: field.ball.y,
+      toX: field.ball.x,
+      toY: field.ball.y,
+      startSecond: actionStart,
+      duration,
+      outcome: 'carry',
+    };
+    log.push(timeline);
 
     if (env.trace) {
       const table = weighActions(actionContext)
@@ -427,21 +562,27 @@ function runPossession(
         rng,
         sink,
       );
+      timeline.toX = side === 'home' ? 1 : 0;
+      timeline.toY = clamp(0.5 + (field.ball.y - 0.5) * 0.4, 0.15, 0.85);
       if (shot.type === 'goal') {
+        timeline.outcome = 'goal';
         return end({ nextSide: opponent, nextPlayerId: null, goal: true, counter: false }, 0.5, 0.5);
       }
       if (shot.type === 'shot-blocked') {
         // Blocked: it usually comes back off a defender for a corner or a scrap.
+        timeline.outcome = 'blocked';
         return rng.chance(0.4)
           ? afterOutOfPlay(true)
           : end(turnoverStep(opponent, false), field.ball.x, field.ball.y);
       }
       if (shot.type === 'shot-saved') {
+        timeline.outcome = 'saved';
         return rng.chance(0.25)
           ? end({ nextSide: side, nextPlayerId: current, goal: false, counter: false }, xFromProgress(side, clamp(progress + 0.02, 0.1, 0.95)), clamp(field.ball.y + rng.float(-0.1, 0.1), 0.08, 0.92))
           : end(turnoverStep(opponent, true), xFromProgress(opponent, 0.06), 0.5);
       }
       // Off target: a goal kick, or occasionally a corner off a deflection.
+      timeline.outcome = 'off-target';
       return afterOutOfPlay(true);
     }
 
@@ -460,26 +601,40 @@ function runPossession(
       const risk = clamp(0.06 + 0.36 * pressure - 0.28 * control + (progress > 0.7 ? 0.12 : 0), 0.05, 0.75);
       if (rng.chance(risk)) {
         const tackle = contest(match, env, opponent, current, effective.tackling, pressure, rng, context);
-        if (tackle === 'foul') return afterFoul(null, current, progress);
-        if (tackle === 'won') return end(turnoverStep(opponent, canCounter(match, context, field, opponent, side, rng)), field.ball.x, field.ball.y);
+        if (tackle === 'foul') {
+          timeline.outcome = 'foul';
+          return afterFoul(null, current, progress);
+        }
+        if (tackle === 'won') {
+          timeline.outcome = 'turnover';
+          return end(turnoverStep(opponent, canCounter(match, context, field, opponent, side, rng)), field.ball.x, field.ball.y);
+        }
         // Beaten but not dispossessed: he keeps going, just not as far.
       }
       const nextProgress = clamp(progress + advance, 0.04, 0.97);
       field.ball.x = xFromProgress(side, nextProgress);
       field.ball.y = clamp(field.ball.y + rng.float(-0.05, 0.05), 0.05, 0.95);
+      timeline.toX = field.ball.x;
+      timeline.toY = field.ball.y;
       continue;
     }
 
     // --- Dribbling ----------------------------------------------------------
     if (kind === 'dribble') {
       const duel = contest(match, env, opponent, current, effective.ballControl * 0.55 + effective.agility * 0.45, pressure, rng, context);
-      if (duel === 'foul') return afterFoul(null, current, progress);
+      if (duel === 'foul') {
+        timeline.outcome = 'foul';
+        return afterFoul(null, current, progress);
+      }
       if (duel === 'won') {
+        timeline.outcome = 'turnover';
         return end(turnoverStep(opponent, canCounter(match, context, field, opponent, side, rng)), field.ball.x, field.ball.y);
       }
       const nextProgress = clamp(progress + 0.09 + effective.pace / 200, 0.05, 0.97);
       field.ball.x = xFromProgress(side, nextProgress);
       field.ball.y = clamp(field.ball.y + rng.float(-0.08, 0.08), 0.06, 0.94);
+      timeline.toX = field.ball.x;
+      timeline.toY = field.ball.y;
       continue;
     }
 
@@ -491,6 +646,8 @@ function runPossession(
       if (rng.chance(clamp01(quality))) {
         const headerer = bestHeader(match, env, side, rng);
         if (headerer) {
+          const headerX = xFromProgress(side, 0.93);
+          const headerY = clamp(0.5 + rng.float(-0.16, 0.16), 0.24, 0.76);
           const shot = resolveShot(
             match,
             env,
@@ -500,8 +657,8 @@ function runPossession(
               shooterId: headerer,
               assisterId: current,
               chanceQuality: clamp01(0.28 + quality * 0.35),
-              x: xFromProgress(side, 0.93),
-              y: clamp(0.5 + rng.float(-0.16, 0.16), 0.24, 0.76),
+              x: headerX,
+              y: headerY,
               pressure: 0.5,
               assistKind: 'cross',
               blockers: 1,
@@ -510,12 +667,33 @@ function runPossession(
             rng,
             sink,
           );
+          // The cross found its man, so it is completed — the header is the next
+          // action of the minute, not a rewrite of this one.
+          timeline.outcome = 'completed';
+          timeline.targetPlayerId = headerer;
+          timeline.toX = headerX;
+          timeline.toY = headerY;
+          const header = shotAction({
+            kind: 'shot',
+            decision: 'shoot',
+            side,
+            playerId: headerer,
+            targetPlayerId: null,
+            fromX: headerX,
+            fromY: headerY,
+            toX: side === 'home' ? 1 : 0,
+            toY: headerY,
+            startSecond: actionStart + duration,
+            outcome: shot.type === 'goal' ? 'goal' : shot.type === 'shot-blocked' ? 'blocked' : shot.type === 'shot-saved' ? 'saved' : 'off-target',
+          });
+          log.push(header);
           if (shot.type === 'goal') return end({ nextSide: opponent, nextPlayerId: null, goal: true, counter: false }, 0.5, 0.5);
           if (shot.type === 'shot-blocked') return afterOutOfPlay(true);
           return end(turnoverStep(opponent, true), xFromProgress(opponent, 0.06), 0.5);
         }
       }
       // Overhit or headed clear.
+      timeline.outcome = 'incomplete';
       if (rng.chance(0.3)) return afterOutOfPlay(false);
       return end(turnoverStep(opponent, canCounter(match, context, field, opponent, side, rng)), xFromProgress(opponent, clamp(0.55 + rng.float(0, 0.25), 0.3, 0.9)), clamp(rng.float(0.1, 0.9), 0.06, 0.94));
     }
@@ -527,10 +705,15 @@ function runPossession(
       if (findsTeammate) {
         field.ball.x = xFromProgress(side, targetProgress);
         field.ball.y = clamp(0.5 + rng.float(-0.34, 0.34), 0.06, 0.94);
+        timeline.outcome = 'completed';
+        timeline.toX = field.ball.x;
+        timeline.toY = field.ball.y;
         current = resolveCarrier(match, env, side, null, rng) ?? current;
+        timeline.targetPlayerId = current;
         setPossession(field, side, current);
         continue;
       }
+      timeline.outcome = 'incomplete';
       return end(turnoverStep(opponent, canCounter(match, context, field, opponent, side, rng)), xFromProgress(opponent, clamp(0.4 + rng.float(0, 0.3), 0.25, 0.85)), clamp(rng.float(0.1, 0.9), 0.06, 0.94));
     }
 
@@ -538,21 +721,59 @@ function runPossession(
     if (kind === 'hold') {
       if (rng.chance(clamp(0.12 + 0.3 * pressure, 0.1, 0.6))) {
         const tackle = contest(match, env, opponent, current, effective.ballControl, pressure, rng, context);
-        if (tackle === 'foul') return afterFoul(null, current, progress);
+        if (tackle === 'foul') {
+          timeline.outcome = 'foul';
+          return afterFoul(null, current, progress);
+        }
+        timeline.outcome = 'turnover';
         return end(turnoverStep(opponent, canCounter(match, context, field, opponent, side, rng)), field.ball.x, field.ball.y);
       }
-      continue;
+      // A hold is an *action*, so it is written into the timeline like one.
+      //
+      // It used to be a gap: seconds added to the budget, loop carrying on,
+      // nothing on the pitch to show for them. That is what put a dead patch in
+      // the middle of a move — the carrier decided to stand still, the decision
+      // model spent the time, and the ball did nothing at all for as long as the
+      // shield nominally lasted. Written as a step, the carrier shields the ball
+      // and the chain waits him out, and the pause is bounded by the action
+      // rather than by how long the arithmetic allowed.
+      //
+      // The possession *ends* here rather than continuing, so the next decision is
+      // made with the ball still at his feet. That is what makes it a fresh
+      // decision rather than a pause with extra steps around it.
+      //
+      // It also means the flag has to live on the field rather than in this
+      // function: a hold returns from here, so a local one is reset before the
+      // next decision is made, and two shields back to back are always allowed.
+      // Each is bounded; together they are a ball standing still for longer than
+      // either, which is how a chain of `[pass, hold, hold]` happened. The flag is
+      // cleared when the ball is genuinely turned over, which is the thing that
+      // makes holding it a fresh choice again.
+      const held = (field.heldRecently ??= { home: false, away: false });
+      if (held[side]) continue;
+      held[side] = true;
+      log.push({ ...timeline, kind: 'hold', outcome: 'completed' });
+      seconds += ACTION_SECONDS.hold;
+      return end({ nextSide: side, nextPlayerId: current, goal: false, counter: false }, field.ball.x, field.ball.y);
     }
 
     // --- Switching ----------------------------------------------------------
     if (kind === 'switch') {
       const target = pickTarget(match, env, side, current, progress, effective.positioning, optionsWide > 0 ? 'wide' : 'any', 0.06, rng);
       if (!target) continue;
+      timeline.targetPlayerId = target.playerId;
+      timeline.toX = xFromProgress(side, target.progress);
+      timeline.toY = clamp(target.y, 0.06, 0.94);
       const success = resolvePassAttempt(match, env, context, side, current, target, progress, pressure, effective.passing, effective.decisions, effective.composure, rng);
-      if (!success) return end(turnoverStep(opponent, canCounter(match, context, field, opponent, side, rng)), field.ball.x, field.ball.y);
+      if (!success) {
+        timeline.outcome = 'incomplete';
+        return end(turnoverStep(opponent, canCounter(match, context, field, opponent, side, rng)), field.ball.x, field.ball.y);
+      }
+      timeline.outcome = 'completed';
       field.ball.x = xFromProgress(side, target.progress);
       field.ball.y = clamp(target.y, 0.06, 0.94);
       current = target.playerId;
+      clearHeld();
       receivers.push(current);
       lastPasser = target.from;
       setPossession(field, side, current);
@@ -566,8 +787,20 @@ function runPossession(
       // A ball played in behind is played against a line, and a line is a trap.
       // How often it springs depends on how high the defence holds and on how
       // well the passer reads it — a careless ball is caught, a good one is not.
-      const theirLine = progressOf(opponent, shapeForSide(field, opponent).defensiveLine);
+      // A ball played in behind is played against a line, and a line is a trap. Where
+      // that line actually is depends on where the ball is now and who has it —
+      // which is the point of the shape being a set rather than a number. The
+      // ball is being played forward from `side`, so it is read in the
+      // opponent's frame: how far up their pitch the ball already is, and what
+      // they are holding with it in their hands.
+      const theirLine = linesFor(shapeForSide(field, opponent), {
+        inPossession: false,
+        progress: progressOf(opponent, field.ball.x),
+      }).back;
       const offsideChance = clamp01(0.02 + theirLine * 0.07 + (1 - effective.decisions / 20) * 0.08);
+      timeline.targetPlayerId = target.playerId;
+      timeline.toX = xFromProgress(side, clamp(target.progress, 0.1, 0.96));
+      timeline.toY = clamp(target.y, 0.1, 0.9);
       if (rng.chance(offsideChance)) {
         const caught = env.getPlayer(target.playerId);
         pushEvent(
@@ -583,14 +816,20 @@ function runPossession(
           }),
           sink,
         );
+        timeline.outcome = 'incomplete';
         return end({ nextSide: opponent, nextPlayerId: null, goal: false, counter: false }, xFromProgress(opponent, clamp(target.progress, 0.1, 0.9)), target.y);
       }
       const success = resolvePassAttempt(match, env, context, side, current, target, progress, pressure + 0.1, effective.passing, effective.decisions, effective.composure, rng);
       receivers.push(target.playerId);
-      if (!success) return end(turnoverStep(opponent, canCounter(match, context, field, opponent, side, rng)), xFromProgress(opponent, 0.12), 0.5);
+      if (!success) {
+        timeline.outcome = 'incomplete';
+        return end(turnoverStep(opponent, canCounter(match, context, field, opponent, side, rng)), xFromProgress(opponent, 0.12), 0.5);
+      }
+      timeline.outcome = 'completed';
       field.ball.x = xFromProgress(side, clamp(target.progress, 0.1, 0.96));
       field.ball.y = clamp(target.y, 0.1, 0.9);
       current = target.playerId;
+      clearHeld();
       lastPasser = target.from;
       setPossession(field, side, current);
       continue;
@@ -600,17 +839,24 @@ function runPossession(
     const target = pickTarget(match, env, side, current, progress, effective.positioning, 'any', 0.17, rng);
     if (!target) {
       // Nowhere to go: he does the honest thing and gets rid of it.
+      timeline.outcome = 'incomplete';
       return end(turnoverStep(opponent, canCounter(match, context, field, opponent, side, rng)), xFromProgress(opponent, clamp(0.45 + rng.float(0, 0.25), 0.3, 0.85)), clamp(rng.float(0.12, 0.88), 0.06, 0.94));
     }
+    timeline.targetPlayerId = target.playerId;
+    timeline.toX = xFromProgress(side, target.progress);
+    timeline.toY = clamp(target.y, 0.06, 0.94);
     const success = resolvePassAttempt(match, env, context, side, current, target, progress, pressure, effective.passing, effective.decisions, effective.composure, rng);
     if (!success) {
+      timeline.outcome = 'incomplete';
       if (rng.chance(0.14)) return afterOutOfPlay(false);
       return end(turnoverStep(opponent, canCounter(match, context, field, opponent, side, rng)), field.ball.x, field.ball.y);
     }
+    timeline.outcome = 'completed';
     field.ball.x = xFromProgress(side, target.progress);
     field.ball.y = clamp(target.y, 0.06, 0.94);
     receivers.push(target.playerId);
     current = target.playerId;
+    clearHeld();
     lastPasser = target.from;
     setPossession(field, side, current);
   }
@@ -629,6 +875,21 @@ function routineToStep(routine: RoutineOutcome): StepEnd {
 }
 
 /**
+ * Where a foul happened, in pitch coordinates.
+ *
+ * Taken from the fouled player's own position where he can be found, because he
+ * is the man who was fouled and the ball goes down next to him. Falls back to
+ * the ball for a match with no pitch, which is the old behaviour exactly.
+ */
+function foulSpot(match: Match, victimId: PlayerId | null): { x: number; y: number } {
+  const spatial = match.spatial;
+  if (!spatial) return { x: match.field?.ball.x ?? 0.5, y: match.field?.ball.y ?? 0.5 };
+  const victim = victimId ? spatial.players.find((node) => node.playerId === victimId) : undefined;
+  if (victim) return { x: victim.x, y: victim.y };
+  return { x: spatial.ball.x, y: spatial.ball.y };
+}
+
+/**
  * Could the side that just won the ball break from here?
  *
  * A counter needs three things: the side that lost it to have been high up the
@@ -643,7 +904,12 @@ function canCounter(
   loser: Side,
   rng: Rng,
 ): boolean {
-  const loserLine = progressOf(loser, shapeForSide(field, loser).defensiveLine);
+  // How much room the loser is leaving: the back line they are actually holding,
+  // given where the ball is and that they do not have it.
+  const loserLine = linesFor(shapeForSide(field, loser), {
+    inPossession: false,
+    progress: progressOf(loser, field.ball.x),
+  }).back;
   const exposure = context[loser].profile.counterVulnerability;
   const paceEdge = context[winner].strength.pace / Math.max(0.5, context[loser].strength.pace);
   // A tired side cannot break eighty yards, however open the game is.
@@ -780,6 +1046,7 @@ function pickTarget(
       const depth = roleDepth(slot.position);
       const forwardness = depth - carrierDepth;
       const wide = WIDE_ROLES.has(slot.position);
+      const runsInBehind = roleProfile(slot.role).runsInBehind;
       let weight = 0.9;
       // Forward passes are the point of football, but they need a player who can
       // see them — a limited passer keeps it safe.
@@ -788,6 +1055,12 @@ function pickTarget(
       if (wide) weight *= 1.1;
       if (preference === 'wide' && wide) weight *= 2.2;
       if (preference === 'forward') weight *= forwardness > 0 ? 2.4 : 0.3;
+      // A ball played in behind is only worth playing to somebody who will run
+      // it. The action itself is already gated on a runner being available, so
+      // here it only decides which of the men ahead the ball finds: the one
+      // whose job is to attack the space behind, not the one who will stand and
+      // wait for it to arrive at his feet.
+      if (runsInBehind && preference === 'forward') weight *= 1.25;
       return {
         value: {
           playerId: slot.playerId,
@@ -933,15 +1206,83 @@ function aerialPowerOf(match: Match, env: MatchEnvironment, side: Side): number 
   return top.reduce((sum, value) => sum + value, 0) / top.length;
 }
 
+/**
+ * One possession of a minute, from the moment a side won the ball to the moment
+ * it lost it, shot, or ran out of ideas.
+ *
+ * The minute is a run of these, and each one is a move in its own right — its
+ * own side, its own men, its own decisions, its own end. Returned as a list they
+ * can each be executed on the pitch in turn, which is what stops the minute's
+ * football collapsing into only the move it happened to finish on.
+ */
+export interface PossessionChain {
+  /** The side that had the ball for this possession. */
+  side: Side;
+  /** How long the possession lasted, in match seconds. */
+  seconds: number;
+  /** The men the ball was genuinely played to, in this chain, in order. */
+  receivers: PlayerId[];
+  /** This chain's decisions, in order, as timed actions. */
+  actions: TimelineAction[];
+  /** Whether the chain ended in a goal. */
+  goal: boolean;
+  /**
+   * The dead ball this chain ends on, when it ends on one.
+   *
+   * It sits on the chain rather than being installed separately so that the two
+   * stay together: a restart with no chain to deliver it, or a chain whose first
+   * ball arrives before anyone has walked up, are both ways of showing a set
+   * piece as nothing at all.
+   */
+  restart?: RestartState | null;
+  /**
+   * The delivery the restart exists to show, as decided.
+   *
+   * Kept beside the chain's own actions rather than appended to them, because the
+   * two have to be separable: the build-up has to be built and played on its own,
+   * and only then does the dead ball get arranged at the end of it. Appending them
+   * together is what put the ball on the flag eight seconds before the move that
+   * won it had finished.
+   */
+  restartActions?: TimelineAction[];
+}
+
+/**
+ * The football clock, and how far the last slice ran past the label.
+ *
+ * The match carries `footballSeconds` as the truth and `minute` as the label
+ * derived from it. `footballCarryoverSeconds` is the seam between them: the part
+ * of the last slice that was decided beyond the clock, which the next slice must
+ * start from. A save written before any of this existed is given a clock from
+ * the minute it had already reached, so an old match carries on sensibly rather
+ * than restarting at zero.
+ */
+function refreshFootballClock(match: Match): number {
+  if (typeof match.footballSeconds !== 'number') match.footballSeconds = match.minute * MINUTE_SECONDS;
+  const carryover = match.footballCarryoverSeconds;
+  return typeof carryover === 'number' && carryover > 0 ? carryover : 0;
+}
+
 export interface MinuteFootball {
   /** Who held the ball longest this minute — the possession tick. */
   possessionSide: Side;
-  /** The side the minute's move belonged to, for the narrator and the pitch. */
+  /** The side the minute's last move belonged to, for the narrator and the pitch. */
   passageSide: Side;
-  /** The men the ball was genuinely played to, in order. */
+  /** The men the ball was genuinely played to in the last chain, in order. */
   receivers: PlayerId[];
+  /** The last possession's decisions, in order, as timed actions. */
+  actions: TimelineAction[];
   goals: number;
   possessions: number;
+  /**
+   * Every possession of the minute, in the order they were played.
+   *
+   * The pitch executes these in turn: each chain is played out continuously, and
+   * when one is over the next begins from wherever the ball actually is. The
+   * fields above are the last chain's, kept because the narrator and a few
+   * older readers still want a single move to hang a minute on.
+   */
+  chains: PossessionChain[];
 }
 
 /**
@@ -962,6 +1303,7 @@ export function runMinuteFootball(
 ): MinuteFootball {
   const field = ensureField(match, context);
   refreshField(match, context, field);
+  const carryover = refreshFootballClock(match);
 
   // A side with nobody out there cannot play football, and the match must not
   // become a ninety-minute procession in which somebody walks the ball in nine
@@ -972,29 +1314,58 @@ export function runMinuteFootball(
     match.lineups[team].starting.some((slot) => slot.position !== 'GK');
   if (!canField('home') || !canField('away')) {
     setPhase(field, 'defensive');
-    return { possessionSide: 'home', passageSide: 'home', receivers: [], goals: 0, possessions: 0 };
+    // No football, but the clock still has to move or the engine would ask for
+    // the same minute for ever. The label advances; nothing else does.
+    match.footballSeconds = (match.footballSeconds ?? match.minute * MINUTE_SECONDS) + MINUTE_SECONDS;
+    match.footballCarryoverSeconds = 0;
+    return {
+      possessionSide: 'home',
+      passageSide: 'home',
+      receivers: [],
+      actions: [],
+      goals: 0,
+      possessions: 0,
+      chains: [],
+    };
   }
 
   let side: Side = field.ball.possessionSide ?? (rng.chance(0.5) ? 'home' : 'away');
   let playerId = field.ball.possessionPlayerId;
   let fromCounter = false;
-  let elapsed = 0;
+  // Where the football had already got to when this slice was asked for. On a
+  // fresh minute that is the clock itself; mid-possession it is wherever the
+  // last one actually reached, which may be past the minute mark.
+  let elapsed = carryover;
+  const target = MINUTE_SECONDS + DECISION_LOOKAHEAD_SECONDS;
   let possessions = 0;
   let goals = 0;
   const time: Record<Side, number> = { home: 0, away: 0 };
   let lastSide: Side = side;
-  // Only the move the minute actually ends on is handed back. Merging every
-  // possession's pass chain would hand the narrator a list containing both
-  // sides' players, and the passage would name an opponent.
+  // Every possession is kept, in order, so each can be played out on the pitch
+  // as its own move. The last one is also kept on its own, because the narrator
+  // — and a couple of older readers — want a single move to hang the minute on.
+  const chains: PossessionChain[] = [];
   let receivers: PlayerId[] = [];
+  let actions: TimelineAction[] = [];
 
-  while (elapsed < MINUTE_SECONDS && possessions < MAX_POSSESSIONS) {
+  while (elapsed < target && possessions < MAX_POSSESSIONS) {
     const outcome = runPossession(match, env, context, field, side, playerId, rng, sink, { fromCounter });
     time[side] += outcome.seconds;
     elapsed += outcome.seconds;
+    match.footballSeconds = (match.footballSeconds ?? 0) + outcome.seconds;
     possessions += 1;
     receivers = outcome.receivers;
+    actions = outcome.actions;
     lastSide = side;
+    chains.push({
+      side,
+      seconds: outcome.seconds,
+      receivers: outcome.receivers,
+      actions: outcome.actions,
+      goal: outcome.goal,
+      restart: outcome.restart ?? null,
+      restartActions: outcome.restartActions ?? [],
+    });
 
     if (outcome.goal) {
       goals += 1;
@@ -1016,8 +1387,12 @@ export function runMinuteFootball(
     else setPhase(field, phaseForZone(zoneOf(side, field.ball.x)));
   }
 
+  // Whatever was decided past the clock is kept, so the next slice starts from
+  // the football rather than from the label.
+  match.footballCarryoverSeconds = Math.max(0, elapsed - MINUTE_SECONDS);
+
   const possessionSide: Side = time.home === time.away ? lastSide : time.home > time.away ? 'home' : 'away';
-  return { possessionSide, passageSide: lastSide, receivers, goals, possessions };
+  return { possessionSide, passageSide: lastSide, receivers, actions, goals, possessions, chains };
 }
 
 /** Exposed for tests and the developer trace. */

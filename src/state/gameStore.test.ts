@@ -7,6 +7,7 @@ import { fullTimeOutcome, fullTimeTalkMoraleDelta } from '@/simulation/match/pre
 import { nextFixtureFor } from '@/simulation/schedule';
 import { clubKit } from '@/ui/kit';
 import { useGameStore } from './gameStore';
+import { currentLiveEngine } from './liveEngine';
 
 /**
  * The Continue button and the calendar's controls are the only ways the manager
@@ -27,6 +28,32 @@ function newCareer(seed: string) {
 
 beforeEach(() => {
   useGameStore.getState().quitToMenu();
+});
+
+describe('a match that cannot be fielded', () => {
+  it('abandons the fixture when the manager plays with fewer than seven available', () => {
+    const game = newCareer('store-forfeit');
+    const match = nextFixtureFor(game, game.userClubId, game.date)!;
+    game.date = match.date;
+    // Five players on the books: no team to put out.
+    game.clubs[game.userClubId]!.squadIds = game.clubs[game.userClubId]!.squadIds.slice(0, 5);
+
+    useGameStore.getState().startUserMatch();
+
+    const after = useGameStore.getState();
+    // No match to watch: the fixture is settled and the manager is handed back.
+    expect(after.session).toBeNull();
+    const played = after.game!.matches[match.id]!;
+    expect(played.played).toBe(true);
+    expect(played.status).toBe('finished');
+    // The opposition is awarded the win, so whichever end the manager is at, his
+    // own side has nil.
+    const mine = played.homeClubId === game.userClubId ? played.result!.homeGoals : played.result!.awayGoals;
+    const theirs = played.homeClubId === game.userClubId ? played.result!.awayGoals : played.result!.homeGoals;
+    expect(mine).toBe(0);
+    expect(theirs).toBe(3);
+    expect(after.notice).toMatch(/awarded/i);
+  });
 });
 
 describe('the store clock', () => {
@@ -155,6 +182,156 @@ describe('the matchday', () => {
     expect(gameStore().view).toBe('match');
     // Nothing has been played yet, so the calendar has not moved on.
     expect(gameStore().game!.matches[session.matchId]!.played).toBe(false);
+  });
+
+  it('shows the match through either renderer without touching it', () => {
+    inTheDressingRoom('matchday-renderer');
+    gameStore().kickOff();
+    for (let i = 0; i < 5; i += 1) gameStore().tickMatch();
+
+    const before = gameStore().session!;
+    const clock = before.live.spatial?.clock;
+    expect(gameStore().preferences.renderer).toBe('2d');
+
+    // Choosing another view is a preference, not a match control: the session is
+    // the same object, still on the same minute, at the same speed, unpaused.
+    gameStore().setPreferences({ renderer: '3d' });
+    expect(gameStore().preferences.renderer).toBe('3d');
+    expect(gameStore().session).toBe(before);
+    expect(gameStore().session!.phase).toBe(before.phase);
+    expect(gameStore().session!.speed).toBe(before.speed);
+    expect(gameStore().session!.paused).toBe(before.paused);
+    expect(gameStore().session!.live.events.length).toBe(before.live.events.length);
+    expect(gameStore().session!.live.spatial?.clock).toBe(clock);
+
+    gameStore().setPreferences({ renderer: '2d' });
+    expect(gameStore().preferences.renderer).toBe('2d');
+  });
+
+  it('watches a finished match back from its own record', () => {
+    const { session } = inTheDressingRoom('matchday-replay');
+    const matchId = session.matchId;
+    gameStore().kickOff();
+    gameStore().simulateMatchToEnd();
+    expect(gameStore().game!.matches[matchId]!.events.length).toBeGreaterThan(0);
+
+    const from = gameStore().view;
+    gameStore().openReplay(matchId);
+    expect(gameStore().view).toBe('replay');
+    expect(gameStore().replay?.matchId).toBe(matchId);
+
+    // Closing it returns to the screen it was opened from, and forgets it.
+    gameStore().closeReplay();
+    expect(gameStore().view).toBe(from);
+    expect(gameStore().replay).toBeNull();
+  });
+
+  it('will not replay a fixture with nothing in it', () => {
+    const { session } = inTheDressingRoom('matchday-replay-empty');
+    const before = gameStore().view;
+    gameStore().openReplay(session.matchId);
+    expect(gameStore().view).toBe(before);
+    expect(gameStore().replay).toBeNull();
+  });
+
+  it('stops the picture dead when the match is paused, and starts it again', () => {
+    inTheDressingRoom('matchday-picture-pause');
+    gameStore().kickOff();
+    gameStore().tickMatch();
+    const live = gameStore().session!.live;
+    const clock = currentLiveEngine()!.getState().clock;
+
+    gameStore().toggleMatchPause();
+    expect(gameStore().session!.paused).toBe(true);
+    // However much time the pump hands over, a paused match does not move, and
+    // the football is left exactly where it was.
+    for (let i = 0; i < 10; i += 1) gameStore().advanceSpatial(0.1);
+    expect(currentLiveEngine()!.getState().clock).toBe(clock);
+    expect(gameStore().session!.live).toBe(live);
+
+    gameStore().toggleMatchPause();
+    gameStore().advanceSpatial(0.1);
+    expect(currentLiveEngine()!.getState().clock).toBeGreaterThan(clock);
+  });
+
+  it('watches the same football however much of it is shown', () => {
+    // The split in one test: two identical careers, the same fixture, watched
+    // under two viewing modes. The whole point is that the *presentation* changes
+    // and the *football* does not — a goal in the full match is the same goal at
+    // the same second in the key-moments one, because both are the engine's.
+    const watchToHalfTime = (mode: 'full' | 'key') => {
+      inTheDressingRoom('matchday-viewing');
+      gameStore().kickOff();
+      gameStore().setViewingMode(mode);
+      let frames = 0;
+      while (gameStore().session!.phase === 'in-progress' && frames < 5000) {
+        gameStore().advanceSpatial(1);
+        frames += 1;
+      }
+      const match = gameStore().session!.live;
+      return {
+        frames,
+        events: match.events.map((event) => `${event.second}:${event.type}:${event.playerId ?? ''}`),
+        half: match.half,
+      };
+    };
+
+    const full = watchToHalfTime('full');
+    const key = watchToHalfTime('key');
+
+    // Both reached the interval — the engine sets `half` to 2 as the first half
+    // ends — and the record is identical, however it was watched.
+    expect(full.half).toBe(2);
+    expect(key.half).toBe(2);
+    expect(key.events).toEqual(full.events);
+    // And the presentation genuinely differs: key moments reach the interval in
+    // far fewer frames, because it skips the ordinary play the full match spends.
+    expect(key.frames).toBeLessThan(full.frames);
+  });
+
+  it('fast-forwards the presentation without skipping the record', () => {
+    inTheDressingRoom('matchday-skip');
+    gameStore().kickOff();
+    gameStore().setViewingMode('key');
+    // A few seconds of ordinary play first, so there is something to skip from.
+    for (let i = 0; i < 3; i += 1) gameStore().advanceSpatial(0.1);
+    const before = currentLiveEngine()!.getState().clock;
+
+    gameStore().skipToNextHighlight();
+    // Pump a handful of frames; the cursor should race ahead of the slow rate.
+    for (let i = 0; i < 8; i += 1) gameStore().advanceSpatial(0.5);
+    const after = currentLiveEngine()!.getState().clock;
+
+    expect(after).toBeGreaterThan(before);
+    // The engine was taken with the cursor: the clock and the record agree, and
+    // the football that was skipped over is still in the record.
+    expect(gameStore().session!.live.events.length).toBeGreaterThan(0);
+    expect(gameStore().session!.live.footballSeconds).toBeCloseTo(after, 3);
+  });
+
+  it('tells the screen when a line is said, not only when a minute is decided', () => {
+    // This is the bug that made the commentary bar look broken. The pitch moves
+    // the live match *in place*, so nothing in the store changed and React was
+    // never told — the bar could only redraw when `tickMatch` decided a whole
+    // minute, which at 1x is every six seconds. A pass would go on the pitch and
+    // the bar would sit on its old line, describing a move seconds gone.
+    inTheDressingRoom('matchday-commentary-told');
+    gameStore().kickOff();
+    gameStore().tickMatch();
+
+    const live = gameStore().session!.live;
+    const before = live.commentary?.length ?? 0;
+    const revision = gameStore().session!.revision;
+
+    // Pump frames until the pitch says something.
+    let told = before;
+    for (let frame = 0; frame < 400 && told === before; frame += 1) {
+      gameStore().advanceSpatial(0.2);
+      told = gameStore().session!.live.commentary?.length ?? 0;
+    }
+    expect(told).toBeGreaterThan(before);
+    // The screen was told, so the bar has something new to draw.
+    expect(gameStore().session!.revision).toBeGreaterThan(revision);
   });
 
   it('starts the clock only when the manager kicks off', () => {

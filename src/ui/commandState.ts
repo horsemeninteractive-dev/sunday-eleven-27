@@ -1,9 +1,10 @@
 import type { GameState } from '@/domain/game';
 import type { ISODate } from '@/domain/ids';
-import type { Match } from '@/domain/match';
+import { FORFEIT_GOALS, MIN_SIDE, periodLabel, type Match } from '@/domain/match';
+import { canFieldSide } from '@/simulation/forfeit';
 import { isPlayer } from '@/domain/person';
 import { daysBetween, formatDayMonth } from '@/simulation/calendar';
-import { currentScore } from '@/simulation/match/engine';
+import { currentScore } from '@/simulation/match/matchEngine';
 import { currentAttention, type ContinueStop } from '@/simulation/day';
 import { currentMatchday, matchOpponent, matchVenueLabel, squadAvailability } from '@/simulation/queries';
 import { nextFixtureFor, nextStop } from '@/simulation/schedule';
@@ -144,7 +145,7 @@ export function commandStateFor(game: GameState, session: MatchSession | null): 
       title: `${home.identity.shortName} ${score.home}–${score.away} ${away.identity.shortName}`,
       lines: finished
         ? [`${formatDayMonth(live.date)} · ${live.competitionName}`]
-        : [`${live.half === 1 ? 'First half' : 'Second half'} · minute ${Math.min(live.minute, 90)}`],
+        : [`${periodLabel(live)} · minute ${Math.min(live.minute, 90)}`],
       detail: finished ? 'Have a look at the report, then get back to the week.' : 'The referee is waiting.',
       action: {
         label: finished ? 'View the report' : 'Return to the match',
@@ -263,7 +264,11 @@ function matchdayState(
   const opponent = game.clubs[matchOpponent(match, clubId)]!;
   const venue = matchVenueLabel(match, clubId);
   const problems = lineupProblems(game, match, clubId);
-  const ready = problems.length === 0;
+  // A club with fewer than seven fit players cannot name a legal side, but it is
+  // not stuck: playing the game is how it is abandoned and awarded away. So the
+  // match is still ready to play, with the warning said plainly.
+  const canField = canFieldSide(game, clubId);
+  const ready = problems.length === 0 || !canField;
   const conditions = match.conditions;
   const weather = conditions ? WEATHER_WORDS[conditions.weather] ?? '' : '';
 
@@ -277,16 +282,20 @@ function matchdayState(
       `${game.world.grounds[match.groundId]?.name ?? 'ground to confirm'}${weather ? ` · ${weather}` : ''}`,
       match.refereeId ? `Referee: ${personName(game, match.refereeId)}` : 'No referee allocated yet',
     ],
-    detail: ready
-      ? `${availabilityLine}. ${problems.length === 0 ? 'The XI is legal.' : ''}`.trim()
-      : `${problems[0]} — ${availabilityLine}`,
+    detail: !canField
+      ? `${availabilityLine}. Fewer than ${MIN_SIDE} fit players — playing the game abandons it.`
+      : ready
+        ? `${availabilityLine}. ${problems.length === 0 ? 'The XI is legal.' : ''}`.trim()
+        : `${problems[0]} — ${availabilityLine}`,
     action: ready
       ? {
           label: 'Play the match',
           short: 'Play match',
           intent: { kind: 'action', action: 'start-match' },
           variant: 'primary',
-          hint: 'Kick off and watch it minute by minute',
+          hint: canField
+            ? 'Kick off and watch it minute by minute'
+            : `Not enough players — playing forfeits the game ${FORFEIT_GOALS}-0`,
         }
       : {
           label: 'Prepare the team',

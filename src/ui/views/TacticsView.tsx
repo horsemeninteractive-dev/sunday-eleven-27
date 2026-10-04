@@ -20,6 +20,7 @@ import { isPlayer } from '@/domain/person';
 import { gameActions, useGame, useNextFixture, useSquad } from '../hooks';
 import { applyFormation } from '../lineupEditing';
 import { Button, PageHeader, Panel, Pill } from '../components/primitives';
+import { Section, TileGrid } from '../components/hierarchy';
 
 /**
  * The tactical model is deliberately small: every choice buys something and
@@ -100,7 +101,7 @@ export function TacticsView() {
         }
       />
 
-      <Panel level="primary" title="How you want to play" subtitle="Every choice here costs you something somewhere else">
+      <Panel level="primary" title="How you want to play">
         <div className="tactics">
           <TacticsZone title="Shape" hint="Where the team stands before a ball is kicked.">
             <OptionGroup
@@ -163,13 +164,18 @@ export function TacticsView() {
             />
           </TacticsZone>
         </div>
-
-        <p className="muted small">
-          Any tactical change made during a match takes effect from the next minute. Individual player instructions and
-          set-piece routines are not in this build — the training ground covers set pieces as a squad, and the engine
-          treats a corner as a corner.
-        </p>
       </Panel>
+
+      <Section title="Tactical effects">
+        <TileGrid min={200}>
+          {effectsFor(tactics).map((effect) => (
+            <div className="tile" key={effect.label}>
+              <span className={`metric__value tone tone--${effect.tone}`}>{effect.arrow} {effect.label}</span>
+              <span className="metric__note">{effect.note}</span>
+            </div>
+          ))}
+        </TileGrid>
+      </Section>
 
       <Panel title="Does this suit the players you have?" subtitle="A quick read on your likely XI">
         <div className="row row--wrap">
@@ -200,14 +206,48 @@ export function TacticsView() {
 
 function TacticsZone({ title, hint, children }: { title: string; hint: string; children: ReactNode }) {
   return (
-    <section className="tactics-zone">
+    <section className="tactics-zone" title={hint}>
       <div className="tactics-zone__head">
         <h3>{title}</h3>
-        <p>{hint}</p>
       </div>
       {children}
     </section>
   );
+}
+
+/**
+ * What the current setup actually buys and costs, straight from the tactics.
+ * The simulation is what decides a match; this is the one-line consequence of
+ * each choice, so the control does not need a paragraph beside it.
+ */
+function effectsFor(tactics: Tactics): Array<{ label: string; arrow: string; note: string; tone: 'ok' | 'warn' | 'bad' }> {
+  const effects: Array<{ label: string; arrow: string; note: string; tone: 'ok' | 'warn' | 'bad' }> = [];
+  const push = (sign: 1 | -1, label: string, note: string, bad = false) =>
+    effects.push({ label, arrow: sign > 0 ? '↑' : '↓', note, tone: bad ? (sign > 0 ? 'warn' : 'bad') : 'ok' });
+
+  if (tactics.pressing === 'high') {
+    push(1, 'Pressure', 'Win it higher up the pitch', true);
+    push(-1, 'Stamina', 'Tired legs by the hour', true);
+  } else if (tactics.pressing === 'low') {
+    push(-1, 'Pressure', 'Stay compact, concede the ball');
+    push(1, 'Shape', 'Harder to play through');
+  }
+  if (tactics.mentality === 'attacking' || tactics.mentality === 'very-attacking') {
+    push(1, 'Attacking', 'More bodies forward', true);
+    push(-1, 'Cover', 'Space behind the midfield', true);
+  } else if (tactics.mentality === 'defensive' || tactics.mentality === 'very-defensive') {
+    push(1, 'Cover', 'Protect the lead');
+    push(-1, 'Attacking', 'Fewer committed forward');
+  }
+  if (tactics.tempo === 'high') push(-1, 'Stamina', 'High tempo empties legs', true);
+  else if (tactics.tempo === 'slow') push(-1, 'Tempo', 'Slower build-up, fewer chances');
+  if (tactics.passingStyle === 'short') push(1, 'Control', 'Keeps the ball, needs a surface');
+  else if (tactics.passingStyle === 'direct') push(-1, 'Control', 'Forward quickly, more turnovers', true);
+  if (tactics.defensiveLine === 'high') push(-1, 'Space behind', 'A high line invites the ball in behind', true);
+  else if (tactics.defensiveLine === 'deep') push(1, 'Cover', 'A deep line protects the box');
+  if (tactics.attackingFocus === 'wide') push(1, 'Crosses', 'Width and deliveries');
+  else if (tactics.attackingFocus === 'central') push(1, 'Through balls', 'Playing through the middle');
+  return effects.slice(0, 6);
 }
 
 function OptionGroup<T extends string>({
@@ -224,10 +264,9 @@ function OptionGroup<T extends string>({
   onChange: (value: T) => void;
 }) {
   return (
-    <div className="option-group">
+    <div className="option-group" title={hint}>
       <div className="option-group__head">
         <h4 className="subhead">{label}</h4>
-        <p className="muted small">{hint}</p>
       </div>
       <div className="segmented">
         {options.map((option) => (

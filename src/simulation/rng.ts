@@ -35,6 +35,19 @@ export class Rng {
     this.state = this.seed || 0x9e3779b9;
   }
 
+  /**
+   * Re-seed in place, to the same state `new Rng(seed)` would start from.
+   *
+   * The match engine draws from one generator per fixed step, and a fresh object
+   * for every step of a match is a lot of garbage for the collector to carry.
+   * Resetting the same generator to the step's seed produces exactly the numbers
+   * the constructor would have, so the football is unchanged and the allocation
+   * is gone.
+   */
+  reset(seed: number): void {
+    this.state = (seed >>> 0) || 0x9e3779b9;
+  }
+
   /** Uniform float in [0, 1). */
   next(): number {
     // mulberry32

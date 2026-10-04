@@ -1,362 +1,294 @@
 import type { ReactNode } from 'react';
 import type { GameState } from '@/domain/game';
+import type { Match } from '@/domain/match';
 import { isPlayer } from '@/domain/person';
 import type { ViewId } from '@/state/gameStore';
-import { formatDate, formatDayMonth, formatShortDate } from '@/simulation/calendar';
-import { currentMatchday, formOf, leaguePosition, squadOf, squadAvailability } from '@/simulation/queries';
-import { validateLineup } from '@/simulation/selection';
+import { formatDate, formatShortDate } from '@/simulation/calendar';
+import {
+  currentMatchday,
+  formOf,
+  leaguePosition,
+  matchOpponent,
+  matchVenueLabel,
+  squadOf,
+  squadAvailability,
+  standings,
+  recentMatches,
+} from '@/simulation/queries';
 import { sessionForecast } from '@/simulation/training/plan';
 import { sessionRecordedFor } from '@/simulation/training/store';
+import { matchdaysPlayed } from '@/simulation/timeline';
+import { validateLineup } from '@/simulation/selection';
 import { moneyShort } from '../format';
-import { gameActions, useGame, useStandings, useSchedule, useToday } from '../hooks';
+import { gameActions, useGame, useNextFixture } from '../hooks';
 import { runCommand, useCommandState } from '../commandActions';
-import { isScreenIntent, type CommandAction } from '../commandState';
-import { Button, FormPips, PageHeader, Panel, Pill, Stat } from '../components/primitives';
-import { ClubLink, CompetitionLink, PlayerLink } from '../components/Links';
+import { isScreenIntent } from '../commandState';
+import { Button, FormPips, PageHeader, Pill } from '../components/primitives';
+import { ClubLink, CompetitionLink } from '../components/Links';
+import { ActionTile, FixtureTile, MetricTile, NewsTile, Section, Tile, TileGrid } from '../components/hierarchy';
 
 /**
- * The overview.
+ * Home: the command centre.
  *
- * It answers four questions and then gets out of the way: where we are, what
- * matters now, what it means, and what just happened. It never advances the
- * game itself — moving time on, running the session and playing the match are
- * the command bar's job, and the calendar's. Everything here is a door to a
- * screen, so there is exactly one Continue button in the game.
+ * Read in a glance, then act. The header says who we are and what the situation
+ * is; the next match is the one thing on the screen the manager is here to deal
+ * with; four tiles answer the obvious questions — squad, training, league,
+ * money — and nothing else is allowed above the fold. Results and news are
+ * below, and every deeper thing (the full table, the ledger, the roster) is a
+ * door rather than a wall of numbers.
  */
 export function DashboardView() {
   const game = useGame();
-  const standings = useStandings();
   const command = useCommandState();
+  const next = useNextFixture();
   if (!game || !command) return null;
 
   const club = game.clubs[game.userClubId]!;
   const position = leaguePosition(game, club.id);
-  const row = standings.find((entry) => entry.clubId === club.id);
+  const table = standings(game);
+  const row = table.find((entry) => entry.clubId === club.id);
   const breakdown = squadAvailability(game, club.id);
   const squad = squadOf(game, club.id);
   const matchday = Math.min(currentMatchday(game), Math.max(game.season.calendar.length, 1));
   const concerns = concernsFor(game, matchday);
-  const recent = recentResult(game);
-  const today = useToday();
-  const schedule = useSchedule();
+  const results = recentMatches(game, club.id, 4);
+  const forecast = sessionForecast(game, club.id);
+  const trainingDone = sessionRecordedFor(game, club.id, matchday);
+  const weeklyIn = club.squadIds.length * club.finances.subscriptionPerPlayer + club.finances.sponsorIncomePerWeek;
+  const weeklyOut = club.finances.weeklyGroundCost + club.finances.insurancePerWeek + club.finances.trainingCostPerWeek;
+  const net = weeklyIn - weeklyOut;
+  const weeksLeft = game.season.calendar.length - matchdaysPlayed(game);
+
+  const opponentId = next ? matchOpponent(next, club.id) : null;
+  const opponent = opponentId ? game.clubs[opponentId] : null;
+  const venue = next ? matchVenueLabel(next, club.id) : null;
+  const selectionProblems = next ? selectionErrors(game, next, club.id) : [];
 
   return (
     <div className="stack">
       <PageHeader
         eyebrow="Club"
-        title="Overview"
-        subtitle={`${club.identity.nickname} · ${game.world.regionName}, ${game.world.countyName}`}
+        title={club.identity.name}
+        subtitle={command.lines.filter(Boolean).join(' · ')}
         meta={
           <>
             <span className="small muted">{formatDate(game.date)}</span>
             <span className="small muted">
               {game.season.label} · matchday {matchday} of {Math.max(game.season.calendar.length, 1)}
             </span>
-            <span className="small muted">
-              {availabilityLabel(breakdown.available.length, breakdown.doubtful.length, breakdown.unavailable.length, squad.length)}
-            </span>
+            <FormPips form={formOf(game, club.id)} />
           </>
+        }
+        actions={
+          <div className="row row--wrap row--tight">
+            {navigable(command).map((action) => (
+              <Button
+                key={action.label}
+                variant={action.variant === 'quiet' ? 'ghost' : 'default'}
+                size="sm"
+                title={action.hint}
+                onClick={() => runCommand(action.intent)}
+              >
+                {action.label}
+              </Button>
+            ))}
+          </div>
         }
       />
 
-      <Panel level="primary">
-        <div className="hero">
-          <div>
-            <p className="hero__eyebrow">{command.eyebrow}</p>
-            <h2 className="hero__title">
-              {command.titleClubId ? (
-                <ClubLink clubId={command.titleClubId}>{command.title}</ClubLink>
-              ) : (
-                command.title
-              )}
-            </h2>
-            <p className="hero__lines">{command.lines.filter(Boolean).join(' · ')}</p>
-            {command.detail && <p className="hero__detail">{command.detail}</p>}
-            {navigable(command.secondary).length > 0 && (
-              <div className="hero__actions">
-                {navigable(command.secondary).map((action) => (
-                  <Button
-                    key={action.label}
-                    variant={action.variant === 'quiet' ? 'ghost' : 'default'}
-                    size="md"
-                    title={action.hint}
-                    onClick={() => runCommand(action.intent)}
-                  >
-                    {action.label}
-                  </Button>
-                ))}
-              </div>
-            )}
-          </div>
+      <Section title="Next match">
+        {next && opponent ? (
+          <TileGrid min={215}>
+            <Tile level="primary" label="Kick-off">
+              <span className="next-match__club">
+                {venue === 'Home' ? (
+                  <>
+                    <ClubLink clubId={club.id}>{club.identity.shortName}</ClubLink>
+                    <span className="muted">v</span>
+                    <ClubLink clubId={opponent.id}>{opponent.identity.name}</ClubLink>
+                  </>
+                ) : (
+                  <>
+                    <ClubLink clubId={opponent.id}>{opponent.identity.name}</ClubLink>
+                    <span className="muted">v</span>
+                    <ClubLink clubId={club.id}>{club.identity.shortName}</ClubLink>
+                  </>
+                )}
+              </span>
+              <span className="tile__meta">
+                <Pill tone={venue === 'Home' ? 'accent' : 'muted'}>{venue === 'Home' ? 'HOME' : 'AWAY'}</Pill>
+                <span className="muted small">
+                  {formatShortDate(next.date)} · <CompetitionLink>{next.competitionName}</CompetitionLink>
+                </span>
+              </span>
+            </Tile>
 
-          <div className="hero__facts">
-            <HeroFact
-              label="Available"
-              value={`${breakdown.available.length}/${squad.length}`}
+            <MetricTile
+              label="Availability"
+              value={`${breakdown.available.length} available`}
               note={`${breakdown.doubtful.length} doubtful · ${breakdown.unavailable.length} out`}
+              tone={breakdown.available.length < 14 ? 'warn' : 'ok'}
             />
-            <HeroFact
-              label="League"
-              value={position ? `${position}${suffix(position)}` : '—'}
-              note={`${row?.points ?? 0} points from ${row?.played ?? 0}`}
-            />
-            <HeroFact label="Form" value={<FormPips form={formOf(game, club.id)} />} note="Last five in the league" />
-            <HeroFact
-              label="In the bank"
-              value={moneyShort(club.finances.balance)}
-              note="Subs, sponsorship, pitches, referees"
-            />
-          </div>
-        </div>
-      </Panel>
 
-      <Panel
-        level="quiet"
-        title={`Today · ${formatDate(game.date)}`}
-        subtitle="The world moves one day at a time. This is what is on yours."
-        actions={
-          <Button variant="ghost" size="sm" onClick={() => runCommand({ kind: 'action', action: 'open-planner' })}>
-            The calendar
+            <ActionTile
+              label="Selection"
+              title="Pick the team"
+              meta={
+                selectionProblems.length > 0
+                  ? `${selectionProblems.length} problem${selectionProblems.length === 1 ? '' : 's'} to fix`
+                  : `${breakdown.available.length} of ${squad.length} in contention`
+              }
+              tone={selectionProblems.length > 0 ? 'bad' : 'accent'}
+              primary
+              onClick={() => gameActions().setView('team')}
+            />
+          </TileGrid>
+        ) : (
+          <Tile label="Next match">
+            <span className="tone tone--muted">No fixture scheduled.</span>
+          </Tile>
+        )}
+      </Section>
+
+      <TileGrid min={190}>
+        <MetricTile
+          label="Squad"
+          value={`${breakdown.available.length} available`}
+          note={`${breakdown.doubtful.length} doubtful · ${breakdown.unavailable.length} out of ${squad.length}`}
+          tone={breakdown.unavailable.length > 3 ? 'warn' : 'default'}
+        />
+        <MetricTile
+          label="Training"
+          value={trainingDone ? 'Complete' : `${forecast.minutes} min`}
+          note={
+            trainingDone
+              ? `${formatShortDate(forecast.date)} · session run`
+              : `${formatShortDate(forecast.date)} · ${forecast.attendance.attending.length} attending`
+          }
+          tone={trainingDone ? 'ok' : forecast.attendance.attending.length < 11 ? 'warn' : 'default'}
+        />
+        <MetricTile
+          label="League"
+          value={position ? `${position}${suffix(position)}` : '—'}
+          note={row ? `${row.points} pts from ${row.played} played` : 'Not started'}
+          tone="default"
+        />
+        <MetricTile
+          label="Finances"
+          value={moneyShort(club.finances.balance)}
+          note={`${net >= 0 ? '+' : ''}${moneyShort(net)} a week · ${weeksLeft} left`}
+          tone={club.finances.balance < 0 ? 'bad' : club.finances.balance < 120 ? 'warn' : 'ok'}
+        />
+      </TileGrid>
+
+      {concerns.length > 0 && (
+        <Section title="Worth dealing with">
+          <TileGrid min={230}>
+            {concerns.map((concern) => (
+              <ActionTile
+                key={concern.id}
+                label={concern.tone === 'bad' ? 'Action needed' : concern.tone === 'warn' ? 'Worth a look' : 'For information'}
+                title={concern.title}
+                meta={concern.detail}
+                tone={concern.tone === 'info' ? 'default' : concern.tone}
+                onClick={concern.action ? () => gameActions().setView(concern.action!.view) : undefined}
+              />
+            ))}
+          </TileGrid>
+        </Section>
+      )}
+
+      <Section
+        title="Recent results"
+        action={
+          <Button variant="ghost" size="sm" onClick={() => gameActions().setView('fixtures')}>
+            All fixtures
           </Button>
         }
       >
-        {today.length === 0 && schedule.length === 0 && (
-          <p className="empty">Nothing on today, and nothing on the horizon. A rare thing in a Sunday league.</p>
-        )}
-        {today.length === 0 && schedule.length > 0 && (
-          <p className="small muted">Nothing on today. Next up: {schedule[0]!.title} on {formatShortDate(schedule[0]!.date)}.</p>
-        )}
-        <ul className="tight-list">
-          {today.map((entry) => (
-            <li key={entry.id} className={`schedule-row schedule-row--${entry.priority}`}>
-              <span className="schedule-row__time">{entry.time ?? '—'}</span>
-              <span>
-                <strong>{entry.title}</strong>
-                <div className="muted small">{entry.detail}</div>
-              </span>
-              {entry.resolvedOn && <Pill tone="muted">Done</Pill>}
-            </li>
-          ))}
-        </ul>
-        {schedule.length > 1 && (
-          <details className="more">
-            <summary className="small muted">Coming up</summary>
-            <ul className="tight-list">
-              {schedule
-                .filter((entry) => entry.date > game.date)
-                .slice(0, 5)
-                .map((entry) => (
-                  <li key={entry.id} className={`schedule-row schedule-row--${entry.priority}`}>
-                    <span className="schedule-row__time">{formatShortDate(entry.date)}</span>
-                    <span>
-                      <strong>{entry.title}</strong>
-                    </span>
-                  </li>
-                ))}
-            </ul>
-          </details>
-        )}
-      </Panel>
-
-      {concerns.length > 0 && (
-        <Panel title="Worth dealing with" subtitle="Only what actually needs a decision this week">
-          <ul className="concerns">
-            {concerns.map((concern) => (
-              <li key={concern.id} className={`concern concern--${concern.tone}`}>
-                <div className="concern__body">
-                  <strong className="concern__title">{concern.title}</strong>
-                  <div className="small muted">{concern.detail}</div>
-                </div>
-                {concern.action && (
-                  <div className="concern__action">
-                    <Button
-                      variant={concern.tone === 'bad' ? 'primary' : 'default'}
-                      size="sm"
-                      onClick={() => gameActions().setView(concern.action!.view)}
-                    >
-                      {concern.action.label}
-                    </Button>
-                  </div>
-                )}
-              </li>
+        {results.length > 0 ? (
+          <TileGrid min={200}>
+            {results.map((match) => (
+              <FixtureTile
+                key={match.id}
+                date={formatShortDate(match.date)}
+                opponent={<ClubLink clubId={matchOpponent(match, club.id)}>{game.clubs[matchOpponent(match, club.id)]?.identity.shortName}</ClubLink>}
+                venue={matchVenueLabel(match, club.id) === 'Home' ? 'H' : 'A'}
+                outcome={outcomeFor(match, club.id)}
+                score={scoreFor(match, club.id)}
+                action="Report"
+                onAction={() => gameActions().setView('fixtures')}
+              />
             ))}
-          </ul>
-        </Panel>
-      )}
+          </TileGrid>
+        ) : (
+          <Tile>
+            <span className="tone tone--muted">No matches played yet this season.</span>
+          </Tile>
+        )}
+      </Section>
 
-      <div className="flow">
-        <div className="flow__col">
-          {recent ? (
-            <Panel
-              level="default"
-              title="Last time out"
-              subtitle={
-                <>
-                  {formatShortDate(recent.match.date)} · {recent.isHome ? 'home' : 'away'} ·{' '}
-                  <CompetitionLink>{recent.match.competitionName}</CompetitionLink>
-                </>
-              }
-              actions={
-                <Button variant="ghost" size="sm" onClick={() => gameActions().setView('fixtures')}>
-                  Match report
-                </Button>
-              }
-            >
-              <p className="scoreline">
-                <span className={recent.isHome ? 'scoreline--mine' : undefined}>
-                  <ClubLink clubId={recent.match.homeClubId}>
-                    {game.clubs[recent.match.homeClubId]!.identity.shortName}
-                  </ClubLink>
-                </span>{' '}
-                <strong>
-                  {recent.match.result!.homeGoals} — {recent.match.result!.awayGoals}
-                </strong>{' '}
-                <span className={recent.isHome ? undefined : 'scoreline--mine'}>
-                  <ClubLink clubId={recent.match.awayClubId}>
-                    {game.clubs[recent.match.awayClubId]!.identity.shortName}
-                  </ClubLink>
-                </span>
-              </p>
-              <p className="small muted">
-                {recent.verdict} · {recent.match.result!.attendance} watching at{' '}
-                {game.world.grounds[recent.match.groundId]?.name ?? 'the ground'}
-              </p>
-              <ul className="tight-list">
-                {recent.match.events
-                  .filter((event) => event.type === 'goal' || event.type === 'red-card')
-                  .slice(0, 5)
-                  .map((event) => (
-                    <li key={event.id}>
-                      <span className="muted small">{event.minute}&#39;</span> {event.text}
-                    </li>
-                  ))}
-              </ul>
-            </Panel>
-          ) : (
-            <Panel level="quiet" title="Last time out">
-              <p className="empty">No matches played yet this season.</p>
-            </Panel>
-          )}
-
-          <Panel
-            level="default"
-            title="Around the club"
-            subtitle="What the local game is saying"
-            actions={
-              <Button variant="ghost" size="sm" onClick={() => gameActions().setView('news')}>
-                All news
-              </Button>
-            }
-          >
-            {game.news.length === 0 && <p className="empty">Nothing to report yet.</p>}
-            {/* Three, not five: the panel has to sit beside its neighbours in a
-                packed column, and the other two would only lengthen the page. */}
-            <ul className="news">
-              {game.news.slice(0, 3).map((item) => (
-                <li key={item.id} className={`news__item news__item--${item.importance}`}>
-                  <div className="news__head">
-                    <Pill tone={item.category === 'Squad' ? 'accent' : 'muted'}>{item.category}</Pill>
-                    <span className="muted small">{formatDayMonth(item.date)}</span>
-                  </div>
-                  <strong>{item.headline}</strong>
-                  <p className="small muted">{item.body}</p>
-                  {(item.clubIds.length > 0 || item.personIds.length > 0) && (
-                    <div className="row row--wrap">
-                      {item.clubIds.slice(0, 2).map((clubId) => (
-                        <ClubLink key={clubId} clubId={clubId} />
-                      ))}
-                      {item.personIds.slice(0, 2).map((personId) => (
-                        <PlayerLink key={personId} personId={personId} />
-                      ))}
-                    </div>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </Panel>
-        </div>
-
-        <div className="flow__col">
-          <Panel
-            level="quiet"
-            title="Where we are"
-            actions={
-              <Button variant="ghost" size="sm" onClick={() => gameActions().setView('league')}>
-                Full table
-              </Button>
-            }
-          >
-            {row ? (
-              <>
-                <div className="stat-grid stat-grid--wide">
-                  <Stat label="Position" value={position ? `${position}${suffix(position)}` : '—'} />
-                  <Stat label="Played" value={row.played} />
-                  <Stat label="Points" value={row.points} />
-                  <Stat
-                    label="Goal difference"
-                    value={row.goalDifference > 0 ? `+${row.goalDifference}` : row.goalDifference}
-                  />
-                </div>
-                <ul className="tight-list">
-                  {nearbyRows(standings, club.id).map(({ entry, index }) => (
-                    <li
-                      key={entry.clubId}
-                      className={`rating-row${entry.clubId === club.id ? ' rating-row--mine' : ''}`}
-                    >
-                      <span>
-                        <span className="muted small num">{index + 1}.</span>{' '}
-                        <ClubLink clubId={entry.clubId}>{game.clubs[entry.clubId]?.identity.shortName}</ClubLink>
-                      </span>
-                      <span className="muted small num">{entry.played}</span>
-                      <strong className="num">{entry.points}</strong>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            ) : (
-              <p className="empty">The season has not started yet.</p>
-            )}
-          </Panel>
-
-          <Panel
-            level="quiet"
-            title="The squad at a glance"
-            actions={
-              <Button variant="ghost" size="sm" onClick={() => gameActions().setView('squad')}>
-                Squad
-              </Button>
-            }
-          >
-            <div className="stat-grid stat-grid--wide">
-              <Stat label="Registered" value={squad.length} />
-              <Stat label="In contention" value={breakdown.available.length} tone={breakdown.available.length < 14 ? 'warn' : undefined} />
-              <Stat label="Doubtful" value={breakdown.doubtful.length} tone={breakdown.doubtful.length > 0 ? 'warn' : undefined} />
-              <Stat label="Out" value={breakdown.unavailable.length} tone={breakdown.unavailable.length > 3 ? 'bad' : undefined} />
-            </div>
-          </Panel>
-        </div>
-      </div>
+      <Section
+        title="Around the club"
+        action={
+          <Button variant="ghost" size="sm" onClick={() => gameActions().setView('news')}>
+            All news
+          </Button>
+        }
+      >
+        {game.news.length === 0 ? (
+          <Tile>
+            <span className="tone tone--muted">Nothing to report yet.</span>
+          </Tile>
+        ) : (
+          <TileGrid min={260}>
+            {game.news.slice(0, 3).map((item) => (
+              <NewsTile
+                key={item.id}
+                category={item.category}
+                headline={item.headline}
+                summary={item.body}
+                date={formatShortDate(item.date)}
+                tone={item.category === 'Squad' ? 'accent' : item.importance === 3 ? 'warn' : 'default'}
+                onClick={() => gameActions().setView('news')}
+              />
+            ))}
+          </TileGrid>
+        )}
+      </Section>
     </div>
   );
 }
 
-/**
- * Only the doors. Anything that would move the game on — Continue, running the
- * session, playing the match — is left to the command bar, so the overview can
- * never be a second Continue button.
- */
-function navigable(actions: CommandAction[]): CommandAction[] {
-  return actions.filter((action) => isScreenIntent(action.intent));
+/** Only the doors. Anything that moves the game on lives in the command bar. */
+function navigable(command: ReturnType<typeof useCommandState>) {
+  if (!command) return [];
+  return command.secondary.filter((action) => isScreenIntent(action.intent));
 }
 
-function HeroFact({ label, value, note }: { label: string; value: ReactNode; note?: string }) {
-  return (
-    <div className="hero__fact">
-      <span className="hero__fact-label">{label}</span>
-      <span className="hero__fact-value">{value}</span>
-      {note && <span className="muted small">{note}</span>}
-    </div>
-  );
+function outcomeFor(match: Match, clubId: string): 'W' | 'D' | 'L' {
+  const home = match.homeClubId === clubId;
+  const mine = home ? match.result!.homeGoals : match.result!.awayGoals;
+  const theirs = home ? match.result!.awayGoals : match.result!.homeGoals;
+  return mine > theirs ? 'W' : mine === theirs ? 'D' : 'L';
+}
+
+function scoreFor(match: Match, clubId: string): ReactNode {
+  const home = match.homeClubId === clubId;
+  const mine = home ? match.result!.homeGoals : match.result!.awayGoals;
+  const theirs = home ? match.result!.awayGoals : match.result!.homeGoals;
+  return `${mine}–${theirs}`;
+}
+
+/** The illegal-lineup problems, so the selection tile can say so without opening it. */
+function selectionErrors(game: GameState, match: Match, clubId: string): string[] {
+  const lineup = match.homeClubId === clubId ? match.lineups.home : match.lineups.away;
+  return validateLineup(lineup.starting, lineup.bench, (id) => {
+    const person = game.people[id];
+    return isPlayer(person) ? person : undefined;
+  })
+    .filter((problem) => problem.severity === 'error')
+    .map((problem) => problem.message);
 }
 
 interface Concern {
@@ -368,7 +300,7 @@ interface Concern {
 }
 
 /**
- * What is genuinely worth a decision. If nothing is wrong, the panel does not
+ * What is genuinely worth a decision. If nothing is wrong, the section does not
  * appear: an empty "no concerns" card is worse than no card.
  */
 function concernsFor(game: GameState, matchday: number): Concern[] {
@@ -386,22 +318,8 @@ function concernsFor(game: GameState, matchday: number): Concern[] {
         breakdown.unavailable.length === 1
           ? `${breakdown.unavailable[0]!.firstName} ${breakdown.unavailable[0]!.surname} is out`
           : `${breakdown.unavailable.length} players unavailable`,
-      detail: `${names}${breakdown.unavailable.length > 3 ? ` and ${breakdown.unavailable.length - 3} more` : ''} — see who is left.`,
+      detail: `${names}${breakdown.unavailable.length > 3 ? ` and ${breakdown.unavailable.length - 3} more` : ''}`,
       action: { label: 'Squad', view: 'squad' },
-    });
-  }
-
-  // Pre-season is when the new shirts turn up, so the kit is offered while
-  // there is still a summer to wear them in — and it stops offering itself the
-  // moment the league starts.
-  const firstLeagueDate = game.season.calendar[0]?.date;
-  if (firstLeagueDate && game.date <= firstLeagueDate) {
-    concerns.push({
-      id: 'kit',
-      tone: 'info',
-      title: 'The new kit has arrived',
-      detail: 'Three designs were sent down this summer. Pick the one the club runs out in before the league starts.',
-      action: { label: 'The kit', view: 'kit' },
     });
   }
 
@@ -413,16 +331,12 @@ function concernsFor(game: GameState, matchday: number): Concern[] {
   );
   if (match) {
     const lineup = match.homeClubId === club.id ? match.lineups.home : match.lineups.away;
-    const errors = validateLineup(lineup.starting, lineup.bench, (id) => {
-      const person = game.people[id];
-      return isPlayer(person) ? person : undefined;
-    }).filter((problem) => problem.severity === 'error');
-    if (errors.length > 0) {
+    if (lineup.starting.some((slot) => !slot.playerId)) {
       concerns.push({
         id: 'selection',
         tone: 'bad',
-        title: errors.length === 1 ? 'The team is not legal' : `${errors.length} problems with the selection`,
-        detail: errors[0]!.message,
+        title: 'The team is not picked',
+        detail: 'Pick the XI before the referee calls time.',
         action: { label: 'Pick the team', view: 'team' },
       });
     }
@@ -435,7 +349,7 @@ function concernsFor(game: GameState, matchday: number): Concern[] {
         id: 'attendance',
         tone: 'warn',
         title: `Only ${forecast.attendance.attending.length} expected at training`,
-        detail: 'Work, kids and bad knees. The session will still happen — it will just be thin.',
+        detail: 'Work, kids and bad knees. The session will be thin.',
         action: { label: 'Training', view: 'training' },
       });
     }
@@ -454,7 +368,7 @@ function concernsFor(game: GameState, matchday: number): Concern[] {
       id: 'balance-low',
       tone: 'warn',
       title: 'Money is tight',
-      detail: `${moneyShort(club.finances.balance)} left. A pitch hire and a referee will eat most of that.`,
+      detail: `${moneyShort(club.finances.balance)} left.`,
       action: { label: 'Finances', view: 'finances' },
     });
   }
@@ -465,38 +379,12 @@ function concernsFor(game: GameState, matchday: number): Concern[] {
       id: 'morale',
       tone: 'warn',
       title: unhappy.length === 1 ? `${unhappy[0]!.surname} is not happy` : `${unhappy.length} players are not happy`,
-      detail: 'Morale affects who turns up to training and how they play.',
+      detail: 'Morale decides who turns up and how they play.',
       action: { label: 'Squad', view: 'squad' },
     });
   }
 
   return concerns.slice(0, 4);
-}
-
-function recentResult(game: GameState) {
-  const club = game.clubs[game.userClubId]!;
-  const match = game.lastMatchId ? game.matches[game.lastMatchId] : undefined;
-  if (!match || !match.played || !match.result) return null;
-  if (match.homeClubId !== club.id && match.awayClubId !== club.id) return null;
-  const isHome = match.homeClubId === club.id;
-  const mine = isHome ? match.result.homeGoals : match.result.awayGoals;
-  const theirs = isHome ? match.result.awayGoals : match.result.homeGoals;
-  return {
-    match,
-    isHome,
-    verdict: mine > theirs ? 'Won' : mine === theirs ? 'Drew' : 'Lost',
-  };
-}
-
-function nearbyRows<T extends { clubId: string }>(standings: T[], clubId: string) {
-  const ourIndex = standings.findIndex((entry) => entry.clubId === clubId);
-  return standings.map((entry, index) => ({ entry, index })).filter(({ index }) => Math.abs(index - ourIndex) <= 2);
-}
-
-function availabilityLabel(available: number, doubtful: number, unavailable: number, total: number): string {
-  return `${available} of ${total} available${doubtful > 0 ? ` · ${doubtful} doubtful` : ''}${
-    unavailable > 0 ? ` · ${unavailable} out` : ''
-  }`;
 }
 
 function suffix(position: number): string {

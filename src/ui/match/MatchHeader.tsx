@@ -1,7 +1,8 @@
 import type { GameState } from '@/domain/game';
-import { PITCH_LABEL, WEATHER_LABEL, type Match } from '@/domain/match';
-import { currentScore, displayMinute } from '@/simulation/match/engine';
+import { PITCH_LABEL, WEATHER_LABEL, periodLabel, type Match } from '@/domain/match';
+import { currentScore, displayMinute } from '@/simulation/match/matchEngine';
 import { expectedAttendanceFor } from '@/simulation/matchday';
+import { matchKitColours } from '../kit';
 import { ClubBadge } from '../components/Badge';
 
 /**
@@ -25,6 +26,10 @@ export function MatchHeader({
 }) {
   const home = game.clubs[match.homeClubId]!;
   const away = game.clubs[match.awayClubId]!;
+  // The bar is the two *shirts*, not the two clubs. A side that has changed into
+  // a white away strip is white here, because that is what the manager is
+  // looking at when he glances up to see who is who.
+  const kits = matchKitColours(game, match.homeClubId, match.awayClubId);
   const ground = game.world.grounds[match.groundId];
   const score = currentScore(match);
   const referee = match.refereeId ? game.people[match.refereeId] : undefined;
@@ -37,7 +42,7 @@ export function MatchHeader({
         ? 'Half time'
         : phase === 'full-time'
           ? 'Full time'
-          : `${match.half === 1 ? 'First half' : 'Second half'} · ${displayMinute(match)}'`;
+          : `${periodLabel(match)} · ${displayMinute(match)}'`;
 
   const attendance = match.result
     ? `${match.result.attendance} watching`
@@ -47,13 +52,13 @@ export function MatchHeader({
 
   return (
     <header className="matchhead">
-      {/* The line across the top is the two clubs: the home colour on the left,
-          the away colour on the right, meeting in the middle. */}
+      {/* The line across the top is the two shirts: the home strip on the left,
+          the away strip on the right, meeting in the middle. */}
       <span
         className="matchhead__stripe"
         aria-hidden="true"
         style={{
-          background: `linear-gradient(90deg, ${home.identity.colours.primary} 0, ${home.identity.colours.primary} 50%, ${away.identity.colours.primary} 50%, ${away.identity.colours.primary} 100%)`,
+          background: `linear-gradient(90deg, ${kits.home} 0, ${kits.home} 50%, ${kits.away} 50%, ${kits.away} 100%)`,
         }}
       />
       <div className="matchhead__team matchhead__team--home">

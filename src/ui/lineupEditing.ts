@@ -1,4 +1,5 @@
 import type { BenchSlot, LineupSlot, MatchLineup } from '@/domain/match';
+import { defaultRoleFor } from '@/simulation/match/roles';
 import type { Player } from '@/domain/person';
 import { getFormation, type FormationId } from '@/domain/positions';
 import { positionScore } from '@/simulation/selection';
@@ -20,7 +21,7 @@ export function assignToStarting(lineup: MatchLineup, slotIndex: number, playerI
   const displaced = slot.playerId;
   const starting = lineup.starting.map((entry, index) => {
     if (index === slotIndex) {
-      return { playerId, position: entry.position, outOfPosition: isOutOfPosition(player, entry.position) };
+      return { playerId, position: entry.position, role: defaultRoleFor(entry.position), outOfPosition: isOutOfPosition(player, entry.position) };
     }
     if (entry.playerId === playerId) {
       // Dragged from another slot: swap the two players rather than duplicating.
@@ -28,6 +29,7 @@ export function assignToStarting(lineup: MatchLineup, slotIndex: number, playerI
       return {
         playerId: displaced,
         position: entry.position,
+        role: defaultRoleFor(entry.position),
         outOfPosition: isOutOfPosition(displacedPlayer, entry.position),
       };
     }
@@ -42,7 +44,7 @@ export function assignToBench(lineup: MatchLineup, playerId: string, player: Pla
   if (lineup.bench.some((slot) => slot.playerId === playerId)) return lineup;
   if (lineup.bench.length >= limit) return lineup;
   const starting = lineup.starting.filter((slot) => slot.playerId !== playerId);
-  const bench: BenchSlot[] = [...lineup.bench, { playerId, position: player.preferredPosition }];
+  const bench: BenchSlot[] = [...lineup.bench, { playerId, position: player.preferredPosition, role: defaultRoleFor(player.preferredPosition) }];
   return { ...lineup, starting, bench };
 }
 
@@ -55,11 +57,11 @@ export function swapWithBench(lineup: MatchLineup, slotIndex: number, benchPlaye
   const displaced = slot.playerId;
   const starting: LineupSlot[] = lineup.starting.map((entry, index) =>
     index === slotIndex
-      ? { playerId: benchPlayerId, position: entry.position, outOfPosition: isOutOfPosition(player, entry.position) }
+      ? { playerId: benchPlayerId, position: entry.position, role: defaultRoleFor(entry.position), outOfPosition: isOutOfPosition(player, entry.position) }
       : entry,
   );
   const bench = lineup.bench.filter((_, index) => index !== benchIndex);
-  if (displaced) bench.push({ playerId: displaced, position: slot.position });
+  if (displaced) bench.push({ playerId: displaced, position: slot.position, role: defaultRoleFor(slot.position) });
   return { ...lineup, starting, bench };
 }
 
@@ -104,6 +106,7 @@ export function applyFormation(lineup: MatchLineup, formationId: FormationId, sq
       starting.push({
         playerId: currentPlayer.id,
         position: slot.position,
+        role: current.role ?? defaultRoleFor(slot.position),
         outOfPosition: isOutOfPosition(currentPlayer, slot.position),
       });
       return;
@@ -117,6 +120,7 @@ export function applyFormation(lineup: MatchLineup, formationId: FormationId, sq
     starting.push({
       playerId: best.player.id,
       position: slot.position,
+      role: defaultRoleFor(slot.position),
       outOfPosition: isOutOfPosition(best.player, slot.position),
     });
   });
@@ -125,7 +129,7 @@ export function applyFormation(lineup: MatchLineup, formationId: FormationId, sq
   for (const player of available) {
     if (used.has(player.id)) continue;
     if (bench.length >= 5) break;
-    bench.push({ playerId: player.id, position: player.preferredPosition });
+    bench.push({ playerId: player.id, position: player.preferredPosition, role: defaultRoleFor(player.preferredPosition) });
   }
 
   const captainStillIn = starting.some((slot) => slot.playerId === lineup.captainId);

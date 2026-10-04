@@ -9,6 +9,8 @@ import {
   KIT_MAKERS,
   KIT_OPTION_COUNT,
   kitPlanFor,
+  matchKitColours,
+  matchKits,
   MIN_KIT_DISTANCE,
   sponsorFromBusiness,
   sponsorFor,
@@ -187,6 +189,47 @@ describe('a club’s kit in a career', () => {
     // A handful could coincide; a whole division wearing the same strip twice
     // would mean the season is not in the seed at all.
     expect(changed.length).toBeGreaterThan(Object.keys(state.clubs).length * 0.5);
+  });
+
+  it('shows the visitors in the shirt they are actually wearing', () => {
+    // The colour bar across the top of the match screen, the swing bars under
+    // the pitch and the tint on the commentary all answer "whose moment is
+    // this?". The honest answer is the shirt on the player's back — so a club
+    // whose identity colour is dark brown but who has changed into a white away
+    // strip must be painted white, not brown.
+    const { state, clubId } = createTestGame('match-kit-colours');
+    const others = Object.keys(state.clubs).filter((id) => id !== clubId);
+    const awayId = others[0]!;
+    const kits = matchKits(state, clubId, awayId);
+    const colours = matchKitColours(state, clubId, awayId);
+
+    // Home plays in the club's own colours; the visitors play in the away strip,
+    // which is a different thing from their identity colour whenever the club
+    // has one.
+    expect(kits.home!.primary).toBe(state.clubs[clubId]!.identity.colours.primary);
+    expect(kits.away!.role).toBe('away');
+    expect(colours.home).toBe(state.clubs[clubId]!.identity.colours.primary);
+    expect(colours.away).toBe(kits.away!.primary);
+    // Never the away club's identity colour by accident: it is the strip, or the
+    // spare set if the two clash, but always a strip.
+    expect(['away', 'goalkeeper']).toContain(kits.away!.role);
+  });
+
+  it('changes the visitors in when the two first colours would clash', () => {
+    const { state, clubId } = createTestGame('match-kit-clash');
+    // Home is fixed to the club's own colour; the visitors' away strip is
+    // whatever their kit came up with. Whether that clashes is decided by the
+    // same distance rule the generator uses, so the screen can never be showing
+    // two shirts a spectator could not tell apart.
+    const awayId = Object.keys(state.clubs).find((id) => id !== clubId)!;
+    const kits = matchKits(state, clubId, awayId);
+    const distance = colourDistance(kits.home!.primary, kits.away!.primary);
+    expect(distance).toBeGreaterThanOrEqual(MIN_KIT_DISTANCE);
+    if (kits.away!.role === 'goalkeeper') {
+      // Changed because the away strip was too close, and the spare set is the
+      // one that is far enough away to wear.
+      expect(colourDistance(kits.home!.primary, kits.away!.primary)).toBeGreaterThanOrEqual(MIN_KIT_DISTANCE);
+    }
   });
 
   it('falls back to the first design when the stored choice is nonsense', () => {

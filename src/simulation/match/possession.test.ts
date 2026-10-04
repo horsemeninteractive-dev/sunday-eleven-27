@@ -1,14 +1,17 @@
 import { describe, expect, it } from 'vitest';
+import { defaultRoleProfile } from './roles';
 import type { Club } from '@/domain/club';
 import type { GameState } from '@/domain/game';
-import type { Match } from '@/domain/match';
+import type { Match, MatchEvent } from '@/domain/match';
 import type { Tactics } from '@/domain/tactics';
 import { createTestGame } from '../testSupport';
 import { matchEnvironment, prepareMatchday } from '../matchday';
 import { Rng } from '../rng';
 import { weighActions, type ActionContext } from './actions';
 import { buildContext } from './core';
-import { phaseForZone, pressureFor, progressOf, shapeFor, urgencyFor, zoneOf } from './field';
+import { runMinuteFootball } from './possession';
+import { stream } from '../rng';
+import { linesFor, phaseForZone, pressureFor, progressOf, shapeFor, urgencyFor, zoneOf } from './field';
 import { cloneMatch } from './testHelpers';
 import { currentScore, simulateToCompletion } from './engine';
 import { takePenalty } from './setPieces';
@@ -95,6 +98,7 @@ function tactics(overrides: Partial<Tactics> = {}): Tactics {
 function actionContext(overrides: Partial<ActionContext> = {}): ActionContext {
   return {
     position: 'CM',
+    role: defaultRoleProfile('CM'),
     isKeeper: false,
     progress: 0.5,
     y: 0.5,
@@ -102,6 +106,7 @@ function actionContext(overrides: Partial<ActionContext> = {}): ActionContext {
     pressure: 0.35,
     optionsTotal: 9,
     optionsAhead: 4,
+    runnersAhead: 2,
     optionsWide: 4,
     effective: effective(),
     energy: 80,
@@ -147,8 +152,12 @@ describe('player decisions follow from the situation', () => {
   });
 
   it('lets a good finisher shoot more than a poor one from the same place', () => {
-    const good = actionContext({ progress: 0.78, effective: effective({ shooting: 17, composure: 16 }) });
-    const poor = actionContext({ progress: 0.78, effective: effective({ shooting: 5, composure: 5 }) });
+    // The zone matters as much as the progress now that a role may veto shooting
+    // outright: a man at 0.78 of the way up the pitch who is somehow still
+    // recorded as being in the middle third is not standing anywhere, and the
+    // veto reads the zone, not the number. Both are given the same honest one.
+    const good = actionContext({ zone: 'final-third', progress: 0.78, effective: effective({ shooting: 17, composure: 16 }) });
+    const poor = actionContext({ zone: 'final-third', progress: 0.78, effective: effective({ shooting: 5, composure: 5 }) });
     expect(weightOf(good, 'shoot')).toBeGreaterThan(weightOf(poor, 'shoot'));
     // And the poor one is likelier to do something safer instead.
     expect(weightOf(poor, 'pass')).toBeGreaterThan(weightOf(poor, 'shoot'));
@@ -200,18 +209,24 @@ describe('the field model reads the game', () => {
       energy: 100,
       urgency: 0,
     });
-    // Home attacks toward x = 1, so a higher line is further up the pitch.
-    expect(highHome.defensiveLine).toBeGreaterThan(deepHome.defensiveLine);
-    // And the away side's line moves the other way, because it defends the other
-    // goal: pushing up takes it *closer to the halfway line*, which is a smaller x.
+    // Line heights are now progress from a side's *own* goal rather than an
+    // absolute x, because the shape is a set of arrangements rather than one
+    // fixed-frame reading — there is no longer a single x to compare. Progress
+    // is the honest thing to assert on: a high line is further up the pitch than
+    // a deep one, for both sides, which is the whole claim the test is making.
+    const backLineOf = (shape: ReturnType<typeof shapeFor>) => linesFor(shape, { inPossession: false, progress: 0.5 }).back;
+    expect(backLineOf(highHome)).toBeGreaterThan(backLineOf(deepHome));
+    // And the away side moves the same way, in its own frame rather than the
+    // fixed one: pushing its line up takes it closer to the halfway line, which
+    // in progress terms is still a bigger number.
     const awayWith = (defensiveLine: Tactics['defensiveLine']) =>
       shapeFor({ ...context, away: { ...context.away, tactics: tactics({ defensiveLine }) } }, 'away', {
         inPossession: false,
         energy: 100,
         urgency: 0,
       });
-    expect(awayWith('high').defensiveLine).toBeLessThan(awayWith('deep').defensiveLine);
-    expect(awayWith('deep').defensiveLine).toBeGreaterThan(0.5);
+    expect(backLineOf(awayWith('high'))).toBeGreaterThan(backLineOf(awayWith('deep')));
+    expect(backLineOf(awayWith('deep'))).toBeLessThan(0.5);
   });
 
   it('tires the pressing and agitates the losing side late on', () => {
@@ -453,5 +468,46 @@ describe('the developer trace', () => {
 
     expect(first.entries.map((entry) => entry.message)).toEqual(second.entries.map((entry) => entry.message));
     expect(a.result).toEqual(b.result);
+  });
+});
+
+describe('a minute is a run of possessions', () => {
+  it('returns every chain of the minute, not only the one it ended on', () => {
+    const { state, base } = evenFixture('minute-chains');
+    const match = cloneMatch(base);
+    const env = matchEnvironment(state, match);
+    const sink: MatchEvent[] = [];
+
+    let sawSeveral = false;
+    let sawBothSides = false;
+
+    for (let minute = 0; minute < 45 && !(sawSeveral && sawBothSides); minute += 1) {
+      match.minute += 1;
+      const context = buildContext(match, env);
+      const rng = stream(match.seed, 'minute', match.half, match.minute);
+      const football = runMinuteFootball(match, env, context, rng, sink);
+
+      // One chain per possession, and a chain belongs to exactly one side —
+      // every decision in it included. (This is the invariant that makes it safe
+      // to play several chains in a row without ever naming an opponent.)
+      expect(football.chains.length).toBe(football.possessions);
+      expect(football.chains.length).toBeGreaterThan(0);
+      for (const chain of football.chains) {
+        for (const action of chain.actions) expect(action.side).toBe(chain.side);
+      }
+
+      // The single move kept for the narrator is the last chain, unchanged.
+      const last = football.chains[football.chains.length - 1]!;
+      expect(football.passageSide).toBe(last.side);
+      expect(football.actions).toEqual(last.actions);
+      expect(football.receivers).toEqual(last.receivers);
+
+      if (football.chains.length > 1) sawSeveral = true;
+      if (new Set(football.chains.map((chain) => chain.side)).size > 1) sawBothSides = true;
+    }
+
+    // A minute really is several possessions, and it really does change hands.
+    expect(sawSeveral).toBe(true);
+    expect(sawBothSides).toBe(true);
   });
 });

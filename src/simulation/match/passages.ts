@@ -11,7 +11,17 @@ import type { Player } from '@/domain/person';
 import type { PositionCode } from '@/domain/positions';
 import type { PlayerId } from '@/domain/ids';
 import type { Rng } from '../rng';
-import type { MatchEnvironment, Side } from './engine';
+import type { MatchEnvironment, Side } from './core';
+
+/**
+ * The minimum a possession chain must expose for the commentary to measure it.
+ *
+ * This is deliberately structural rather than an import of the old engine's
+ * `PossessionChain`: the shared narrator must not depend on the retired minute
+ * engine just to read a duration, and every chain that can be told its share of
+ * the words already satisfies this shape.
+ */
+type ChainSlice = { seconds: number };
 
 /**
  * The match's voice.
@@ -35,6 +45,7 @@ const SIDES: Side[] = ['home', 'away'];
 /** The label a major moment is announced under, keyed by the event that made it. */
 const KIND_LABEL: Record<string, string> = {
   goal: 'Goal',
+  'own-goal': 'Own goal',
   'penalty-scored': 'Penalty scored',
   'penalty-missed': 'Penalty missed',
   'shot-saved': 'Save',
@@ -107,72 +118,130 @@ function passageLines(
   side: Side,
   passage: Passage,
   rng: Rng,
-): Array<{ text: string; category: CommentaryCategory; priority: CommentaryPriority; playerId: PlayerId | null; x: number; y: number }> {
+): Array<{ text: string; category: CommentaryCategory; priority: CommentaryPriority; playerId: PlayerId | null; side: Side; x: number; y: number; progress: number }> {
   const firstHalf = match.half === 1;
   const previousSide =
     match.commentary && match.commentary.length > 0 ? match.commentary[match.commentary.length - 1]!.side : null;
-  const turnover = previousSide !== null && previousSide !== side;
-  const club = env.clubShortName(sideClubId(match, side));
   const flavour = conditionFlavour(match);
 
-  const lines: Array<{ text: string; category: CommentaryCategory; priority: CommentaryPriority; playerId: PlayerId | null; x: number; y: number }> = [];
+  const lines: Array<{ text: string; category: CommentaryCategory; priority: CommentaryPriority; playerId: PlayerId | null; side: Side; x: number; y: number; progress: number }> = [];
 
+  // Where in the move each line belongs, from how long the steps before it take.
+  // The pitch plays the same steps at the same relative times, so a line lands
+  // on screen as the thing it describes is being played — not at an even rate
+  // decided by how many lines there happen to be.
+  const total = passage.steps.reduce((sum, entry) => sum + Math.max(0.01, entry.duration), 0);
+  const starts: number[] = [];
+  let spent = 0;
+  for (const entry of passage.steps) {
+    starts.push(total > 0 ? spent / total : 0);
+    spent += Math.max(0.01, entry.duration);
+  }
+
+  // Every step the pitch plays is said. There is no step without a line and no
+  // line without a step: the words and the football are the same sequence, in
+  // the same order, so a pass that is played is a pass that is described. Steps
+  // used to be dropped whenever a player could not be named or a shot had no
+  // event of its own, and those were exactly the moments the pitch went quiet.
   passage.steps.forEach((step: PassageStep, index: number) => {
-    if (step.kind === 'shot') return;
     const actor = env.getPlayer(step.playerId);
-    if (!actor) return;
+    // A passage may now carry the whole minute — several possessions, and so
+    // both sides — so a line is about the side its own step belongs to, not the
+    // side the passage as a whole was planned for. The previous step's side is
+    // what tells a line it is an interception and not a pass.
+    const stepSide = step.side ?? side;
+    const previous = index > 0 ? (passage.steps[index - 1]!.side ?? side) : previousSide;
+    const turnover = previous !== null && previous !== stepSide;
+    const club = env.clubShortName(sideClubId(match, stepSide));
     // Early steps sit further back and later ones nearer the box, so the little
     // map strip traces the move the words are describing.
     const depth = 0.35 + index * 0.25;
-    const at = spot(match, step.playerId, 0.5 + (side === 'home' ? -1 : 1) * (0.45 - depth * 0.45), 0.5);
+    const at = spot(match, step.playerId, 0.5 + (stepSide === 'home' ? -1 : 1) * (0.45 - depth * 0.45), 0.5);
+    const progress = starts[index] ?? 0;
+    const who = actor ? surname(actor) : club;
 
-    if (step.kind === 'carry') {
-      const text =
-        index === 0 && turnover
-          ? rng.pick([
-              `${surname(actor)} wins it back for ${club}.`,
-              `${surname(actor)} steps in and comes away with the ball.`,
-              `Turnover — ${surname(actor)} reads it and wins possession.`,
-            ])
-          : flavour.length > 0 && rng.chance(0.25)
-            ? rng.pick([
-                `${surname(actor)} carries it on the ${flavour[0]} surface.`,
-                `Good control from ${surname(actor)} in the ${flavour[0]} conditions.`,
-              ])
-            : rng.pick([
-                `${surname(actor)} carries the ball forward.`,
-                `${surname(actor)} drives into space.`,
-                `${surname(actor)} advances down the flank.`,
-                `${surname(actor)} makes ground into the final third.`,
-                `${surname(actor)} carries it on the ball.`,
-              ]);
+    if (step.kind === 'shot') {
+      // The finish itself is told by the engine's own event line, with its
+      // outcome; this is the strike being taken, so it claims nothing.
       lines.push({
-        text,
-        category: index === 0 && turnover ? 'possession' : 'movement',
-        priority: index === 0 ? 'contextual' : 'developing',
-        playerId: actor.id,
+        text: rng.pick([
+          `${who} lets fly.`,
+          `${who} goes for goal.`,
+          `${who} takes it on.`,
+          `${who} hits it.`,
+        ]),
+        category: 'chance',
+        priority: 'important',
+        playerId: actor?.id ?? null,
+        side: stepSide,
         x: at.x,
         y: at.y,
+        progress,
       });
       return;
     }
 
+    if (step.kind === 'carry') {
+      const text =
+        index === 0 && turnover && actor
+          ? rng.pick([
+              `${who} wins it back for ${club}.`,
+              `${who} steps in and comes away with the ball.`,
+              `Turnover — ${who} reads it and wins possession.`,
+            ])
+          : flavour.length > 0 && actor && rng.chance(0.25)
+            ? rng.pick([
+                `${who} carries it on the ${flavour[0]} surface.`,
+                `Good control from ${who} in the ${flavour[0]} conditions.`,
+              ])
+            : actor
+              ? rng.pick([
+                  `${who} carries the ball forward.`,
+                  `${who} drives into space.`,
+                  `${who} advances down the flank.`,
+                  `${who} makes ground into the final third.`,
+                  `${who} carries it on the ball.`,
+                ])
+              : rng.pick([`${club} carry it forward.`, `${club} work it on.`, `${club} keep it.`]);
+      lines.push({
+        text,
+        category: turnover ? 'possession' : 'movement',
+        priority: 'developing',
+        playerId: actor?.id ?? null,
+        side: stepSide,
+        x: at.x,
+        y: at.y,
+        progress,
+      });
+      return;
+    }
+
+    // A pass whose man cannot be named is still a pass that was played.
     const receiver = step.targetId ? env.getPlayer(step.targetId) : null;
-    if (!receiver) return;
+    const to = receiver ? surname(receiver) : null;
     lines.push({
-      text: rng.pick([
-        `${surname(actor)} finds ${surname(receiver)} in space.`,
-        `${surname(actor)} plays it out to ${surname(receiver)}.`,
-        `${surname(actor)} slides it through to ${surname(receiver)}.`,
-        `${surname(actor)} feeds ${surname(receiver)}.`,
-        `${surname(actor)} moves it on to ${surname(receiver)}.`,
-        `${surname(actor)} picks out ${surname(receiver)}.`,
-      ]),
+      text: to
+        ? rng.pick([
+            `${who} finds ${to} in space.`,
+            `${who} plays it out to ${to}.`,
+            `${who} slides it through to ${to}.`,
+            `${who} feeds ${to}.`,
+            `${who} moves it on to ${to}.`,
+            `${who} picks out ${to}.`,
+          ])
+        : rng.pick([
+            `${who} plays it out.`,
+            `${who} sends it wide.`,
+            `${who} puts it into space.`,
+            `${who} chips it forward.`,
+          ]),
       category: 'passing',
       priority: 'contextual',
-      playerId: receiver.id,
+      playerId: receiver?.id ?? actor?.id ?? null,
+      side: stepSide,
       x: at.x,
       y: at.y,
+      progress,
     });
   });
 
@@ -299,7 +368,6 @@ export function buildMinuteCommentary(
       line: {
         minute: match.minute,
         firstHalf,
-        side,
         category: line.category,
         priority: line.priority,
         kind: null,
@@ -308,6 +376,10 @@ export function buildMinuteCommentary(
         y: line.y,
         scoreAfter: null,
         playerId: line.playerId,
+        // The line is about the side its own step belonged to, which is not
+        // always the side the minute ended up being about.
+        side: line.side,
+        progress: line.progress,
       },
     });
   });
@@ -356,13 +428,13 @@ export function buildMinuteCommentary(
           text: event.text,
           x: event.x,
           y: event.y,
-          scoreAfter: event.type === 'goal' || event.type === 'penalty-scored' ? event.scoreAfter : null,
+          scoreAfter: event.type === 'goal' || event.type === 'own-goal' || event.type === 'penalty-scored' ? event.scoreAfter : null,
           playerId: event.playerId,
         },
       });
       // The celebration belongs to the moment the ball went in, so it is told
       // right after the finish and ahead of whatever else the minute held.
-      if (event.type === 'goal' || event.type === 'penalty-scored') {
+      if (event.type === 'goal' || event.type === 'own-goal' || event.type === 'penalty-scored') {
         celebrationLines(match, env, event, rng).forEach((line, order) => {
           sink.push({ sortKey: index + 0.1 + order * 0.05, line });
         });
@@ -399,6 +471,7 @@ export function buildMinuteCommentary(
 function keyCategory(type: MatchEvent['type']): CommentaryCategory {
   switch (type) {
     case 'goal':
+    case 'own-goal':
     case 'penalty-scored':
     case 'penalty-missed':
       return 'major';
@@ -416,6 +489,7 @@ function keyCategory(type: MatchEvent['type']): CommentaryCategory {
 function keyPriority(type: MatchEvent['type']): CommentaryPriority {
   switch (type) {
     case 'goal':
+    case 'own-goal':
     case 'penalty-scored':
     case 'penalty-missed':
       return 'major';
@@ -506,6 +580,54 @@ export function recordCommentary(match: Match, lines: CommentaryEvent[]): void {
   const base = match.commentary?.length ?? 0;
   const next = lines.map((line, index) => ({ ...line, id: `${match.id}_c${base + index + 1}` }));
   match.commentary = [...(match.commentary ?? []), ...next];
+}
+
+/**
+ * Deal a minute's words out among the chains that will play them.
+ *
+ * The minute is written in one go but played in several, and the bar has to say
+ * what is happening rather than what has been decided. Each line is handed to
+ * the chain whose slice of the minute it belongs to, using the very `progress`
+ * the narrator already wrote — the fraction of the move the line describes —
+ * resolved against the chains' own lengths. Each chain then tells its share at
+ * the moment it takes the pitch, so a line about a pass is said as that pass is
+ * being played rather than a minute before it.
+ *
+ * A line that does not know where it belongs — a foul, a card, a note — goes
+ * with the line before it, because it interrupts the move it was written
+ * against rather than starting one of its own.
+ */
+export function splitCommentaryByChain(
+  chains: readonly ChainSlice[],
+  lines: readonly CommentaryEvent[],
+): CommentaryEvent[][] {
+  const buckets: CommentaryEvent[][] = chains.map(() => []);
+  if (chains.length === 0) return buckets;
+
+  // The chains' own lengths, so a third of the minute's football is given a
+  // third of the minute's words rather than an equal share of each.
+  const total = chains.reduce((sum, chain) => sum + Math.max(0, chain.seconds), 0);
+
+  let carried = 0;
+  for (const line of lines) {
+    if (total <= 0 || typeof line.progress !== 'number') {
+      buckets[carried]!.push(line);
+      continue;
+    }
+    const at = Math.min(Math.max(line.progress, 0), 1) * total;
+    let passed = 0;
+    let index = chains.length - 1;
+    for (let position = 0; position < chains.length; position += 1) {
+      passed += Math.max(0, chains[position]!.seconds);
+      if (at <= passed) {
+        index = position;
+        break;
+      }
+    }
+    buckets[index]!.push(line);
+    carried = index;
+  }
+  return buckets;
 }
 
 /** Whose half it was, for callers that need the label rather than the line. */

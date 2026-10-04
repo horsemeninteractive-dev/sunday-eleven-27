@@ -6,6 +6,7 @@ import { leaguePosition, squadAverageAge } from '@/simulation/queries';
 import { useGame } from '../hooks';
 import { moneyShort } from '../format';
 import { PageHeader, Panel, Pill, SortTh, Stat } from '../components/primitives';
+import { MetricTile, Section, TileGrid } from '../components/hierarchy';
 import { ClubLink, PlayerLink } from '../components/Links';
 import { applySort, UNSORTED, type SortAccessors, type SortState } from '../tableSort';
 
@@ -53,7 +54,6 @@ export function WorldView() {
       <PageHeader
         eyebrow="World"
         title="The local game"
-        subtitle="The towns, grounds, clubs and businesses your club lives among. Everything here exists whether you look at it or not."
         meta={
           <>
             <span className="small muted">{clubs.length} clubs</span>
@@ -63,22 +63,20 @@ export function WorldView() {
         }
       />
 
-      <Panel level="primary">
-        <div className="stat-grid stat-grid--wide">
-          <Stat label="Towns and villages" value={towns.length} />
-          <Stat label="Clubs" value={clubs.length} />
-          <Stat label="Grounds" value={grounds.length} />
-          <Stat label="Pubs and businesses" value={businesses.length} />
-          <Stat label="Population covered" value={towns.reduce((sum, town) => sum + town.population, 0).toLocaleString('en-GB')} />
-          <Stat label="World seed" value={game.seed} />
-        </div>
-        <p className="muted small">
-          {game.world.regionName}, {game.world.countyName}. Club density follows population; travel follows the map.
-        </p>
-      </Panel>
+      <Section title={`${game.world.regionName}, ${game.world.countyName}`}>
+        <TileGrid min={170}>
+          <MetricTile label="Clubs" value={clubs.length} tone="accent" />
+          <MetricTile label="Towns and villages" value={towns.length} />
+          <MetricTile label="Grounds" value={grounds.length} />
+          <MetricTile label="Pubs and businesses" value={businesses.length} />
+          <MetricTile label="Population covered" value={towns.reduce((sum, town) => sum + town.population, 0).toLocaleString('en-GB')} />
+        </TileGrid>
+      </Section>
 
+      <details className="more">
+        <summary className="small muted">Towns and grounds</summary>
       <div className="split">
-        <Panel title="Towns and villages" subtitle="Club density follows population; travel follows the map">
+        <Panel title="Towns and villages">
           <ul className="tight-list">
             {towns
               .slice()
@@ -126,8 +124,10 @@ export function WorldView() {
           </ul>
         </Panel>
       </div>
+      </details>
 
-      <Panel title="Clubs in the local game" subtitle="Tap a club for its details">
+      <Section title="Clubs in the local game">
+      <Panel flush>
         <div className="table-wrapper">
         <table className="table table--stack">
           <thead>
@@ -184,6 +184,7 @@ export function WorldView() {
         </table>
         </div>
       </Panel>
+      </Section>
 
       {selected && (
         <Panel
@@ -252,7 +253,9 @@ export function WorldView() {
         </Panel>
       )}
 
-      <Panel title="Pubs, businesses and sponsorship" subtitle="Where the money and the names come from">
+      <details className="more">
+        <summary className="small muted">Pubs, businesses and sponsorship</summary>
+      <Panel>
         <ul className="tight-list">
           {businesses.slice(0, 24).map((business) => (
             <li key={business.id}>
@@ -267,6 +270,12 @@ export function WorldView() {
           ))}
         </ul>
       </Panel>
+      </details>
+
+      <details className="more">
+        <summary className="small muted">Technical</summary>
+        <p className="muted small">World seed: {game.seed}. Club density follows population; travel follows the map.</p>
+      </details>
     </div>
   );
 }

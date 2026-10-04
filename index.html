@@ -6,6 +6,37 @@
     <title>Sunday Eleven 27 — Sunday League Football Management</title>
     <meta name="description" content="A grassroots English Sunday League football management simulation." />
     <meta name="theme-color" content="#08090b" />
+
+    <!-- What the game looks like when somebody pastes its link.
+         Discord, Slack, iMessage and every search result read this and never
+         run the game, so this block is the first impression of Sunday Eleven
+         that most people will ever get. `og:image` is absolute because the
+         unfurling bot fetches it from a server, not from this page, and it is
+         the whole difference between a card with the game on it and a grey box
+         with a sentence in it. The card is built by `npm run og`. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Sunday Eleven 27" />
+    <meta property="og:url" content="https://sundayeleven.pages.dev/" />
+    <meta property="og:title" content="Sunday Eleven 27 — Sunday League Football Management" />
+    <meta
+      property="og:description"
+      content="Pick a side of a muddy pitch, pick a team from the local game, and take them to the whistle."
+    />
+    <meta property="og:image" content="https://sundayeleven.pages.dev/og.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="A mown, rain-darkened Sunday League pitch with the words Sunday Eleven 27."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Sunday Eleven 27 — Sunday League Football Management" />
+    <meta
+      name="twitter:description"
+      content="Pick a side of a muddy pitch, pick a team from the local game, and take them to the whistle."
+    />
+    <meta name="twitter:image" content="https://sundayeleven.pages.dev/og.png" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
@@ -15,6 +46,44 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Sunday Eleven" />
+
+    <!-- The opening placeholder's own styles.
+         The stylesheet arrives with the bundle, so the placeholder is painted
+         before it does. Everything it needs is therefore here, in literals:
+         without this it flashes as unstyled black-on-white text on the first
+         paint, then jumps to the styled version once the bundle catches up. The
+         matching rules live in `styles.css` (see `.booting`); these are what
+         make the very first frame look like the rest of the game. -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #08090b;
+      }
+      #booting {
+        position: fixed;
+        inset: 0;
+        z-index: 50;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        background: #08090b;
+        font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', sans-serif;
+      }
+      #booting .booting__label {
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: #7c868f;
+      }
+      #booting .booting__note {
+        font-size: 11px;
+        color: #5b646c;
+      }
+    </style>
   </head>
   <body>
     <!-- Shown until the game has opened its storage and decided what to open.

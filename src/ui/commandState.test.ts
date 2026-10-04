@@ -30,9 +30,10 @@ function userFixture(state: State) {
 function sessionFor(match: Match, side: 'home' | 'away', phase: MatchSession['phase'] = 'in-progress'): MatchSession {
   return {
     matchId: match.id,
-    live: { ...match, minute: 34, half: 1, status: 'in-progress' },
+    live: { ...match, minute: 34, half: 1, period: 'first-half', status: 'in-progress' },
     side,
     speed: 1,
+    viewingMode: 'full',
     paused: phase === 'full-time',
     phase,
     revision: 0,
@@ -104,6 +105,22 @@ describe('command state', () => {
     expect(after.phase).not.toBe('matchday');
   });
 
+  it('still offers the match when a side cannot be fielded, so the day can pass', () => {
+    const { state, clubId } = createTestGame('command-short-side');
+    const match = userFixture(state);
+    state.date = match.date;
+    // Five players on the books: below the minimum, so playing forfeits the game
+    // — but the manager must still be able to press something, or the clock
+    // would never move again.
+    const club = state.clubs[clubId]!;
+    club.squadIds = club.squadIds.slice(0, 5);
+
+    const command = commandStateFor(state, null);
+    expect(command.phase).toBe('matchday');
+    expect(command.action.intent).toEqual({ kind: 'action', action: 'start-match' });
+    expect(command.detail).toMatch(/abandons/i);
+  });
+
   it('hands the manager back to a match in progress, and to the report when it ends', () => {
     const { state } = createTestGame('command-live');
     const match = userFixture(state);
@@ -112,6 +129,15 @@ describe('command state', () => {
     expect(live.phase).toBe('match-live');
     expect(live.action.intent).toEqual({ kind: 'action', action: 'resume-match' });
     expect(live.urgency).toBe('now');
+    expect(live.lines[0]).toContain('First half');
+
+    // The period is labelled from the record, not guessed from the half: extra
+    // time is extra time, not a "second half".
+    const extra: MatchSession = {
+      ...sessionFor(match, 'home'),
+      live: { ...match, minute: 92, half: 3, period: 'extra-first', status: 'in-progress' },
+    };
+    expect(commandStateFor(state, extra).lines[0]).toContain('Extra time');
 
     const finished = commandStateFor(state, sessionFor(match, 'home', 'full-time'));
     expect(finished.phase).toBe('match-finished');

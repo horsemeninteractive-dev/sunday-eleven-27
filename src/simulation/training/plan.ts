@@ -19,7 +19,7 @@ import { stream } from '../rng';
 import { fiveASideVenueFor } from '../recruitment/discovery';
 import { clubCohesionValue, clubSystemFamiliarity } from './cohesion';
 import { lastSessionFor, trainingStore, weeksSince } from './store';
-import { nextMatchday, weekStartOf } from '../timeline';
+import { isLeagueMatchday, nextMatchday, weekStartOf } from '../timeline';
 
 /**
  * Planning the week's session: what the manager has set up, who is likely to be
@@ -150,9 +150,18 @@ export function sessionDateFor(state: GameState, matchday: number): ISODate {
  * A pre-season with no sessions in it is not a pre-season — it is six weeks of
  * waiting — so the club's week runs from the day the manager takes charge, not
  * from the first fixture.
+ *
+ * Only *league* matchdays have a Thursday. The calendar also carries midweek cup
+ * ties, which are numbered after the league's matchdays but dated on a
+ * Wednesday; taking a session three days before one of those lands it on a
+ * Sunday, giving a club two sessions in a week — one on the Thursday and one on
+ * matchday morning. The cup tie is prepared for by the week's Thursday session,
+ * the same one that builds towards the Sunday.
  */
 export function sessionDatesFor(state: GameState): ISODate[] {
-  const dates = state.season.calendar.map((entry) => addDays(entry.date, -3));
+  const dates = state.season.calendar
+    .filter((entry) => isLeagueMatchday(state, entry.matchday))
+    .map((entry) => addDays(entry.date, -3));
   const firstLeagueSession = dates[0];
   if (!firstLeagueSession) return dates;
   let cursor = weekStartOf(state.season.startDate);
@@ -188,7 +197,9 @@ export function currentSessionKey(state: GameState, date: ISODate = state.date):
 }
 
 export function sessionKeyFor(state: GameState, date: ISODate): number {
-  const entry = state.season.calendar.find((candidate) => addDays(candidate.date, -3) === date);
+  const entry = state.season.calendar.find(
+    (candidate) => isLeagueMatchday(state, candidate.matchday) && addDays(candidate.date, -3) === date,
+  );
   if (entry) return entry.matchday;
   // Counted in whole weeks from the manager's first Monday, so no two weeks of
   // pre-season can end up sharing a key.

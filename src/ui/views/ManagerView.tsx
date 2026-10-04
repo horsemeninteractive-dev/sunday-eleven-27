@@ -3,17 +3,16 @@ import { formatShortDate } from '@/simulation/calendar';
 import { ordinal } from '@/simulation/news';
 import { formOf, leaguePosition, managerCareerRecord, userClub, userManager } from '@/simulation/queries';
 import { gameActions, useGame } from '../hooks';
-import { Button, Fact, FormPips, PageHeader, Panel, Pill, Stat } from '../components/primitives';
+import { Button, Fact, FormPips, PageHeader, Panel, Pill } from '../components/primitives';
+import { MetricTile, Section, TileGrid } from '../components/hierarchy';
 import { ClubLink } from '../components/Links';
 
 /**
  * The manager's own profile.
  *
- * Everything the career knows about the man in charge rather than the club:
- * who he says he is, how old he is now, and what he has actually done. The
- * record is read from the club's season figures — a season's wins and losses
- * are written as they happen — so it stays honest as the years go by rather
- * than needing to be remembered separately.
+ * Name, role, club, standing and the career record — the things the local game
+ * knows about the man in charge. Biographical detail sits beside it, not in
+ * front of it.
  */
 export function ManagerView() {
   const game = useGame();
@@ -36,27 +35,60 @@ export function ManagerView() {
       <PageHeader
         eyebrow="Manager"
         title={name}
-        subtitle={
-          profile.nickname
-            ? `“${profile.nickname}” · in charge of ${club.identity.name}`
-            : `In charge of ${club.identity.name}`
-        }
         meta={
           <>
-            <Pill tone="accent">Age {age}</Pill>
-            {official && <Pill tone="muted">{Math.round(official.reputation)} standing</Pill>}
-            <span className="small muted">Took charge {formatShortDate(inChargeSince)}</span>
+            <span className="small muted">{club.identity.name}</span>
+            <span className="small muted">age {age}</span>
+            {official && <span className="small muted">{Math.round(official.reputation)} standing</span>}
+            <span className="small muted">in charge since {formatShortDate(inChargeSince)}</span>
           </>
-        }
-        actions={
-          <Button variant="ghost" onClick={() => gameActions().setView('history')}>
-            Club history
-          </Button>
         }
       />
 
-      <div className="manager__grid">
-        <Panel title="Who you are" subtitle="How the local game knows you">
+      <TileGrid min={175}>
+        <MetricTile label="Seasons" value={record.seasons} note="In charge, including this one" />
+        <MetricTile label="Played" value={record.played} note={`${record.won}W ${record.drawn}D ${record.lost}L`} />
+        <MetricTile label="Win rate" value={record.played > 0 ? `${record.winPercent}%` : '—'} note={`${record.points} points`} />
+        <MetricTile label="Goals" value={`${record.goalsFor} / ${record.goalsAgainst}`} note="For / against" />
+        <MetricTile label="This season" value={thisSeason ? `${thisSeason.points} pts` : '—'} note={thisSeason ? `${thisSeason.won}W ${thisSeason.drawn}D ${thisSeason.lost}L` : ''} />
+        <MetricTile label="League" value={position ? ordinal(position) : '—'} note={record.played > 0 ? 'recent form below' : ''} />
+      </TileGrid>
+
+      {record.played > 0 && (
+        <Section title="Recent form">
+          <FormPips form={form} />
+        </Section>
+      )}
+
+      <div className="split split--sidebar">
+        <Panel title="Career record">
+          <dl className="facts">
+            <Fact label="Competitive matches" value={record.played} />
+            <Fact label="Won" value={record.won} />
+            <Fact label="Drawn" value={record.drawn} />
+            <Fact label="Lost" value={record.lost} />
+            <Fact label="Points" value={record.points} />
+            <Fact label="Goals for / against" value={`${record.goalsFor} / ${record.goalsAgainst}`} />
+          </dl>
+          {record.played === 0 && <p className="muted small">The record starts on the opening Sunday.</p>}
+        </Panel>
+
+        <Panel title="The current job">
+          <dl className="facts">
+            <Fact label="Club" value={<ClubLink clubId={club.id} />} />
+            <Fact label="Took charge" value={formatShortDate(inChargeSince)} />
+            <Fact
+              label="This season"
+              value={thisSeason ? `${thisSeason.won}W ${thisSeason.drawn}D ${thisSeason.lost}L (${thisSeason.points} pts)` : '—'}
+            />
+            <Fact label="League position" value={position ? ordinal(position) : 'Not yet in a table'} />
+          </dl>
+        </Panel>
+      </div>
+
+      <details className="more">
+        <summary className="small muted">Who you are</summary>
+        <Panel>
           <dl className="facts">
             <Fact label="Full name" value={name} />
             <Fact label="Nickname" value={profile.nickname || '—'} />
@@ -66,59 +98,26 @@ export function ManagerView() {
             <Fact label="From" value={profile.hometown || '—'} />
           </dl>
         </Panel>
+      </details>
 
-        <Panel
-          level="primary"
-          title="Career record"
-          subtitle="Competitive matches only — friendlies never count"
-        >
-          <div className="stat-grid stat-grid--wide">
-            <Stat label="Seasons" value={record.seasons} hint="Seasons in charge, including this one" />
-            <Stat label="Played" value={record.played} />
-            <Stat label="Won" value={record.won} />
-            <Stat label="Drawn" value={record.drawn} />
-            <Stat label="Lost" value={record.lost} />
-            <Stat label="Win rate" value={record.played > 0 ? `${record.winPercent}%` : '—'} />
-            <Stat label="Goals for / against" value={`${record.goalsFor} / ${record.goalsAgainst}`} />
-            <Stat label="Points" value={record.points} />
-          </div>
-          {record.played === 0 ? (
-            <p className="muted small">
-              No competitive matches yet. The record starts on the opening Sunday.
-            </p>
-          ) : (
-            <p className="small">
-              Recent form <FormPips form={form} /> <span className="muted">in the league</span>
-            </p>
-          )}
-        </Panel>
-      </div>
-
-      <Panel title={`In charge at ${club.identity.name}`} subtitle="The current job">
-        <dl className="facts">
-          <Fact label="Club" value={<ClubLink clubId={club.id} />} />
-          <Fact label="Took charge" value={formatShortDate(inChargeSince)} />
-          <Fact
-            label="This season"
-            value={thisSeason ? `${thisSeason.won}W ${thisSeason.drawn}D ${thisSeason.lost}L (${thisSeason.points} pts)` : '—'}
-          />
-          <Fact label="League position" value={position ? `${ordinal(position)}` : 'Not yet in a table'} />
-        </dl>
-
+      <Section title="Honours">
         {club.history.honours.length > 0 ? (
-          <ul className="tight-list">
+          <div className="row row--wrap row--tight">
             {club.history.honours.map((honour) => (
-              <li key={honour}>
-                <Pill tone="accent">Honour</Pill> {honour}
-              </li>
+              <Pill key={honour} tone="accent">
+                {honour}
+              </Pill>
             ))}
-          </ul>
+          </div>
         ) : (
-          <p className="muted small">
-            Nothing in the cabinet yet. The first thing to hang on the clubhouse wall is still out there.
-          </p>
+          <p className="muted small">Nothing in the cabinet yet.</p>
         )}
-      </Panel>
+        <div className="row" style={{ marginTop: 'var(--s2)' }}>
+          <Button variant="ghost" size="sm" onClick={() => gameActions().setView('history')}>
+            Club history
+          </Button>
+        </div>
+      </Section>
     </div>
   );
 }

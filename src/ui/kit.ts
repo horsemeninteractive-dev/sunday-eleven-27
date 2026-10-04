@@ -354,3 +354,51 @@ export function clubKitOptions(game: GameState, clubId: ClubId): KitSet[] {
   if (!club) return [];
   return kitOptionsForRequest(kitRequest(game, club));
 }
+
+/**
+ * The strips the two sides actually turn out in, for one match.
+ *
+ * Home plays in its home shirt. The visiting side plays in its away shirt —
+ * which is the whole point of a club having an away strip, and the reason a
+ * side running out in white should not be painted in its club colour
+ * everywhere. The colour bar across the top of the match screen, the swing bars
+ * under the pitch and the tint on the commentary all answer one question, "whose
+ * moment is this?", and the honest answer is the shirt on the player's back
+ * rather than the colour in the club's identity.
+ *
+ * When the two first colours are too close to tell apart the visitors change
+ * into the spare set from the boot of a car, which is what the local game
+ * actually does — and which {@link INCIDENT_POOL} already jokes about.
+ */
+export function matchKits(
+  game: GameState,
+  homeClubId: ClubId,
+  awayClubId: ClubId,
+): { home: KitDesign | null; away: KitDesign | null } {
+  const homeKit = clubKit(game, homeClubId);
+  const awayKit = clubKit(game, awayClubId);
+  const home = homeKit?.home ?? null;
+  let away = awayKit?.away ?? null;
+  if (home && away && colourDistance(home.primary, away.primary) < MIN_KIT_DISTANCE) {
+    away = awayKit?.goalkeeper ?? away;
+  }
+  return { home, away };
+}
+
+/**
+ * The first colour of the strip each side is wearing, for tinting the screen.
+ *
+ * Falls back to the club's own colours when a club has no kit generated — the
+ * bar should never simply vanish because a save predates kits.
+ */
+export function matchKitColours(
+  game: GameState,
+  homeClubId: ClubId,
+  awayClubId: ClubId,
+): { home: string; away: string } {
+  const kits = matchKits(game, homeClubId, awayClubId);
+  return {
+    home: kits.home?.primary ?? game.clubs[homeClubId]?.identity.colours.primary ?? '#888888',
+    away: kits.away?.primary ?? game.clubs[awayClubId]?.identity.colours.primary ?? '#888888',
+  };
+}

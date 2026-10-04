@@ -5,13 +5,18 @@ import { gameActions, useGame } from '../hooks';
 import { useGameStore } from '@/state/gameStore';
 import { buildMatchFeed, type MatchFeed } from '../matchFeed';
 import { MatchHeader } from '../match/MatchHeader';
-import { MatchPitch } from '../match/MatchPitch';
+import { MatchIncidentBanner } from '../match/MatchIncidentBanner';
 import { CurrentCommentary } from '../match/CurrentCommentary';
+import { buildMatchRenderState } from '@/presentation/matchPresentation';
+import { buildEngineRenderState } from '@/presentation/matchEnginePresentation';
+import { currentLiveEngine } from '@/state/liveEngine';
+import { resolveRenderer } from '@/presentation/matchRenderers';
 import { TeamSheet } from '../match/TeamSheet';
 import { MatchControls, type MatchDrawer } from '../match/MatchControls';
 import { MatchStatsStrip } from '../match/MatchStats';
 import { FullTimePanel, HalfTimePanel, PreMatchPanel } from '../match/MatchPhases';
-import { matchMinuteMs, spatialSecondsPerRealSecond } from '../matchPace';
+import { matchMinuteMs } from '../matchPace';
+import { matchKitColours } from '../kit';
 
 /**
  * Matchday, as a workspace rather than a page.
@@ -35,6 +40,7 @@ import { matchMinuteMs, spatialSecondsPerRealSecond } from '../matchPace';
 export function MatchView() {
   const game = useGame();
   const session = useGameStore((state) => state.session);
+  const rendererPreference = useGameStore((state) => state.preferences.renderer);
   const [drawer, setDrawer] = useState<MatchDrawer | null>(null);
   // The dressing room, half-time and full-time cards can be put down so the
   // manager can look at the pitch and work in the panels underneath; they come
@@ -44,30 +50,26 @@ export function MatchView() {
   const running = session?.phase === 'in-progress' && !session.paused;
   const speed = session?.speed ?? 1;
 
-  // One clock, pumped once a frame: it spends real time on the simulation's
-  // fixed steps, and turns it into match minutes at the manager's chosen speed.
-  // The football decides everything; this only says how fast it is watched.
+  // One clock, pumped once a frame, and it hands over *real* seconds: the
+  // presentation decides how much football this frame is worth — fast through
+  // ordinary play, slow through a chance, faster still while a skip runs — and
+  // the store asks the engine for exactly that much. The compression is not a
+  // constant here any more, so the pitch keeps up with the passage it is showing
+  // instead of racing a fixed ratio. The football is identical at every speed;
+  // only how quickly it is spent changes.
   useEffect(() => {
     if (!running) return;
-    const rate = spatialSecondsPerRealSecond(speed);
-    const minuteMs = matchMinuteMs(speed);
     let frame = 0;
     let last = performance.now();
-    let watched = 0;
     const pump = (now: number) => {
       const delta = Math.min(0.25, (now - last) / 1000);
       last = now;
-      gameActions().advanceSpatial(delta * rate);
-      watched += delta * 1000;
-      if (watched >= minuteMs) {
-        watched = 0;
-        gameActions().tickMatch();
-      }
+      gameActions().advanceSpatial(delta);
       frame = window.requestAnimationFrame(pump);
     };
     frame = window.requestAnimationFrame(pump);
     return () => window.cancelAnimationFrame(frame);
-  }, [running, speed]);
+  }, [running, speed, session?.viewingMode]);
 
   useEffect(() => {
     // A drawer that belonged to one phase should not be left open into another,
@@ -77,14 +79,52 @@ export function MatchView() {
   }, [session?.phase]);
 
   const match = session?.live;
+  // The strips the two sides are actually in, which is not the same as the
+  // clubs' own colours: a visiting side in a white away shirt is white.
+  const kitColours = useMemo(
+    () => (game && match ? matchKitColours(game, match.homeClubId, match.awayClubId) : null),
+    [game, match],
+  );
   // The transcript is only needed by the cards, which ask it for a handful of
   // the afternoon's notable lines.
   const feed: MatchFeed | null = useMemo(
     () => (match ? buildMatchFeed(match) : null),
     [match, session?.revision],
   );
+  // The match, read once into the neutral shape every renderer consumes. Once
+  // the whistle has gone the football is the engine's, so the renderer is handed
+  // the engine's own state — the players, the ball and the residual it
+  // interpolates with — and never decides anything of its own. Before kick-off
+  // there is no engine yet, so the teams are laid out from their formations.
+  const renderState = useMemo(
+    () => {
+      if (!match || !game) return null;
+      const engine = currentLiveEngine();
+      // The engine is asked to play exactly as far as the presentation has
+      // watched, so its live state *is* the moment on screen — no second account
+      // of the match, and the clock, the score and the pitch all agree.
+      const base = engine ? buildEngineRenderState(engine, match, game) : buildMatchRenderState(match, game);
+      // The pitch wears the strips the sides are actually in, the same ones the
+      // team sheets and the commentary bar use — not each club's own colours,
+      // which can collide when two clubs play in the same shade.
+      if (!kitColours) return base;
+      return {
+        ...base,
+        teams: {
+          home: { ...base.teams.home, colours: { ...base.teams.home.colours, primary: kitColours.home } },
+          away: { ...base.teams.away, colours: { ...base.teams.away.colours, primary: kitColours.away } },
+        },
+      };
+    },
+    [match, game, kitColours, session?.revision],
+  );
 
-  if (!game || !session || !match || !feed) return null;
+  if (!game || !session || !match || !feed || !renderState) return null;
+
+  // Which renderer draws the match is the manager's preference and nothing else:
+  // the simulation above holds the clock, the positions and the result, so
+  // switching here is a repaint, not a restart.
+  const Renderer = resolveRenderer(rendererPreference).Component!;
 
   const playerById = (id: string): Player | undefined => {
     const person = game.people[id];
@@ -92,29 +132,43 @@ export function MatchView() {
   };
 
   const phase = session.phase;
+  // Commentary only is commentary only: with the words carrying the match there
+  // is no pitch to watch, so the two team sheets take the space the renderer
+  // would have had rather than framing an empty middle.
+  const commentaryOnly = session.viewingMode === 'commentary';
 
   return (
     <div className="matchday">
       <MatchHeader game={game} match={match} side={session.side} phase={phase} />
 
       <div className="matchday__main">
-        <div className="matchday__stage">
+        <div className={`matchday__stage${commentaryOnly ? ' matchday__stage--commentary' : ''}`}>
           <TeamSheet
             side="home"
             club={game.clubs[match.homeClubId]!}
             lineup={match.lineups.home}
             match={match}
             playerById={playerById}
+            colour={kitColours?.home ?? '#888888'}
           />
-          <div className="matchday__visual">
-            <MatchPitch match={match} side={session.side} playerById={playerById} />
-          </div>
+          {!commentaryOnly && (
+            <div className="matchday__visual">
+              {/* The renderer draws the football; the banner sits beside it. Both
+                  take the same neutral state, so the incident reads the same in
+                  any renderer. */}
+              <div className="matchday__renderer">
+                <Renderer state={renderState} side={session.side} playerById={playerById} />
+                <MatchIncidentBanner state={renderState} playerById={playerById} />
+              </div>
+            </div>
+          )}
           <TeamSheet
             side="away"
             club={game.clubs[match.awayClubId]!}
             lineup={match.lineups.away}
             match={match}
             playerById={playerById}
+            colour={kitColours?.away ?? '#888888'}
           />
         </div>
 
@@ -123,17 +177,19 @@ export function MatchView() {
             commentary={match.commentary ?? []}
             revision={session.revision}
             paused={session.paused}
-            speed={session.speed}
-            minuteMs={matchMinuteMs(session.speed)}
+            /* The bar's hold is a legibility floor, not the match pace; it is
+               scaled off the speed so a line stays readable while the
+               presentation is fast-forwarding. */
+            minuteMs={matchMinuteMs(speed)}
             live
-            homeColours={game.clubs[match.homeClubId]!.identity.colours}
-            awayColours={game.clubs[match.awayClubId]!.identity.colours}
+            homeColour={kitColours?.home ?? '#888888'}
+            awayColour={kitColours?.away ?? '#888888'}
           />
         )}
       </div>
 
       <div className="matchday__stats">
-        <MatchStatsStrip match={match} />
+        {kitColours && <MatchStatsStrip match={match} homeColour={kitColours.home} awayColour={kitColours.away} />}
       </div>
 
       <MatchControls

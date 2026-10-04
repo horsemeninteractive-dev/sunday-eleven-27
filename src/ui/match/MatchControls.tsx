@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { GameState } from '@/domain/game';
 import type { Match } from '@/domain/match';
 import { POSITIONS } from '@/domain/positions';
@@ -17,6 +18,7 @@ import {
   type Tempo,
 } from '@/domain/tactics';
 import { MATCH_SPEEDS, MATCH_SPEED_LABEL } from '@/state/preferences';
+import { VIEWING_MODE_DETAIL, VIEWING_MODE_LABEL, VIEWING_MODES } from '@/presentation/matchPlayback';
 import type { MatchSession } from '@/state/gameStore';
 import { gameActions } from '../hooks';
 import { Button, ToneText } from '../components/primitives';
@@ -53,10 +55,15 @@ export function MatchControls({
   showIntervalButton?: boolean;
   onOpenInterval?: () => void;
 }) {
+  const [optionsOpen, setOptionsOpen] = useState(false);
   const fullTime = session.phase === 'full-time';
   const preMatch = session.phase === 'pre-match';
   const halfTime = session.phase === 'half-time';
   const running = session.phase === 'in-progress' && !session.paused;
+  // How much of the match to watch is a setting, not a transport control, so it
+  // lives behind the options button rather than as a row of chips beside the
+  // speed. It is offerable whenever there is football left to watch.
+  const showOptions = !fullTime && !preMatch;
   const playerById = (id: string): Player | undefined => {
     const person = game.people[id];
     return isPlayer(person) ? person : undefined;
@@ -93,13 +100,17 @@ export function MatchControls({
       <div className="matchbar__row">
         <div className="matchbar__transport">
           {!fullTime && !preMatch && (
+            /* The glyph alone. It sits beside the speed chips, which say "1x"
+               and "4x" and nothing else, so a word here would be the only one in
+               the group — and the icon for stop and start is not ambiguous at the
+               size it is drawn. */
             <Button
               variant={running ? 'default' : 'primary'}
               onClick={() => gameActions().toggleMatchPause()}
               title={running ? 'Stop the clock' : 'Let it run'}
+              ariaLabel={running ? 'Pause the match' : 'Resume the match'}
             >
               <Glyph name={running ? 'pause' : 'play'} />
-              {running ? 'Pause' : 'Play'}
             </Button>
           )}
           {!fullTime && (
@@ -135,6 +146,39 @@ export function MatchControls({
         </div>
 
         <div className="matchbar__go">
+          {showOptions && (
+            <div className="match-options">
+              <Button
+                variant="ghost"
+                ariaLabel="Match options"
+                title="Match options"
+                onClick={() => setOptionsOpen((open) => !open)}
+              >
+                <Glyph name="settings" />
+              </Button>
+              {optionsOpen && (
+                <div className="match-options__menu" role="menu" aria-label="Match options">
+                  <p className="match-options__title">Match detail</p>
+                  {VIEWING_MODES.map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={session.viewingMode === mode}
+                      className={`match-options__item${session.viewingMode === mode ? ' match-options__item--on' : ''}`}
+                      onClick={() => {
+                        gameActions().setViewingMode(mode);
+                        setOptionsOpen(false);
+                      }}
+                    >
+                      <span className="match-options__label">{VIEWING_MODE_LABEL[mode]}</span>
+                      <span className="match-options__detail small muted">{VIEWING_MODE_DETAIL[mode]}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {preMatch && showIntervalButton && (
             <Button variant="ghost" onClick={onOpenInterval}>
               Matchday briefing
@@ -163,11 +207,15 @@ export function MatchControls({
           {session.phase === 'in-progress' && (
             <Button
               variant="ghost"
+              ariaLabel="To the whistle"
               onClick={() => gameActions().simulateMatchToEnd()}
               title="Runs the rest of the game through immediately, bench and all"
             >
               <Glyph name="skip" />
-              To the whistle
+              {/* The words are hidden on a phone, where they would push the
+                  options button into a column of its own; the aria-label and
+                  the title keep the control named. */}
+              <span className="matchbar__whistle-label">To the whistle</span>
             </Button>
           )}
           {fullTime && (
@@ -263,7 +311,7 @@ function TacticsPanel({ match, session }: { match: Match; session: MatchSession 
         </select>
       </Field>
       <p className="drawer-note small muted">
-        Changes take effect from the next minute. {frozen ? 'The match is over.' : 'Nothing here stops the game.'}
+        {frozen ? 'The match is over.' : 'Changes take effect from the next minute.'}
       </p>
     </div>
   );
@@ -285,7 +333,7 @@ function SubsPanel({
   const frozen = session.phase === 'full-time';
 
   if (session.phase === 'pre-match') {
-    return <p className="drawer-note small muted">Before kick-off, changes to the XI are team selection — see the Players tab.</p>;
+    return <p className="drawer-note small muted">The bench comes into it from kick-off.</p>;
   }
 
   return (
@@ -332,7 +380,7 @@ function SubsPanel({
       <p className="drawer-note small muted">
         {spent
           ? 'All three changes used.'
-          : `${3 - match.substitutions[session.side]} change${3 - match.substitutions[session.side] === 1 ? '' : 's'} left. The bench is yours to use — nobody will make them for you.`}
+          : `${3 - match.substitutions[session.side]} change${3 - match.substitutions[session.side] === 1 ? '' : 's'} left.`}
       </p>
     </div>
   );

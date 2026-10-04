@@ -57,7 +57,15 @@ function precacheManifest(): Plugin {
       // Everything the build wrote, except the worker itself (which is fetched
       // fresh on every visit by design) and _headers (which is configuration
       // for the edge, not something a browser ever asks for).
-      const skip = new Set(['sw.js', '_headers', '.DS_Store']);
+      //
+      // og.png is excluded for the same kind of reason, and because it is the
+      // only large file in the build that the game itself never requests: it
+      // exists so that a chat app has something to show when somebody pastes
+      // the link, and no browser running Sunday Eleven will ever ask for it.
+      // Precaching it would put roughly half a megabyte into every player's
+      // offline install for a picture they will never see — the same trade the
+      // ground photograph was compressed to avoid.
+      const skip = new Set(['sw.js', '_headers', '.DS_Store', 'og.png']);
       const files: string[] = [];
       const walk = (dir: string): void => {
         for (const entry of readdirSync(dir)) {

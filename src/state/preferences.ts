@@ -13,6 +13,18 @@
 export type MotionPreference = 'system' | 'reduced' | 'full';
 
 /**
+ * How the match is drawn.
+ *
+ * `2d` is the pitch the game has always had. `3d` is reserved: the selector can
+ * name it, and a future renderer can be built to satisfy it, but choosing it
+ * today simply falls back to the 2D renderer. The choice is a preference, not a
+ * match control, because it describes how the manager likes to watch rather than
+ * anything about the match being watched — so it is remembered across careers
+ * and, crucially, switching it never touches the simulation.
+ */
+export type RendererPreference = '2d' | '3d';
+
+/**
  * The speeds a match can be watched at, as multiples of real time.
  *
  * `1x` is the pace a match is actually watched at: one second of football on
@@ -36,11 +48,14 @@ export interface Preferences {
   motion: MotionPreference;
   /** The speed a match opens at. Changing it mid-match is a match control. */
   defaultMatchSpeed: number;
+  /** Which renderer draws the match. Presentation only; never the football. */
+  renderer: RendererPreference;
 }
 
 export const DEFAULT_PREFERENCES: Preferences = {
   motion: 'system',
   defaultMatchSpeed: 1,
+  renderer: '2d',
 };
 
 const KEY = 'slfm26.preferences';
@@ -70,7 +85,15 @@ function clean(raw: unknown): Preferences {
     candidate.motion === 'reduced' || candidate.motion === 'full' || candidate.motion === 'system'
       ? candidate.motion
       : DEFAULT_PREFERENCES.motion;
-  return { motion, defaultMatchSpeed: clampSpeed(candidate.defaultMatchSpeed ?? DEFAULT_PREFERENCES.defaultMatchSpeed) };
+  // A renderer that does not exist is replaced by the one that does, so a
+  // hand-edited "3d" on a build with no 3D renderer still watches a match.
+  const renderer: RendererPreference =
+    candidate.renderer === '3d' || candidate.renderer === '2d' ? candidate.renderer : DEFAULT_PREFERENCES.renderer;
+  return {
+    motion,
+    defaultMatchSpeed: clampSpeed(candidate.defaultMatchSpeed ?? DEFAULT_PREFERENCES.defaultMatchSpeed),
+    renderer,
+  };
 }
 
 /**

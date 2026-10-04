@@ -214,7 +214,13 @@ export function derivedEventsOn(state: GameState, date: ISODate): ScheduledEvent
   const first = state.season.calendar[0]?.date;
   const last = state.season.calendar[state.season.calendar.length - 1]?.date;
 
-  if (first && date === weekStartOf(first)) {
+  // Pre-season begins on the season's own start date, which is the Monday the
+  // club's year opens. It used to be dated to the Monday of the week the first
+  // fixture falls in, which is the *last* Monday of pre-season: the game
+  // announced that pre-season had begun on the day it finished, six weeks
+  // after it had.
+  const preSeasonOpens = state.season.startDate;
+  if (first && preSeasonOpens && date === preSeasonOpens) {
     events.push({
       id: `season-start_${first}`,
       date,

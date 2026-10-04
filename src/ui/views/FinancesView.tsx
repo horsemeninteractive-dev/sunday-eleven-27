@@ -5,7 +5,8 @@ import { formatShortDate } from '@/simulation/calendar';
 import { matchdaysPlayed } from '@/simulation/timeline';
 import { money, moneyShort } from '../format';
 import { useGame } from '../hooks';
-import { Callout, PageHeader, Panel, Pill, SortTh, Stat } from '../components/primitives';
+import { Callout, PageHeader, Panel, Pill, SortTh } from '../components/primitives';
+import { MetricTile, Section, TileGrid } from '../components/hierarchy';
 import { applySort, UNSORTED, type SortAccessors, type SortState } from '../tableSort';
 
 type LedgerSortKey = 'date' | 'description' | 'category' | 'amount' | 'balance';
@@ -57,57 +58,48 @@ export function FinancesView() {
   return (
     <div className="stack">
       <PageHeader
-        eyebrow="Club admin"
+        eyebrow="Club"
         title="Finances"
-        subtitle={`${CLUB_STRUCTURE_LABEL[club.structure]} · the treasurer keeps a book, not a spreadsheet`}
         meta={
-          <span className="small muted">
-            {finances.ledger.length} entries on record · roughly {weeksLeft} weeks left this season
-          </span>
+          <>
+            <span className="small muted">{CLUB_STRUCTURE_LABEL[club.structure]}</span>
+            <span className="small muted">{finances.ledger.length} entries · {weeksLeft} weeks left</span>
+          </>
         }
       />
 
-      <Panel
-        level="primary"
-        title="Where the club stands"
-        tone={finances.balance < 0 ? 'danger' : 'default'}
-      >
-        <div className="stat-grid stat-grid--wide">
-          <Stat label="Balance" value={money(finances.balance)} hint="Everything that comes in and goes out" />
-          <Stat label="Typical weekly in" value={money(weeklyIn)} hint="Subs and sponsorship instalments" />
-          <Stat label="Typical weekly out" value={money(-weeklyOut)} hint="Pitch hire, insurance and training" />
-          <Stat
-            label="Week to week"
-            value={money(net)}
-            hint="Before matchdays, referees and fines"
-            tone={net < 0 ? 'bad' : 'ok'}
-          />
-          <Stat label="Player subs" value={`£${finances.subscriptionPerPlayer}`} hint={`${club.squadIds.length} registered players per week`} />
-          <Stat
-            label="Sponsorship"
-            value={`£${finances.sponsorIncomePerWeek}`}
-            hint={club.sponsorIds.length ? 'Local businesses' : 'No sponsor attached'}
-          />
-        </div>
+      <TileGrid min={185}>
+        <MetricTile
+          label="Balance"
+          value={money(finances.balance)}
+          note="Everything in and out"
+          tone={finances.balance < 0 ? 'bad' : finances.balance < 120 ? 'warn' : 'ok'}
+        />
+        <MetricTile label="In" value={money(weeklyIn)} note="Subs and sponsorship" />
+        <MetricTile label="Out" value={money(-weeklyOut)} note="Pitch, insurance, training" />
+        <MetricTile label="Net" value={money(net)} note="Typical week" tone={net < 0 ? 'bad' : 'ok'} />
+      </TileGrid>
 
-        {finances.balance < 0 ? (
-          <Callout tone="bad" title="The club is in the red">
-            Referees still want paying and the league does not accept goodwill. A fund-raiser or a smaller squad are the
-            usual answers.
-          </Callout>
-        ) : finances.balance < 120 ? (
-          <Callout tone="warn" title="Not much room for error">
-            A pitch hire and a referee will take most of that in a single Sunday.
-          </Callout>
-        ) : null}
+      {finances.balance < 0 ? (
+        <Callout tone="bad" title="The club is in the red">
+          Referees still want paying. A fund-raiser or a smaller squad are the usual answers.
+        </Callout>
+      ) : finances.balance < 120 ? (
+        <Callout tone="warn" title="Not much room for error">
+          A pitch hire and a referee will take most of that in a single Sunday.
+        </Callout>
+      ) : null}
 
-        <p className="muted small">
-          Over the last {Math.min(40, finances.ledger.length)} entries: {money(summary.income)} in,{' '}
-          {money(summary.expenditure)} out.
-        </p>
-      </Panel>
+      <Section title="Where it goes">
+        <MetricTile
+          label="Last entries"
+          value={`${money(summary.income)} in`}
+          note={`${money(summary.expenditure)} out over ${Math.min(40, finances.ledger.length)} entries`}
+        />
+      </Section>
 
-      <Panel level="quiet" title="The ledger" subtitle="Newest first">
+      <Section title="The ledger">
+      <Panel level="quiet" flush subtitle="Newest first">
         {ledger.length === 0 && <p className="empty">No money has moved yet.</p>}
         <div className="table-wrapper">
           <table className="table table--stack">
@@ -143,6 +135,7 @@ export function FinancesView() {
           </table>
         </div>
       </Panel>
+      </Section>
     </div>
   );
 }

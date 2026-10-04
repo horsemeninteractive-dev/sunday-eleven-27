@@ -52,6 +52,7 @@ export const NewsView = view(() => import('./views/NewsView'), 'NewsView');
 export const RecruitmentView = view(() => import('./views/RecruitmentView'), 'RecruitmentView');
 export const TrainingView = view(() => import('./views/TrainingView'), 'TrainingView');
 export const MatchView = view(() => import('./views/MatchView'), 'MatchView');
+export const ReplayView = view(() => import('./views/ReplayView'), 'ReplayView');
 
 /**
  * The dialogs too, and the changelog earns its place on this list twice over: it

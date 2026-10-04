@@ -80,7 +80,7 @@ describe('a matchday is ready before the manager sees it', () => {
       .map((id) => state.people[id]!)
       .filter((person) => person.kind === 'player' && person.id !== keep);
     // The manager drops his own man in and puts somebody else on the bench.
-    lineup.starting[0] = { playerId: squad[0]!.id, position: lineup.starting[0]!.position, outOfPosition: false };
+    lineup.starting[0] = { playerId: squad[0]!.id, position: lineup.starting[0]!.position, role: lineup.starting[0]!.role, outOfPosition: false };
     const picked = lineup.starting.map((slot) => slot.playerId).join();
 
     readyForToday(state);

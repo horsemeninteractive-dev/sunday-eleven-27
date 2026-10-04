@@ -9,14 +9,19 @@ and reads the world at the end of every season, so drift is found in a report
 rather than in year twelve of somebody's save.
 
 It is a developer harness. Nothing in the game imports it (same status as
-`src/simulation/match/trace.ts`), and it is deliberately **outside** `npm test`:
-fifteen seasons is about a minute of football. The normal suite carries a
-two-season smoke test (`src/simulation/soak.test.ts`) so the season loop is still
-guarded on every commit.
+`src/simulation/match/trace.ts`), and it is deliberately **outside** `npm test`: a
+season is minutes of football now that every fixture runs on the new engine.
+
+The normal suite carries a two-season smoke test (`src/simulation/soak.test.ts`)
+that checks the season loop, but it is a deliberate check rather than a commit
+tax: it is **skipped unless asked for**, because a season through the new engine
+is minutes rather than seconds and would otherwise block every test run.
 
 ## Running it
 
 ```
+npm run test:soak                         # the two-season smoke test, on demand
+SOAK=1 npx vitest run src/simulation/soak.test.ts   # the same, by hand
 npm run soak                              # 10 seasons, seed "soak"
 npm run soak -- --seasons=20              # longer
 npm run soak -- --seed=soak-scratch       # a specific world

@@ -141,6 +141,52 @@ describe('commentary passages', () => {
     expect(passage.steps[passage.steps.length - 1]!.playerId).toBe(shooter.playerId);
   });
 
+  it('says every step the pitch plays, and skips none', () => {
+    const { state } = createTestGame('passages-every-step');
+    const match = userMatch(state);
+    match.minute = 22;
+    match.half = 1;
+    const env = matchEnvironment(state, match);
+    const passage = planPassage(match, env, 'home', [], [], new Rng('every-step-plan'));
+    const lines = buildMinuteCommentary(match, env, 'home', [], passage, new Rng('every-step-words'));
+
+    // Every step the pitch is going to play is described, in order. A step used
+    // to go unspoken whenever its player could not be named, whenever a pass had
+    // no resolvable receiver, and every shot of every move — which is exactly
+    // when the bar goes quiet while the ball is still moving.
+    const passageLines = lines.filter((line) => typeof line.progress === 'number');
+    expect(passageLines.length).toBe(passage.steps.length);
+
+    // And they line up with the steps one for one, so the bar is never a step
+    // ahead of or behind the football.
+    const fractions = passageLines.map((line) => line.progress!);
+    expect(fractions.length).toBe(passage.steps.length);
+    for (let index = 0; index < fractions.length; index += 1) {
+      expect(fractions[index]!).toBeGreaterThanOrEqual(0);
+      expect(fractions[index]!).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('says each line at the point in the move the pitch has reached', () => {
+    const { state } = createTestGame('passages-progress');
+    const match = userMatch(state);
+    match.minute = 18;
+    match.half = 1;
+    const env = matchEnvironment(state, match);
+    const passage = planPassage(match, env, 'home', [], [], new Rng('progress-plan'));
+    const lines = buildMinuteCommentary(match, env, 'home', [], passage, new Rng('progress-words'));
+
+    const paced = lines.filter((line) => typeof line.progress === 'number');
+    expect(paced.length).toBeGreaterThan(0);
+    const values = paced.map((line) => line.progress!);
+    // Every line knows where it belongs in the move, inside the minute.
+    expect(values.every((value) => value >= 0 && value <= 1)).toBe(true);
+    // And they run in order, so the bar can never walk backwards.
+    for (let index = 1; index < values.length; index += 1) {
+      expect(values[index]!).toBeGreaterThanOrEqual(values[index - 1]!);
+    }
+  });
+
   it('keeps the ball with the side that has it between lines', () => {
     const { state } = createTestGame('passages-possession');
     const match = userMatch(state);

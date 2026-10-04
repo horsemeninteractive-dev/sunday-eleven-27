@@ -1,16 +1,18 @@
 import { KIT_COLLAR_LABEL, KIT_PATTERN_LABEL, type KitDesign } from '@/domain/kit';
 import { clubKit, clubKitOptions, chosenKitOption, KIT_OPTION_COUNT, sponsorFor } from '../kit';
 import { KitSetRow } from '../components/Kit';
-import { Button, PageHeader, Panel, Pill, Stat } from '../components/primitives';
+import { Button, PageHeader, Pill } from '../components/primitives';
 import { gameActions, useGame, useUserClub } from '../hooks';
+import { MetricTile, Section, StatusTile, TileGrid } from '../components/hierarchy';
 
 /**
  * The club's kit.
  *
  * Three strips, one kit deal, and — because this is a game about a club you
  * run — the choice of which design the club wears this season. The designs are
- * generated fresh every summer, all in the club's own colours, and all the
- * manager has to do is pick the one he wants the lads to run out in.
+ * generated fresh every summer, all in the club's own colours, and the screen
+ * shows the chosen one first, the deal as four facts, and the alternatives as
+ * one block with a button each.
  *
  * The screen only ever shows the *club's* kit: everybody else's is on their
  * profile, where it belongs.
@@ -26,8 +28,6 @@ export function KitView() {
 
   const chosen = chosenKitOption(club);
   const sponsor = sponsorFor(game, club);
-  const business = sponsor?.businessId ? game.world.businesses[sponsor.businessId] : undefined;
-  const businessTown = business ? game.world.towns[business.townId]?.name : undefined;
 
   return (
     <div className="stack">
@@ -45,29 +45,48 @@ export function KitView() {
               <span className="kitswatch" style={{ background: club.identity.colours.primary }} aria-hidden="true" />
               <span className="kitswatch" style={{ background: club.identity.colours.secondary }} aria-hidden="true" />
             </span>
-            {business && (
-              <span className="small muted">
-                Backed by {business.name} of {businessTown ?? 'the town'}
-              </span>
-            )}
           </>
         }
       />
 
-      <Panel
-        title="What we run out in"
-        subtitle={`Chosen by the manager · design ${chosen + 1}`}
-        level="primary"
+      <Section
+        title="The strip"
+        action={<span className="small muted">Design {chosen + 1} of {KIT_OPTION_COUNT}</span>}
       >
         <KitSetRow club={club} kit={kit} size={124} />
-        <p className="muted small">
-          {kit.sponsor
-            ? `${kit.sponsor.name} across the chest, ${kit.maker.name} on the right breast, and the crest over the heart.`
-            : `Nobody's name across the chest this season — ${kit.maker.name} make the shirts and that is all.`}
-        </p>
-      </Panel>
+      </Section>
 
-      <Panel title="This season's designs" subtitle="Three sets were sent down. The club wears one of them.">
+      <Section title="Details">
+        <TileGrid min={170}>
+          <StatusTile
+            label="Shirt sponsor"
+            status={sponsor ? sponsor.name : 'None'}
+            note={`£${club.finances.sponsorIncomePerWeek} a week`}
+            tone={sponsor ? 'ok' : 'muted'}
+          />
+          <MetricTile label="Kit firm" value={kit.maker.name} note={`${kit.season} season`} />
+          <MetricTile
+            label="Design"
+            value={`${chosen + 1} of ${KIT_OPTION_COUNT}`}
+            note="Chosen by the manager"
+          />
+          <MetricTile
+            label="Club colours"
+            value={
+              <span className="row row--tight">
+                <span className="kitswatch" style={{ background: club.identity.colours.primary }} aria-hidden="true" />
+                <span className="kitswatch" style={{ background: club.identity.colours.secondary }} aria-hidden="true" />
+              </span>
+            }
+            note={`${club.identity.colours.primary} · ${club.identity.colours.secondary}`}
+          />
+        </TileGrid>
+      </Section>
+
+      <Section
+        title="This season's designs"
+        action={<span className="small muted">{options.length} sent down</span>}
+      >
         <div className="kitoptions">
           {options.map((option, index) => (
             <div className={`kitoption${index === chosen ? ' kitoption--chosen' : ''}`} key={option.option}>
@@ -90,41 +109,15 @@ export function KitView() {
             </div>
           ))}
         </div>
-        <p className="muted small">
-          A new set is drawn up every summer, when the kit deal comes round again. The colours never change — they are the
-          club's — but the shirts do.
-        </p>
-      </Panel>
+      </Section>
 
-      <div className="split split--sidebar">
-        <Panel title="The deal" level="default">
-          <div className="stat-grid stat-grid--wide">
-            <Stat label="Kit firm" value={kit.maker.name} hint="Shirts, shorts and socks" />
-            <Stat label="Season" value={kit.season} hint="New designs every summer" />
-            <Stat
-              label="Shirt sponsor"
-              value={sponsor ? sponsor.name : 'None'}
-              hint={sponsor ? `£${club.finances.sponsorIncomePerWeek}/week` : 'An empty chest'}
-            />
-            <Stat label="Design" value={`${chosen + 1} of ${KIT_OPTION_COUNT}`} hint="Pick another above" />
-          </div>
-        </Panel>
-
-        <Panel title="Kit bag" level="quiet" subtitle="What is in the cupboard">
-          <ul className="bullets">
-            <li>Home: {describeStrip(kit.home)} — the club's own colours, as always.</li>
-            <li>Away: {describeStrip(kit.away)} — for when we clash.</li>
-            <li>
-              Goalkeeper: {describeStrip(kit.goalkeeper)}. Keeper shirts are always somebody else's problem to match.
-            </li>
-          </ul>
-          <p className="muted small">
-            {sponsor
-              ? `The name on the chest is the club's, not the manager's: it comes with the deal and it goes across all three strips.`
-              : 'No shirt sponsor this season, which is common enough at this level — and it means a blank chest on all three strips.'}
-          </p>
-        </Panel>
-      </div>
+      <Section title="Kit bag">
+        <TileGrid min={215}>
+          <MetricTile label="Home" value={describeStrip(kit.home)} />
+          <MetricTile label="Away" value={describeStrip(kit.away)} />
+          <MetricTile label="Goalkeeper" value={describeStrip(kit.goalkeeper)} />
+        </TileGrid>
+      </Section>
     </div>
   );
 }

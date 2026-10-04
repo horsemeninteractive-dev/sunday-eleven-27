@@ -1,6 +1,7 @@
-import type { BenchSlot, LineupSlot } from '@/domain/match';
+import { FULL_SIDE, MIN_SIDE, type BenchSlot, type LineupSlot } from '@/domain/match';
 import type { Player } from '@/domain/person';
 import { getFormation, positionalSimilarity, POSITIONS, type FormationId, type PositionCode } from '@/domain/positions';
+import { defaultRoleFor } from '@/simulation/match/roles';
 
 /**
  * Selection support shared by the human manager's UI and by AI clubs.
@@ -110,6 +111,10 @@ export function autoPickLineup(
     starting[index] = {
       playerId: chosen.player.id,
       position: slot.position,
+      // AI clubs get the default role for the slot, never an exotic one: a 4-4-2
+      // should still be a 4-4-2 with sensible jobs, and the balance bench is
+      // the thing that notices if the league starts playing a different game.
+      role: defaultRoleFor(slot.position),
       outOfPosition: positionScore(chosen.player, slot.position) < 0.55,
     };
   }
@@ -126,13 +131,13 @@ export function autoPickLineup(
     if (bench.length >= benchTarget) break;
     const candidate = remaining.find((entry) => !bench.some((b) => b.playerId === entry.player.id) && positionScore(entry.player, need) > 0.5);
     if (candidate) {
-      bench.push({ playerId: candidate.player.id, position: need });
+      bench.push({ playerId: candidate.player.id, position: need, role: defaultRoleFor(need) });
     }
   }
   for (const entry of remaining) {
     if (bench.length >= benchTarget) break;
     if (bench.some((b) => b.playerId === entry.player.id)) continue;
-    bench.push({ playerId: entry.player.id, position: entry.player.preferredPosition });
+    bench.push({ playerId: entry.player.id, position: entry.player.preferredPosition, role: defaultRoleFor(entry.player.preferredPosition) });
   }
 
   return { starting: starting.filter(Boolean), bench };
@@ -179,8 +184,19 @@ export function validateLineup(
 ): LineupProblem[] {
   const problems: LineupProblem[] = [];
 
-  if (starting.length !== 11) {
-    problems.push({ severity: 'error', message: `You need 11 starters — you have ${starting.length}.` });
+  if (starting.length < MIN_SIDE) {
+    problems.push({
+      severity: 'error',
+      message: `A side needs at least ${MIN_SIDE} players — you have ${starting.length}. Without a team there is no match.`,
+    });
+  } else if (starting.length > FULL_SIDE) {
+    problems.push({ severity: 'error', message: `A side is ${FULL_SIDE} — you have ${starting.length}.` });
+  } else if (starting.length < FULL_SIDE) {
+    // Legal, and worth saying: a manager going short should know he is doing it.
+    problems.push({
+      severity: 'warning',
+      message: `Short-handed: ${starting.length} players, not a full ${FULL_SIDE}.`,
+    });
   }
   if (bench.length === 0) {
     problems.push({ severity: 'warning', message: 'No substitutes named. A late injury would leave you short.' });

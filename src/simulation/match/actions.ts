@@ -4,6 +4,7 @@ import type { Tactics } from '@/domain/tactics';
 import type { Rng } from '../rng';
 import type { PlayerEffectiveness } from './teamStrength';
 import type { TacticalProfile } from './tacticsModel';
+import { longShotPenalty, mayShootFrom, weightFor, type RoleProfile } from './roles';
 
 /**
  * What a player decides to do with the ball.
@@ -36,6 +37,16 @@ export interface ActionOption {
 
 export interface ActionContext {
   position: PositionCode;
+  /**
+   * What this man is for, as opposed to where he stands.
+   *
+   * This is what makes two sides with the same formation and the same
+   * instructions play differently: everything below already knows a ball on the
+   * flank in the final third is worth crossing, and the role decides whether
+   * *this* man crosses it. It is also the only thing that can take an option out
+   * of the table entirely — see {@link weighActions}.
+   */
+  role: RoleProfile;
   isKeeper: boolean;
   progress: number;
   /** Across the pitch, 0..1; the wings are near the edges. */
@@ -46,6 +57,14 @@ export interface ActionContext {
   /** Teammates he could play it to, and how many of those are ahead of him. */
   optionsTotal: number;
   optionsAhead: number;
+  /**
+   * How many of those ahead are roles that actually make runs beyond the ball.
+   *
+   * A through ball is only on the menu if somebody is willing to chase it, so
+   * this is what stops a deep-lying midfielder rolling a pass into a channel
+   * that nobody in this side ever runs into.
+   */
+  runnersAhead: number;
   optionsWide: number;
   effective: PlayerEffectiveness['effective'];
   /** 0..100 in-match energy. */
@@ -92,7 +111,24 @@ export function weighActions(ctx: ActionContext): ActionOption[] {
 
   const options: ActionOption[] = [];
   const add = (kind: ActionKind, weight: number, why: string) => {
-    if (weight > 0) options.push({ kind, weight, why });
+    // Every weight the table produces is scaled by what this man is for. The
+    // base model's job is to judge the situation; the role's is to judge the
+    // man. A kind the role has no opinion about is left alone.
+    //
+    // Shooting is the exception, and the veto is applied first because it is the
+    // one thing a role can take off the table entirely: a role that carries a
+    // shotZones list may only shoot from those zones, and an empty list means he
+    // never shoots at all. No amount of ability, pressure or urgency can offer
+    // the option back, which is what stops a centre-half volleying from thirty
+    // yards.
+    //
+    // What survives the veto is then discounted if it is a long-range effort, so
+    // that letting one through is not the same as encouraging one.
+    const scaled =
+      kind === 'shoot' && !mayShootFrom(ctx.role, ctx.zone)
+        ? 0
+        : weight * weightFor(ctx.role, kind) * (kind === 'shoot' ? longShotPenalty(ctx.zone) : 1);
+    if (scaled > 0) options.push({ kind, weight: scaled, why });
   };
 
   // --- Distribution from the keeper -----------------------------------------
@@ -161,9 +197,13 @@ export function weighActions(ctx: ActionContext): ActionOption[] {
   }
 
   // --- Holding: shielding it, slowing it down ------------------------------
-  let wHold = 0.07;
+  // Holding the ball up is a real and frequent thing for a forward with his
+  // back to goal while support arrives, not a last resort. Its base used to be
+  // so small that a striker had essentially no option but to pass, which is why
+  // they squared it instead of shielding it and waiting for a runner.
+  let wHold = 0.14;
   if (ctx.retaining && ctx.zone !== 'own-box') wHold *= 2.2;
-  if (pressure > 0.5 && ctx.progress > 0.6) wHold *= 1.5;
+  if (pressure > 0.5 && ctx.progress > 0.6) wHold *= 1.9;
   if (ctx.optionsTotal === 0) wHold *= 3;
   add('hold', wHold, 'shielding the ball');
 
@@ -176,7 +216,7 @@ export function weighActions(ctx: ActionContext): ActionOption[] {
   }
 
   // --- Through balls: for a runner beyond the line -------------------------
-  if (ctx.progress > 0.38 && ctx.optionsAhead > 0) {
+  if (ctx.progress > 0.38 && ctx.optionsAhead > 0 && ctx.runnersAhead > 0) {
     let wThrough = 0.26 * (0.3 + 1.0 * de) * (0.3 + 0.9 * pa);
     if (ctx.tactics.passingStyle === 'direct') wThrough *= 1.25;
     if (ctx.urgency > 0) wThrough *= 1 + 0.6 * ctx.urgency;

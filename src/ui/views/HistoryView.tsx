@@ -5,7 +5,8 @@ import { formatShortDate } from '@/simulation/calendar';
 import { clubMatches, squadOf } from '@/simulation/queries';
 import { gameActions, useGame } from '../hooks';
 import { playerName } from '../format';
-import { Button, PageHeader, Panel, Pill, SortTh, Stat } from '../components/primitives';
+import { Button, PageHeader, Pill, SortTh } from '../components/primitives';
+import { MetricTile, Section, TileGrid } from '../components/hierarchy';
 import { ClubLink, CompetitionLink, PlayerLink } from '../components/Links';
 import { applySort, UNSORTED, type SortAccessors, type SortState } from '../tableSort';
 
@@ -86,27 +87,26 @@ export function HistoryView() {
         }
       />
 
-      <Panel level="primary" title={`${game.season.label} so far`} subtitle="This season, and the records that sit behind it">
-        <div className="stat-grid stat-grid--wide">
-          <Stat label="Played" value={seasonAt?.played ?? 0} />
-          <Stat
-            label="Record"
-            value={`${seasonAt?.won ?? 0}W ${seasonAt?.drawn ?? 0}D ${seasonAt?.lost ?? 0}L`}
-            hint="League matches only"
-          />
-          <Stat label="Goals for / against" value={`${seasonAt?.goalsFor ?? 0} / ${seasonAt?.goalsAgainst ?? 0}`} />
-          <Stat label="Points" value={seasonAt?.points ?? 0} />
-          <Stat
+      <Section title={`${game.season.label} so far`}>
+        <TileGrid min={175}>
+          <MetricTile label="Played" value={seasonAt?.played ?? 0} note="League matches" />
+          <MetricTile label="Record" value={`${seasonAt?.won ?? 0}W ${seasonAt?.drawn ?? 0}D ${seasonAt?.lost ?? 0}L`} />
+          <MetricTile label="Goals" value={`${seasonAt?.goalsFor ?? 0} / ${seasonAt?.goalsAgainst ?? 0}`} note="For / against" />
+          <MetricTile label="Points" value={seasonAt?.points ?? 0} />
+          <MetricTile
             label="Most appearances"
-            value={mostAppearances ? `${mostAppearances.surname} (${mostAppearances.record.appearances})` : '—'}
-            hint="Career totals for players still at the club"
+            value={mostAppearances ? `${mostAppearances.surname}` : '—'}
+            note={mostAppearances ? `${mostAppearances.record.appearances} apps` : 'career totals'}
           />
-          <Stat
+          <MetricTile
             label="Leading scorer"
-            value={topScorer && topScorer.record.goals > 0 ? `${topScorer.surname} (${topScorer.record.goals})` : '—'}
+            value={topScorer && topScorer.record.goals > 0 ? topScorer.surname : '—'}
+            note={topScorer && topScorer.record.goals > 0 ? `${topScorer.record.goals} goals` : 'no goals yet'}
           />
-        </div>
+        </TileGrid>
+      </Section>
 
+      <Section title="Honours">
         {history.honours.length > 0 ? (
           <ul className="tight-list">
             {history.honours.map((honour) => (
@@ -133,9 +133,11 @@ export function HistoryView() {
             on {formatShortDate(biggest.date)}.
           </p>
         )}
-      </Panel>
+      </Section>
 
-      <Panel title="Notable events" subtitle="The world remembers">
+      <details className="more">
+      <summary className="small muted">Notable events ({history.notableEvents.length})</summary>
+      <Section>
         {history.notableEvents.length === 0 && <p className="empty">Nothing notable on record yet.</p>}
         <ul className="timeline">
           {history.notableEvents.map((event, index) => (
@@ -146,13 +148,12 @@ export function HistoryView() {
             </li>
           ))}
         </ul>
-      </Panel>
+      </Section>
+      </details>
 
-      <Panel
-        level="quiet"
+      <Section
         title="Recent matches"
-        subtitle="The last eight, newest first"
-        actions={
+        action={
           <Button variant="ghost" size="sm" onClick={() => gameActions().setView('fixtures')}>
             All of them
           </Button>
@@ -183,9 +184,9 @@ export function HistoryView() {
             );
           })}
         </ul>
-      </Panel>
+      </Section>
 
-      <Panel level="quiet" title="Season by season" subtitle="League record only — cups are not in this build">
+      <Section title="Season by season">
         {seasons.length === 0 && <p className="empty">No completed matches yet.</p>}
         {seasons.length > 0 && (
           <div className="table-wrapper">
@@ -237,9 +238,9 @@ export function HistoryView() {
             </table>
           </div>
         )}
-      </Panel>
+      </Section>
 
-      <Panel level="quiet" title="Managers" subtitle="Past and present">
+      <Section title="Managers">
         <ul className="tight-list">
           {history.managers.map((manager) => (
             <li key={`${manager.personId}-${manager.from}`}>
@@ -258,7 +259,7 @@ export function HistoryView() {
             {formatShortDate(mostAppearances.joinedClubOn)}.
           </p>
         )}
-      </Panel>
+      </Section>
     </div>
   );
 }

@@ -10,6 +10,300 @@ move (any save from an older build is migrated forward on load). `1.0.0` means
 it is finished. This file is also the changelog inside the game, reachable from
 the main menu.
 
+## [0.5.0] - 2026-10-04 — the match simulation and the thing watching it are two systems
+
+The match used to be watched at a fixed compression: one minute of football was
+six seconds on screen, whether it was a throw-in or a goal. It is now two
+separate systems joined by one record.
+
+### The simulation decides what happens
+
+- **The match clock is real football time.** An event carries the second it
+  happened on — seconds since kick-off, straight through the interval — so the
+  clock, the commentary and the statistics all describe the same moment instead
+  of a minute rounded to something that fits the frame loop.
+- **The clock no longer rewinds at half time.** It used to drop back to 45:00 for
+  the second half, which meant a second-half event could be stamped *before* the
+  half-time whistle that preceded it. The displayed minute is still rebased so a
+  manager reads the second half as starting at 45.
+- **A match knows which part of the game it is.** The engine's clock is one
+  unbroken count of seconds since kick-off, and the half it belongs to — first
+  half, second half, or either period of extra time — is a thing of its own. That
+  is what lets the second half open at 45 on the screen while the clock never
+  moves backwards, and it is the same model that extra time will need, rather
+  than a special case for two halves.
+- **Added time is earned, not rolled.** The referee's board used to be a number
+  drawn from the seed before kick-off, so every half got minutes whether anything
+  had happened or not. The engine now counts the time the ball actually spends
+  dead — restarts being arranged, goals being celebrated — plus a small allowance
+  for the stoppages it does not model, and plays exactly that much. A quiet half
+  gets little; a stop-start one gets plenty. It is recorded on the match, so the
+  half-time and full-time whistles are the moment the football reached, not a
+  guess made in advance.
+
+### A level cup tie is settled on the pitch
+
+- **Extra time is played.** A knockout tie that is level after ninety minutes
+  used to end there, and the cup would send the home club through on no evidence
+  at all. The engine now plays the two fifteen-minute periods the clock model was
+  always built for: it announces extra time, plays 90 to 120, and keeps the
+  record straight through.
+- **If it is still level, there is a shootout.** Five kicks each, taken by the
+  men on the pitch, then sudden death until one side misses. The winner is
+  written onto the match and into the result's penalty score, so the cup reads
+  who actually went through. A knockout tie can no longer be decided by which
+  dressing room it was played in.
+
+### Men leave the pitch: cards and injuries
+
+- **A second yellow is a sending off.** The engine used to book a man and stop
+  there, so a second booking cost nothing. It now sends him off, and so does the
+  rare straight red. A sent-off player keeps his place on the team sheet — the
+  ten who remain keep their shape — but he plays no part: his side is down to ten
+  and weaker for losing him, and he cannot be replaced.
+- **A match can hurt a man.** Tired legs on a bad pitch turn an ankle or pull a
+  hamstring, and the injury is written onto his record, where the season turns it
+  into time out — so a manager hears about it the way he hears about a card.
+- **The bench answers an injury.** A man who cannot run it off comes off at the
+  next chance, whoever he is and whatever the minute, and the best-placed
+  substitute takes his job.
+
+### The laws of football, played in the new engine
+
+- **Offside.** A player who is in the opponents' half, ahead of the ball and past
+  the second-last defender when it is played, and who then takes it, is offside.
+  The whistle goes, the move is cut dead, and the defending side restarts with a
+  free kick — and the record and the statistics both say so.
+- **A shot can miss.** A shot is settled from where it is taken and by whom: it
+  can be a goal, be saved, go wide, sail over the bar or come off the woodwork.
+  Before this a shot was only ever a goal or a save, so a goal kick barely
+  existed.
+- **A defender can block one.** A defender in the way can throw himself in front
+  of a shot before it reaches the keeper — sometimes behind for a corner,
+  sometimes away as a loose ball.
+- **A foul in the box can be a penalty.** Not every one is, but when it is, it is
+  taken like any other restart and comes to a goal or a miss.
+- **Own goals and assists.** A defensive touch that ends up in his own net is an
+  own goal, credited to the other side and named to him; a goal scored soon after
+  a teammate's pass credits that teammate with the assist.
+- **Proved by tests.** Every one of these has a deterministic acceptance test in
+  `matchEngine/laws.test.ts`, from a clear offside and an onside run to a saved
+  penalty and a shot off the bar.
+
+### What the playtest found, and what changed
+
+A playtesting pass over the new engine turned up six pieces of football that did
+not look like football. Each is now the rule it should have been.
+
+- **A deep line no longer stands on its own goal line.** A deep defence,
+  defending its own third, was being driven to progress ~0 — literally behind the
+  goalkeeper — because the own-third retreat was subtracted from an already-deep
+  base and a defensive slot's offset could undercut the line again. The back line
+  is now floored so an outfield man always stands in front of his keeper, and no
+  shape position is placed deeper than the six-yard box.
+- **One man closes down the ball, and only one.** A side used to send three or
+  four at the carrier — every ``press`` role plus anybody near the ball in his own
+  half — which pulled the block apart. It is now the single nearest outfield man
+  who goes, with his role deciding only how far out he will travel.
+- **A striker shoots or holds up, rather than squaring it.** The engine damped
+  every shot to a tenth of its weight, in the box and on the halfway line alike,
+  so a poacher on the spot was as reluctant as a centre-back. The damping is now
+  zone-aware — a shot in the area is far more likely than one from range — the
+  hold-up option is a real option rather than a last resort, and a man already
+  high up the pitch no longer treats the square or backward ball as his first
+  choice.
+- **A throw-in is thrown by a named player, from the touchline.** The ball is
+  placed on the edge of the playing surface, the taker stands on it, the delivery
+  is a throw and never a cross, and the record names the thrower.
+- **A penalty is set up to the laws.** The keeper stands on his line and every
+  other player — both sides — waits outside the area and behind the ball, rather
+  than filling the six-yard box in the taker's path.
+- **A kick-off is a kick-off.** Only the taker is at the ball; everybody else is
+  in his own half and outside the centre circle before it may be played. The
+  restart waits for the pitch to be legal instead of crowding the spot.
+- **Proved by tests.** `matchEngine/restarts.test.ts` pins the press, the throw-in,
+  the penalty arrangement and the kick-off; the shape floor and the advanced-pass
+  preference have their own tests in `shape.test.ts` and `passing.test.ts`.
+
+### The screen says which part of the game it is
+
+- **The period is labelled, not guessed.** The header and the shell used to read
+  "First half" or "Second half" off the half number — so extra time came out as a
+  second half. The engine now records the period it is playing, and the UI names
+  it: First half, Second half, Extra time.
+
+### The record is the football, not only its loudest moments
+
+- **Passes, carries and tackles are events.** The engine used to write down the
+  goals, the cards and the whistles, and count the rest. It now records the
+  ordinary play too — each pass naming the man it found, each carry, each tackle
+  won — so the match is a move rather than a list of incidents.
+- **The timeline groups them into real passages.** With the ordinary play on the
+  record, a passage is a possession: the run of passes and carries that ended in
+  a shot, a tackle or the touchline. Passages used to be mostly one event each.
+- **The commentary tells the ordinary play too.** Every event is narrated, not
+  only the loud ones: each pass names the man it found ("B. Oakes finds W.
+  Aldridge"), each carry the man it beat, each tackle. The commentary bar and the
+  transcript read as a move building rather than a list of incidents. The bar
+  still shows one line at a time and skips to the newest, so the detail never
+  buries a goal; the full transcript is a tab away for anyone who wants it all.
+
+### The presentation decides how much of it you see
+
+- **Four ways to watch.** Full match, extended, key moments and commentary.
+  Full match shows every passage with ordinary play accelerated and the big
+  moments slowed; the others skip the quiet spells entirely and stop only for
+  the football worth stopping for.
+- **The pace follows the football, not a multiplier.** Ordinary play is spent
+  quickly; a chance is watched close to real time; a goal is not compressed at
+  all. The speed chips still exist, but they divide the cost of watching — they
+  never change what is shown or what happens.
+- **Skip ahead** fast-forwards to the next moment worth watching and stops on
+  its first second, so nothing is missed. It is the *presentation* skipping;
+  every second of the match is still played and written down.
+- **The engine never runs ahead of the picture.** There is one record and one
+  clock, so the pitch, the score and the commentary always agree — no watching a
+  goal before the clock reaches it, and no second account of the match anywhere.
+- **A replay is as smooth as the match was live.** The movement of a watched
+  match is now sampled twice as often, and a long afternoon is thinned from the
+  *back*: the newest quarter of the recording is always kept whole, so the
+  football just watched plays back at full rate and only the distant past grows
+  coarser. The replay clock also advances every animation frame by the real time
+  that passed, instead of a handful of times a second, so the recorded movement
+  is interpolated smoothly and runs at the pace chosen rather than at the frame
+  rate. The whole path is pinned by a test that watches the same match at
+  different pacings and finds the recordings byte-for-byte identical.
+- **The match screen, tidied.** How much of the match to watch is a setting, not
+  a transport control: the four viewing modes now sit in a menu behind a settings
+  button at the bottom right, next to the button that runs the match to the
+  whistle, instead of a row of chips fighting the speed for the same strip. The
+  "skip ahead" button is gone — the viewing modes already decide how much is
+  watched. Choosing **Commentary** takes the pitch away altogether: with the
+  words carrying the match there is nothing to draw, so the two team sheets take
+  the space and the afternoon is told rather than shown. On a phone the sheets
+  stand up in its place, one above the other. The panel tabs also moved to their
+  own full-width line above the speed and match buttons, each sharing it equally,
+  so every panel is a thumb's-width target instead of a strip that scrolls off
+  the edge. The run-to-the-whistle button drops its words on a phone too (it
+  keeps its glyph, title and aria-label), so it sits beside the options button
+  rather than stacking above it.
+- **Both teams wear their own colours on the pitch.** The dots used to be the
+  manager's club colour for his own side and a default grey for everybody else,
+  so one team was always "the coloured one". Every dot now carries the strip the
+  side is actually in, from the same colours the team sheets and the commentary
+  bar use.
+- **A goal is celebrated with movement, not a frozen pulse.** The hold after a
+  goal used to keep every man exactly where he stood while the dots on the pitch
+  pulsed. The scoring side now genuinely runs — the scorer for the corner nearest
+  where the ball crossed the line, his teammates setting off after him — while
+  the conceding side holds its ground and the ball lies in the net. It is staged
+  from the same authoritative state and decides no football of its own, so the
+  picture interpolates a real run rather than a shudder and no result changes.
+- **A replay shows the match you watched, not a drawing of it.** While a match is
+  watched, the engine now records the real movement — every player and the ball,
+  at the engine's own step cadence rather than the screen's — and the replay
+  plays that recording back against the football second it was taken on. It is
+  the same afternoon at any speed it was watched: a man who was substituted off is
+  still drawn where he played, and a match nobody watched falls back to the old
+  reconstruction through the same picture. The replay no longer borrows the
+  retired spatial engine's clock for any of this.
+
+### Fixed
+
+- **A side that cannot field seven players forfeits instead of stalling the
+  week.** A manager who arrived on a Sunday with only ten fit players was stuck:
+  the game asked for eleven, would not accept fewer, and would not let the clock
+  past the fixture. Seven is now the line the laws set. A club with seven to ten
+  available plays short-handed; a club below seven has no team to put out, so
+  playing the fixture abandons it and the opposition is awarded a 3-0 win — for
+  the manager's club and for every AI club alike.
+- **Training is on the Thursday, and only the Thursday.** A session was worked
+  out as "three days before the next match", so when the calendar put a midweek
+  cup tie on a Wednesday the session landed on the Sunday morning — a week with
+  two sessions in it. Only league matchdays carry a session now: the cup tie is
+  prepared for by the same Thursday that builds towards Sunday.
+- **The Thursday after a cup tie is no longer marked trained before it
+  happens.** Going to a midweek cup game ran the club's weekly session on the
+  spot, banking the evening that had not happened yet and showing it as done on
+  the calendar. The session is only conducted once its Thursday has been and
+  gone.
+- **Pre-season stops on its training nights like the season proper does.**
+  Once a training day had been shown once, the command bar fell through to
+  Continue; pressing it ran the session in the background and moved the clock
+  on. A session that has not been run is still waiting for the manager, so the
+  bar offers "Run the session" whether or not he has read the notice.
+- **The loading screen is styled from the first frame.** The placeholder shown
+  while a career opens carried class names but no rules until the stylesheet
+  arrived with the bundle, so it flashed as unstyled text on a white page. It
+  now carries its own styles in the document head, before anything is drawn.
+- **The shape is no longer lopsided.** A wide role widens a man toward *his own*
+  touchline, but the width bias was signed by the team's attacking direction
+  rather than the player's flank. On both sides a left back therefore drifted
+  toward the middle while a right back went wider, so a side's left was squeezed
+  and its right stretched — the gap between a right back and the centre back
+  beside him never matched the gap on the left. The bias is now signed by the
+  flank, so a side's left and right mirror each other.
+- **A goal no longer makes the picture shudder.** After a goal the ball bounced
+  between the goal line and the centre spot and every player twitched. The goal
+  hold did not step the movement, so the drawn position (`px/py`) was left where
+  the last step put it while the real position had moved on — and the pitch,
+  interpolating between the two as its frame clock ticked, slid the ball and the
+  players back and forth across that gap. The held phases (the interval, the
+  final whistle, and the last step of the goal hold as the kick-off is arranged)
+  now settle the drawn position onto the real one, so there is nothing left to
+  interpolate.
+- **The ball stays in the net for a goal.** It used to be placed straight onto
+  the centre spot the instant it crossed the line, so the celebration showed a
+  ball already back at the middle. It now remains where it crossed, and the
+  kick-off that follows the hold is what returns it to the centre spot.
+
+### Every fixture plays the same football
+
+- **There is one match engine, and the whole world runs on it.** The fixtures the
+  manager does not watch — every other league match, every cup tie — used to be
+  decided by the older minute engine, so the same Sunday could be played two
+  different ways depending on whose match it was. They now go through the new
+  engine too, through a headless path (`simulateMatchHeadless`) that is the same
+  call the watched match makes: identical football, no picture.
+- **The world's results come from the pitch.** A goal nobody watched is an
+  engine goal, an injury is an engine injury, and the league table, the cup, the
+  scorer lists, the suspensions and the training effects all read the same
+  record the manager's own match writes. There is no simplified model behind the
+  scenes — a fixture is a fixture whether or not anybody is looking at it.
+
+### For developers
+
+- **`simulateMatchHeadless(match, env)` is the only headless entry point.** It
+  runs the engine to completion and writes the authoritative record onto the
+  `Match`: result and score, goals, scorers and assists, cards, injuries,
+  substitutions, possession ticks, event history and per-player performances.
+  `src/simulation/day.ts` calls it for every AI fixture, so no production code
+  imports the old engine any more.
+- **The old engine has no production call sites.** `match/engine.ts` and its
+  supporting modules remain only for their tests and for `tools/balance.ts` and
+  `tools/matchReadout.ts`, which read it directly to audit a single match. They
+  are the last reference to it and can be removed with it.
+- **Bulk fixtures are expensive, so the soak is opt-in.** A headless match is
+  about a second of engine time, so a full matchday is tens of seconds and a
+  season runs into minutes. The multi-season smoke test
+  (`src/simulation/soak.test.ts`) is therefore **skipped by default** and run on
+  demand with `npm run test:soak` (or `SOAK=1`), so a season on the new engine no
+  longer blocks every test run. One engine is the correct end state; a cheaper
+  *bulk* path — off the main thread, or a coarser step inside the same engine —
+  is the next piece of work.
+
+- **A match simulates about four times faster than it did.** The engine used to
+  ask all twenty-two players to re-scan the pitch — the nearest man, the side's
+  energy, the side's shape — on every one of a hundred and sixty thousand steps,
+  and the men without the ball were re-deciding where to stand thirty times a
+  second. The shared answers are now worked out once a step, and the off-ball men
+  re-decide on their own slower cadence. The football a manager watches is
+  unchanged (measured within a few per cent at a fixed seed); a headless match
+  dropped from about ten seconds to about two and a half.
+- `npm run timeline-readout` prints the engine's event stream, the passages it
+  groups into, and how long each viewing mode would take to watch — the budget
+  check that simulation speed and presentation speed are independent.
+
 ## [0.4.2] - 2026-10-02 — careers, somewhere with room
 
 The place a season is kept has changed. Nothing about the season has.

@@ -180,6 +180,14 @@ export interface TeamStrengthInput {
   /** Whether a player is carrying an injury. */
   carryingInjury: (id: string) => boolean;
   /**
+   * Whether a player has been sent off and is no longer on the pitch.
+   *
+   * A side down to ten men is weaker because it has ten men, not because the
+   * average of the survivors moved: leaving the sent-off man in the XI would let
+   * him go on strengthening a side he is no longer playing for.
+   */
+  sentOff?: (id: string) => boolean;
+  /**
    * 0-1: how well the XI knows the system it is being asked to play. 0.5 is
    * "an ordinary Sunday League side"; training and continuity push it up.
    */
@@ -198,6 +206,7 @@ export function computeTeamStrength(input: TeamStrengthInput): TeamStrength {
   for (const slot of input.slots) {
     const player = input.players(slot.playerId);
     if (!player) continue;
+    if (input.sentOff?.(slot.playerId)) continue;
     const effectiveness = playerEffectiveness(player, slot.position, {
       energy: input.energy(slot.playerId),
       carryingInjury: input.carryingInjury(slot.playerId),

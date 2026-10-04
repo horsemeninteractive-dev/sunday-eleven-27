@@ -3558,6 +3558,9 @@ html[data-motion='reduced'] .start__menu > * {
   /* Moved every frame by the renderer, so the browser is told once. */
   will-change: left, top;
 }
+/* Every dot wears its own side's strip, set by the renderer from the colours
+   the simulation carries — so both teams are drawn in their real colours rather
+   than one club colour and a default grey. */
 .pitch__dot-ball {
   display: grid;
   place-items: center;
@@ -3566,13 +3569,9 @@ html[data-motion='reduced'] .start__menu > * {
   border-radius: 50%;
   font-size: 0.55rem;
   font-weight: 700;
-  background: #cfd8dc;
-  color: #10161a;
+  background: var(--dot-club, #cfd8dc);
+  color: var(--dot-ink, #10161a);
   border: 1px solid rgba(0, 0, 0, 0.5);
-}
-.pitch__dot--mine .pitch__dot-ball {
-  background: var(--club);
-  color: var(--club-ink);
 }
 /* The man with the ball stands out whatever colour he is wearing. */
 .pitch__dot--carrying .pitch__dot-ball {
@@ -3629,6 +3628,52 @@ html[data-motion='reduced'] .matchpitch[data-celebrating='true']::after {
   font-size: 0.58rem;
   color: rgba(255, 255, 255, 0.85);
   white-space: nowrap;
+  /* Named only when he is part of the move, so the pitch is not a wall of
+     twenty-two surnames. Keepers are always named, and so is the man on the
+     ball, the man a pass is going to, and the man closing him down. */
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+.pitch__dot--named .pitch__dot-name {
+  opacity: 1;
+}
+/* The men the move belongs to stand out without shouting. */
+.pitch__dot--involved .pitch__dot-ball {
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.5);
+}
+/* Where the ball is going: the intended receiver wears a cool ring. */
+.pitch__dot--receiving .pitch__dot-ball {
+  box-shadow: 0 0 0 3px rgba(124, 196, 255, 0.9);
+}
+.pitch__dot--keeper .pitch__dot-ball {
+  border-color: rgba(255, 255, 255, 0.75);
+}
+/* A little notch showing which way he is actually travelling, from the
+   simulation's own velocity — an idle player at rest simply has none. */
+.pitch__dot-face {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  transform: rotate(var(--facing, 0rad));
+  opacity: 0;
+  transition: opacity 160ms ease;
+  pointer-events: none;
+}
+.pitch__dot--moving .pitch__dot-face {
+  opacity: 0.9;
+}
+.pitch__dot-face::before {
+  content: '';
+  position: absolute;
+  left: 11px;
+  top: -3px;
+  width: 0;
+  height: 0;
+  border-left: 5px solid rgba(255, 255, 255, 0.85);
+  border-top: 3px solid transparent;
+  border-bottom: 3px solid transparent;
 }
 .pitch__ball {
   position: absolute;
@@ -3641,6 +3686,39 @@ html[data-motion='reduced'] .matchpitch[data-celebrating='true']::after {
   /* No transition: the simulation moves it every frame itself, and easing on
      top of that would only lag the ball behind where the match says it is. */
   will-change: left, top;
+}
+/* The ball's state is the simulation's, not an animation's: travelling is
+   bright and compact, loose is dimmer, and at somebody's feet it sits quiet. */
+.pitch__ball[data-status='travelling'] {
+  width: 7px;
+  height: 7px;
+  box-shadow:
+    0 0 10px rgba(255, 255, 255, 0.95),
+    0 0 2px rgba(255, 255, 255, 1);
+}
+.pitch__ball[data-status='loose'] {
+  opacity: 0.72;
+  box-shadow: 0 0 4px rgba(255, 255, 255, 0.45);
+}
+/* Which way the manager's side is attacking, in the match's own fixed frame. */
+.pitch__attack {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0.22;
+  pointer-events: none;
+}
+.pitch__attack[data-dir='right'] {
+  right: 5px;
+  border-left: 11px solid rgba(255, 255, 255, 0.8);
+  border-top: 7px solid transparent;
+  border-bottom: 7px solid transparent;
+}
+.pitch__attack[data-dir='left'] {
+  left: 5px;
+  border-right: 11px solid rgba(255, 255, 255, 0.8);
+  border-top: 7px solid transparent;
+  border-bottom: 7px solid transparent;
 }
 
 /* Matchday: a takeover screen, not a page --------------------------------- */
@@ -3791,13 +3869,197 @@ html[data-motion='reduced'] .matchpitch[data-celebrating='true']::after {
   grid-template-columns: minmax(140px, 200px) minmax(0, 1fr) minmax(140px, 200px);
   gap: var(--s2);
 }
+/* Commentary only: there is no pitch to watch, so the two team sheets take the
+   space the renderer would have had instead of framing an empty middle. */
+.matchday__stage--commentary {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
 .matchday__visual > * {
   flex: 1 1 auto;
+  min-height: 0;
+}
+/* The renderer and the incident banner share one box, so the banner can sit
+   over whichever renderer is mounted without being part of it. */
+.matchday__renderer {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+}
+.matchday__renderer > .pitch {
   min-height: 0;
 }
 .matchpitch {
   aspect-ratio: auto;
   height: 100%;
+}
+
+/* The incident banner: one thing worth interrupting the picture for. It is
+   renderer-neutral — it lives beside the pitch, not inside it — so a goal reads
+   the same however the match is drawn. The accent is the club's own colour. */
+.incident {
+  position: absolute;
+  top: var(--s2);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s1) var(--s3);
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--incident-colour, var(--line));
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  animation: incident-in 180ms ease-out;
+}
+.incident__kind {
+  font-size: var(--fs-xs);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.incident__player {
+  font-size: var(--fs-sm);
+  font-weight: 700;
+}
+.incident__minute {
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+}
+.incident--goal .incident__kind {
+  color: #ffd666;
+}
+.incident--whistle .incident__kind {
+  color: #7cc4ff;
+}
+.incident--danger .incident__kind {
+  color: var(--warn);
+}
+@keyframes incident-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -6px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-motion='full']) .incident {
+    animation: none;
+  }
+}
+html[data-motion='reduced'] .incident {
+  animation: none;
+}
+
+/* Watching a match back. It reuses the matchday frame — the pitch is the same
+   pitch, drawn by the same renderer — and adds only the transport underneath
+   it: the clock, the line for the moment, and the controls to move through the
+   record. A replay is a takeover, so nothing here is reachable behind it. */
+.replayhead {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--line);
+}
+.replayhead__team {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  min-width: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.replayhead__team--away {
+  justify-content: flex-end;
+}
+.replayhead__badge {
+  font-size: var(--fs-xs);
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  padding: 1px var(--s2);
+}
+.replayhead__score {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: var(--fs-lg);
+  font-weight: 800;
+  white-space: nowrap;
+}
+.replayhead__clock {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: var(--text-faint);
+}
+/* Which afternoon this is: a replay opened from the archive should say so
+   without being asked. */
+.replayhead__meta {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.replaybar {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  background: var(--bg-2);
+  border-top: 1px solid var(--line);
+}
+.replaybar__line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  min-height: 1.2em;
+}
+.replaybar__text {
+  font-size: var(--fs-sm);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.replaybar__row {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+}
+.replaybar__transport {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  flex: none;
+}
+.replaybar__transport .speed {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  margin-left: var(--s2);
+}
+/* The scrubber: the whole match in the width of the bar, so the manager can
+   drop into any moment rather than waiting for it to come round again. */
+.replaybar__scrub {
+  flex: 1 1 auto;
+  min-width: 0;
+  accent-color: var(--accent);
 }
 
 /* A team's sheet down each side of the pitch: who is out there, in the order
@@ -3903,19 +4165,52 @@ html[data-motion='reduced'] .matchpitch[data-celebrating='true']::after {
   padding: var(--s1) var(--s3) var(--s2);
 }
 /* One line of numbers under the match: readable at a glance, and it costs the
-   pitch nothing. The detailed version is a tab away. */
+   pitch nothing. The detailed version is a tab away. Centred under the
+   commentary bar above it, so the two read as one block under the pitch rather
+   than as a strip that has drifted off to one side. */
 .statstrip {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  gap: 2px var(--s4);
+  justify-content: center;
+  align-items: center;
+  gap: var(--s1) var(--s4);
   font-size: var(--fs-sm);
 }
 .statstrip__item {
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
   gap: var(--s2);
   white-space: nowrap;
+}
+.statstrip__reading {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+}
+/* The swing bar: a see-saw pivoted in the middle, leaning towards whoever is
+   winning the figure. Each half is filled in that side's own shirt, so the row
+   of bars is also a row of the two kits. */
+.statstrip__swing {
+  display: flex;
+  align-items: stretch;
+  width: 54px;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--panel-3);
+}
+.statstrip__swing-half {
+  min-width: 2px;
+}
+.statstrip__swing-half--home {
+  /* Anchored to the pivot, so the joint between the halves sits at the home
+     side's share and the bar leans left as they take the lead. */
+  margin-left: auto;
+}
+.statstrip__swing-pivot {
+  width: 2px;
+  flex: 0 0 auto;
+  background: var(--bg-2);
 }
 .statstrip__label {
   font-size: var(--fs-xs);
@@ -3926,6 +4221,8 @@ html[data-motion='reduced'] .matchpitch[data-celebrating='true']::after {
 }
 .statstrip__value {
   font-variant-numeric: tabular-nums;
+  min-width: 2ch;
+  text-align: center;
 }
 .statstrip__value--away {
   color: var(--text-dim);
@@ -4239,7 +4536,11 @@ html[data-motion='reduced'] .matchpitch[data-celebrating='true']::after {
 }
 .matchbar__row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  /* Two equal wings around a centred panel strip, so the tabs sit on the middle
+     of the *screen* rather than on the middle of whatever is left over between
+     the transport on the left and the match action on the right — which drift in
+     width as the buttons come and go, and used to drag the tabs off centre. */
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: var(--s2);
   padding: var(--s2) var(--s3);
@@ -4257,6 +4558,60 @@ html[data-motion='reduced'] .matchpitch[data-celebrating='true']::after {
 }
 .matchbar__go {
   justify-content: flex-end;
+}
+/* The match options button and its menu. The menu opens upward, because the
+   button sits along the bottom of the screen beside the match action. */
+.match-options {
+  position: relative;
+  display: flex;
+}
+.match-options__menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + var(--s1));
+  z-index: 20;
+  min-width: 250px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--s2);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  text-align: left;
+}
+.match-options__title {
+  margin: 0 0 var(--s1);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.match-options__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.match-options__item:hover {
+  background: var(--panel-2);
+}
+.match-options__item--on {
+  border-color: var(--club);
+  background: var(--club-wash);
+}
+.match-options__label {
+  font-weight: 700;
+}
+.match-options__detail {
+  line-height: 1.3;
 }
 .chip {
   background: var(--panel-2);
@@ -4281,6 +4636,15 @@ html[data-motion='reduced'] .matchpitch[data-celebrating='true']::after {
 .speed {
   display: flex;
   gap: 1px;
+}
+/* The chips are the same size as the pause button beside them: one row of
+   controls, one height, rather than a tall button next to a row of short ones. */
+.speed .chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 0 10px;
 }
 
 /* Panels inside the drawer. */
@@ -5557,6 +5921,17 @@ html[data-motion='reduced'] .matchpitch[data-celebrating='true']::after {
   .teamsheet {
     display: none;
   }
+  /* Commentary only on a phone: there is no pitch to watch, so the two team
+     sheets stand up in its place, one above the other, each scrolling on its
+     own. The two-class selector deliberately outweighs the rule above. */
+  .matchday__stage--commentary {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+    gap: var(--s1);
+  }
+  .matchday__stage--commentary .teamsheet {
+    display: flex;
+  }
   .commentary__now {
     min-height: 52px;
     padding: var(--s1) 60px;
@@ -5583,14 +5958,15 @@ html[data-motion='reduced'] .matchpitch[data-celebrating='true']::after {
   .matchhead__meta {
     font-size: 0.6rem;
   }
-  /* Two rows, not three: the transport and the match action share the top one
-     and the panels get a line of their own, which gives the pitch back a
-     thumb's worth of height. */
+  /* The panel tabs get the top line to themselves, above the transport and the
+     match action, and share it equally so each panel is a thumb's-width target
+     rather than a strip that scrolls off the edge. The transport and the match
+     action keep the row below. */
   .matchbar__row {
     grid-template-columns: auto minmax(0, 1fr);
     grid-template-areas:
-      'transport go'
-      'tabs tabs';
+      'tabs tabs'
+      'transport go';
     gap: var(--s1) var(--s2);
     padding: var(--s2);
   }
@@ -5599,12 +5975,27 @@ html[data-motion='reduced'] .matchpitch[data-celebrating='true']::after {
   }
   .matchbar__tabs {
     grid-area: tabs;
-    justify-content: flex-start;
-    overflow-x: auto;
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    overflow-x: visible;
+  }
+  .matchbar__tabs .tab {
+    padding: 6px 4px;
+    font-size: 0.6rem;
+    letter-spacing: 0.02em;
+    min-width: 0;
   }
   .matchbar__go {
     grid-area: go;
     justify-content: flex-end;
+  }
+  /* The words on the run-to-the-whistle button are dropped on a phone: at that
+     width they leave no room for the options button beside it, and the two
+     stack into a column. The button keeps its (skip) glyph, its title and its
+     aria-label, so it is still named without them. */
+  .matchbar__whistle-label {
+    display: none;
   }
   .matchbar__drawer {
     max-height: 40vh;
@@ -5876,4 +6267,347 @@ html[data-motion='reduced'] *::after {
   .sidenav {
     display: none;
   }
+}
+
+/* ==========================================================================
+   Information vocabulary
+   --------------------------------------------------------------------------
+   Section / Tile / TileGrid and the tile family. This is the layer the screens
+   are read through: a group of related things, and the compact units inside
+   it. Tiles carry a level as well as a tone — primary is the one thing the
+   screen exists to deal with, default is context, quiet is a door — and the
+   hierarchy comes from size, weight and whitespace, not from colour alone.
+   ========================================================================== */
+
+/* Section ------------------------------------------------------------------ */
+.section {
+  min-width: 0;
+}
+.section__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  padding-bottom: var(--s1);
+  margin-bottom: var(--s2);
+  border-bottom: 1px solid var(--line);
+}
+.section__title {
+  margin: 0;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.section__title::before {
+  content: '';
+  width: 3px;
+  height: 11px;
+  background: var(--club);
+  display: block;
+}
+.section__action {
+  display: flex;
+  gap: var(--s2);
+  align-items: center;
+}
+.section__body {
+  min-width: 0;
+}
+
+/* Tile grid ---------------------------------------------------------------- */
+.tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(var(--tile-min, 210px), 1fr));
+  gap: var(--s2);
+  align-items: stretch;
+}
+
+/* Tile --------------------------------------------------------------------- */
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  min-width: 0;
+  padding: var(--s3);
+  text-align: left;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: inherit;
+  font: inherit;
+}
+.tile--pressable {
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.tile--pressable:hover {
+  border-color: var(--club-soft);
+  background: var(--panel-2);
+}
+.tile--pressable:focus-visible {
+  outline: 2px solid var(--club);
+  outline-offset: 1px;
+}
+.tile--selected {
+  border-color: var(--club);
+  background: var(--club-wash);
+}
+.tile--disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.tile--level-primary {
+  background: var(--panel-2);
+  border-color: var(--line);
+}
+.tile--level-quiet {
+  background: transparent;
+}
+.tile--ok {
+  border-left: 2px solid var(--ok);
+}
+.tile--warn {
+  border-left: 2px solid var(--warn);
+}
+.tile--bad {
+  border-left: 2px solid var(--bad);
+}
+.tile--accent {
+  border-left: 2px solid var(--club);
+}
+.tile--info {
+  border-left: 2px solid var(--info);
+}
+.tile--muted {
+  border-left: 2px solid var(--line);
+}
+.tile__label {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--text-faint);
+}
+.tile__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.tile__footer {
+  display: flex;
+  gap: var(--s2);
+  align-items: center;
+  margin-top: var(--s1);
+}
+.tile__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+  font-size: var(--fs-sm);
+}
+.next-match__club {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+/* Metric tile -------------------------------------------------------------- */
+.metric__value {
+  font-size: var(--fs-2xl);
+  font-weight: 700;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+.metric__note {
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+
+/* Action tile -------------------------------------------------------------- */
+.action-tile {
+  justify-content: center;
+  gap: var(--s1);
+}
+.action-tile--primary {
+  background: var(--club-wash);
+  border-color: var(--club-soft);
+}
+.action-tile__title {
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  line-height: 1.15;
+}
+.action-tile__meta {
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+
+/* Status tile -------------------------------------------------------------- */
+.status-tile__status {
+  font-size: var(--fs-lg);
+  font-weight: 700;
+}
+.status-tile__note {
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+
+/* Fixture tile ------------------------------------------------------------- */
+.fixture-tile__opponent {
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  line-height: 1.15;
+}
+.fixture-tile__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  flex-wrap: wrap;
+}
+.fixture-tile__venue {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+}
+.fixture-tile__score {
+  font-weight: 700;
+  color: var(--text);
+  margin-left: auto;
+}
+.fixture-tile__outcome {
+  font-weight: 700;
+}
+
+/* Player tile -------------------------------------------------------------- */
+.player-tile {
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+}
+.player-tile__top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s2);
+}
+.player-tile__name {
+  font-size: var(--fs-md);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.player-tile__armband {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-left: 6px;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  background: var(--club);
+  color: var(--club-ink);
+  border-radius: 2px;
+  vertical-align: middle;
+}
+.player-tile__position {
+  flex: none;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+}
+.player-tile__row {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+.player-tile__availability {
+  font-size: var(--fs-sm);
+}
+.player-tile__chip {
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+}
+.player-tile__secondary {
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+}
+
+/* News tile ---------------------------------------------------------------- */
+.news-tile__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.news-tile__category {
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.news-tile__headline {
+  font-size: var(--fs-md);
+  font-weight: 700;
+  line-height: 1.25;
+}
+.news-tile__summary {
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+
+/* A row of small status chips, used under a section title. */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1);
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+}
+.chip--ok {
+  color: var(--ok);
+  border-color: var(--accent-dim);
+}
+.chip--warn {
+  color: var(--warn);
+  border-color: rgba(217, 161, 58, 0.4);
+}
+.chip--bad {
+  color: var(--bad);
+  border-color: rgba(207, 75, 68, 0.4);
+}
+.chip--accent {
+  color: var(--club);
+  border-color: var(--club-soft);
+}
+.chip__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
 }

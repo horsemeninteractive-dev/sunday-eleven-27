@@ -10,7 +10,7 @@ const nextTraining = (state: ReturnType<typeof createTestGame>['state']) =>
 import { sessionsFor } from '@/simulation/training/store';
 import { matchdaysPlayed } from '@/simulation/timeline';
 import { ledgerOf, squadOf } from '@/simulation/queries';
-import { nextFixtureFor } from '@/simulation/schedule';
+import { eventsOn, nextFixtureFor } from '@/simulation/schedule';
 import { deserialiseGame, serialiseGame } from '@/state/persistence';
 import { createTestGame } from '@/simulation/testSupport';
 import type { Player } from '@/domain/person';
@@ -89,6 +89,51 @@ describe('advancing the clock', () => {
     const outcome = continueTime(state, { maxDays: 3 });
     expect(outcome.days).toHaveLength(0);
     expect(state.date).toBe(date);
+  });
+
+  it('moves the clock when pressed again, rather than repeating itself', () => {
+    const { state } = createTestGame('day-stop-twice');
+    const training = addDays(state.date, 3);
+
+    // The first press runs the quiet days and stops on the notice.
+    const first = continueTime(state);
+    expect(first.stop?.kind).toBe('flagged');
+    expect(first.stop?.date).toBe(training);
+    expect(state.date).toBe(training);
+
+    // He has now been shown it, so the second press must move the clock. This
+    // used to stop on the very same day for ever: the only thing that marks a
+    // day as told is simulating it, and a day worth stopping on is precisely
+    // the one that is not simulated. A career could not be moved past its own
+    // pre-season at all.
+    const second = continueTime(state);
+    expect(second.stop?.date).not.toBe(training);
+    expect(state.date > training).toBe(true);
+  });
+
+  it('still leaves the thing it stopped for waiting to be done', () => {
+    const { state } = createTestGame('day-stop-still-waits');
+    continueTime(state);
+    const training = addDays(state.date, 3);
+    expect(currentAttention(state)?.date).not.toBe(training);
+    // Being told about Thursday is not the same as having trained.
+    expect(sessionsFor(state, state.userClubId)).toHaveLength(0);
+  });
+});
+
+describe('the season announces itself when it opens', () => {
+  it('says pre-season begins on the Monday the club\u2019s year starts', () => {
+    const { state } = createTestGame('preseason-opens');
+    // The announcement used to be dated to the Monday of the week the first
+    // fixture falls in, which is the *last* Monday of pre-season — so the game
+    // announced that pre-season had begun on the day it finished.
+    const opening = eventsOn(state, state.season.startDate).find((event) => event.title === 'Pre-season begins');
+    expect(opening).toBeDefined();
+    expect(opening!.date).toBe(state.season.startDate);
+
+    // And nothing announces it on the last Monday of pre-season any more.
+    const lastMonday = eventsOn(state, addDays(state.season.endDate, -1));
+    expect(lastMonday.some((event) => event.title === 'Pre-season begins')).toBe(false);
   });
 });
 

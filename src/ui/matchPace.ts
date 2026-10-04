@@ -1,4 +1,3 @@
-import { SPATIAL_SECONDS_PER_MINUTE } from '@/simulation/match/spatial';
 
 /**
  * How fast a match is watched.
@@ -10,15 +9,23 @@ import { SPATIAL_SECONDS_PER_MINUTE } from '@/simulation/match/spatial';
  * paces its lines against it — and because it is the one number that decides
  * whether an afternoon is followable.
  *
- * The base is deliberately `SPATIAL_SECONDS_PER_MINUTE`: a minute of football is
- * played out over six seconds of movement, so six seconds of real time for that
- * minute is the pace at which the pitch runs at true speed. A player's legs move
- * at the speed the simulation gives them, the ball is struck at the speed a ball
- * is struck, and the move can be watched rather than decoded. Turning the speed
- * up divides that same minute rather than changing it: the engine is handed
- * exactly the same football at 8x as at 1x.
+ * The simulation's clock is now real match seconds — one spatial second is one
+ * second of football — so watched at *true speed* a match would take ninety
+ * minutes, exactly as it does on a Sunday morning. Nobody is going to watch that
+ * on a screen, so the speed controls compress it: `MINUTE_MS_AT_ONE_X` is how
+ * long sixty seconds of football is given on screen, and it is the pace a minute
+ * has always been watched at. The compression is therefore ten-to-one — six
+ * seconds of watching to a minute of football — and the multipliers above 1x
+ * divide that further.
+ *
+ * The engine is handed exactly the same football at every speed. Only the rate
+ * the clock is spent at changes, so nothing about the football can depend on it.
  */
-export const BASE_MINUTE_MS = SPATIAL_SECONDS_PER_MINUTE * 1000;
+const MINUTE_MS_AT_ONE_X = 6000;
+export const BASE_MINUTE_MS = MINUTE_MS_AT_ONE_X;
+
+/** Football seconds to a match minute. The engine's clock is real seconds. */
+const SECONDS_PER_MINUTE = 60;
 
 /** How long one match minute lasts on screen, in milliseconds, at this speed. */
 export function matchMinuteMs(speed: number): number {
@@ -29,10 +36,13 @@ export function matchMinuteMs(speed: number): number {
 /**
  * How much match movement one real second is worth at this speed.
  *
- * At 1x it is exactly one. It is expressed as the ratio rather than as the
- * multiplier so that it always agrees with {@link matchMinuteMs}: change the base
- * and the pitch changes with it, instead of the two drifting apart.
+ * At 1x a minute of football is watched over a few seconds, so one real second
+ * carries several seconds of football — that compression is what makes a match
+ * followable — and the speed multipliers push it higher still. Expressed as the
+ * ratio rather than as the multiplier so it
+ * always agrees with {@link matchMinuteMs}: change the base and the pitch changes
+ * with it, instead of the two drifting apart.
  */
 export function spatialSecondsPerRealSecond(speed: number): number {
-  return (SPATIAL_SECONDS_PER_MINUTE * 1000) / matchMinuteMs(speed);
+  return (SECONDS_PER_MINUTE * 1000) / matchMinuteMs(speed);
 }

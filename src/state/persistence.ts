@@ -23,6 +23,7 @@ import {
 import { rebuildRelationshipIndex, relationshipStore } from '@/simulation/relationships';
 import { pruneCandidates } from '@/simulation/recruitment/store';
 import { ensureTrainingState, pruneTrainingHistory, trainingStore } from '@/simulation/training/store';
+import { ensureLineupRoles } from '@/simulation/match/roles';
 import { overallAbility } from '@/simulation/training/development';
 import { buildSeasonCalendarWithCups, yearOf } from '@/simulation/calendar';
 import { matchdayCount } from '@/simulation/generation/fixtureGenerator';
@@ -240,6 +241,11 @@ function migrateSave(file: SaveFile): SaveFile {
   // in the build.
   ensureTrainingState(state);
   pruneTrainingHistory(state);
+  // Roles are a matchday instruction, so a career written before they existed
+  // is given the default for each position rather than being refused: the same
+  // eleven men wake up with exactly the football they had, and nobody has to
+  // visit a role screen they never knew existed.
+  ensureLineupRoles(state);
   ensurePlayerDevelopment(state);
   ensureSessionDeclines(state);
 

@@ -22,9 +22,17 @@ import {
   type MinuteResult,
   type Side,
 } from './core';
-import { buildMinuteCommentary, makeCommentaryLine, recordCommentary } from './passages';
+import { buildMinuteCommentary, makeCommentaryLine, recordCommentary, splitCommentaryByChain } from './passages';
 import { runMinuteFootball } from './possession';
-import { applyMinuteSpatial, ensureSpatial, giveBallTo, planPassage } from './spatial';
+import {
+  ensureSpatial,
+  flushUntoldCommentary,
+  installPossessionChains,
+  installRestart,
+  planMinutePassage,
+} from './spatial';
+import { beginKickoff } from './restarts';
+import { defaultRoleFor } from './roles';
 import { conditionEffects } from './tacticsModel';
 import { positionRoleWeights } from './teamStrength';
 
@@ -114,6 +122,8 @@ export function beginMatch(match: Match, env: MatchEnvironment): void {
   match.status = 'in-progress';
   match.half = 1;
   match.minute = 0;
+  match.footballSeconds = 0;
+  match.footballCarryoverSeconds = 0;
   match.possessionTicks = { home: 0, away: 0 };
   match.substitutions = { home: 0, away: 0 };
   // A fresh kick-off starts with a fresh picture of the football, whatever an
@@ -174,7 +184,13 @@ export function beginMatch(match: Match, env: MatchEnvironment): void {
     // clubs' fixtures are played out a minute at a time and never need one.
     const spatial = ensureSpatial(match, env);
     const kickOff = spatial.players.find((node) => node.side === 'home' && (node.position === 'CM' || node.position === 'ST')) ?? spatial.players[0];
-    if (kickOff) giveBallTo(spatial, kickOff.playerId);
+    // The whistle goes and the ball is *put down on the centre spot* before it is
+    // in anybody's feet. It used to be handed straight to a midfielder, so there
+    // was no frame of the match at which the ball was lying loose on the halfway
+    // line — the game began in the middle of a possession nobody saw begin.
+    // Three seconds of setup, the two forwards to the circle, and then it is in
+    // play.
+    if (kickOff) installRestart(match, beginKickoff('home', kickOff.playerId, undefined, undefined));
   }
 }
 
@@ -266,6 +282,8 @@ function makeSubstitution(match: Match, env: MatchEnvironment, side: Side, outgo
   lineup.starting[slotIndex] = {
     playerId: incoming.id,
     position: slot.position,
+    // A substitute takes the job of the slot he comes into, not his own.
+    role: defaultRoleFor(slot.position),
     outOfPosition: (incoming.positionalFamiliarity[slot.position] ?? 0) < 12,
   };
   match.performances[incoming.id] = newPerformance(incoming.id, incoming, sideClubId(match, side), slot.position, false, match.minute);
@@ -455,6 +473,10 @@ function resolveShootout(match: Match, env: MatchEnvironment): { home: number; a
 function finishMatch(match: Match, env: MatchEnvironment, sink: MatchEvent[]): void {
   match.status = 'finished';
   match.played = true;
+  // Whatever was decided in the last minute or two but never reached the pitch
+  // still gets said. The final whistle is not a reason for the match to lose
+  // the last lines of its own commentary.
+  flushUntoldCommentary(match);
   const score = currentScore(match);
 
   // A cup tie nobody separated goes to penalties, decided here and written into
@@ -539,13 +561,42 @@ function sumStat(match: Match, side: Side, pick: (performance: PlayerPerformance
   return total;
 }
 
-export function advanceMinute(match: Match, env: MatchEnvironment): MinuteResult {
+/**
+ * The minute the clock reads, from how much football has actually been played.
+ *
+ * The minute is a label, so it is worked out rather than counted: a possession
+ * that ran from the 12th minute into the 13th takes the clock with it, and an
+ * event is filed under the minute the football had genuinely reached. Whole
+ * minutes only — the display has never shown a part-minute and nothing should
+ * start now — and floored, so the 13th minute is 13:00 to 13:59.
+ */
+function minuteFor(match: Match): number {
+  return Math.floor((match.footballSeconds ?? match.minute * 60) / 60);
+}
+
+/**
+ * Advance the match by one minute of football.
+ *
+ * `watched` says whether anybody is watching this one being played. A watched
+ * match has a pitch, and its commentary is dealt out to the chains the pitch
+ * plays and told as each one starts — the words and the picture being the same
+ * moment rather than a minute apart. A match run straight out to the whistle has
+ * no picture to keep step with, so its words are simply written down.
+ */
+export function advanceMinute(match: Match, env: MatchEnvironment, watched = true): MinuteResult {
   const events: MatchEvent[] = [];
   if (match.status === 'finished') return { minute: match.minute, events, halfTime: false, finished: true };
   if (match.status === 'scheduled') beginMatch(match, env);
 
+  // The clock is the label; the football decides how far it has got. The slice
+  // asked for is a minute of football time, and the possession model advances
+  // the clock by the seconds it actually played; whatever it decided past the
+  // minute mark is carried over, so a possession can cross it. The engine does
+  // not touch the clock here: advancing it in two places was counting every
+  // minute twice and running the label at double speed.
+  const startMinute = match.minute;
   const context = buildContext(match, env);
-  const rng = stream(match.seed, 'minute', match.half, match.minute);
+  const rng = stream(match.seed, 'minute', match.half, startMinute);
 
   if (match.half === 1) {
     if (match.minute >= halfEndMinute(match, 1)) {
@@ -576,10 +627,14 @@ export function advanceMinute(match: Match, env: MatchEnvironment): MinuteResult
         ]);
       }
       match.half = 2;
+      // The second half starts at 45, whatever first-half stoppage took the clock
+      // to: the clock is the label, and a half begins when it begins.
       match.minute = 45;
+      match.footballSeconds = 45 * 60;
+      match.footballCarryoverSeconds = 0;
       return { minute: 45, events, halfTime: true, finished: false };
     }
-    match.minute += 1;
+    match.minute = minuteFor(match);
   } else {
     // Period two's end. Guarded on the period, not just the minute: extra time
     // runs past 90, so a bare minute test would fire again at the end of the
@@ -604,6 +659,8 @@ export function advanceMinute(match: Match, env: MatchEnvironment): MinuteResult
         );
         match.half = 3;
         match.minute = 90;
+        match.footballSeconds = 90 * 60;
+        match.footballCarryoverSeconds = 0;
         return { minute: 90, events, halfTime: false, finished: false };
       }
       finishMatch(match, env, events);
@@ -614,7 +671,7 @@ export function advanceMinute(match: Match, env: MatchEnvironment): MinuteResult
       finishMatch(match, env, events);
       return { minute: match.minute, events, halfTime: false, finished: true };
     }
-    match.minute += 1;
+    match.minute = minuteFor(match);
   }
 
   const injuryRate = conditionEffects(match.conditions).injuryRate;
@@ -638,22 +695,45 @@ export function advanceMinute(match: Match, env: MatchEnvironment): MinuteResult
   manageBench(match, env, 'away', rng, events);
 
   if (env.recordCommentary || match.spatial) {
-    // One passage, from a stream of its own, so neither a line of prose nor the
-    // shape a minute is played out in can ever move the football. It is planned
-    // once and used twice: the pitch plays it, and the commentary describes it —
-    // and the men it names are the men the possession model actually used, so a
-    // line can no longer describe a pass nobody made.
+    // The narrator's description of the minute, from a stream of its own, so
+    // neither a line of prose nor the shape the words are laid out in can ever
+    // move the football. It is built from the possession model's own chains —
+    // every one of them, in the order they were played, because a minute is a
+    // run of possessions and the words have to keep up with all of them — so a
+    // line can no longer describe a pass nobody made. It describes the football;
+    // it does not play it.
     const passageRng = stream(match.seed, 'spatial', match.half, match.minute);
-    const passage = planPassage(match, env, football.passageSide, football.receivers, events, passageRng);
+    const passage = planMinutePassage(match, env, football.chains, events, passageRng);
 
-    if (match.spatial) applyMinuteSpatial(match, env, passage);
-
+    // The minute's words, written once. If there is a pitch to play them on,
+    // they are dealt out to the chains below and told as each chain starts;
+    // with no pitch — an instant result, or a match being simulated straight
+    // through — they are simply recorded, because there is nothing to keep step
+    // with.
+    let told = false;
     if (env.recordCommentary) {
       const commentaryRng = stream(match.seed, 'commentary', match.half, match.minute);
-      recordCommentary(
-        match,
-        buildMinuteCommentary(match, env, football.passageSide, events, passage, commentaryRng),
-      );
+      const lines = buildMinuteCommentary(match, env, football.passageSide, events, passage, commentaryRng);
+      if (watched && match.spatial) {
+        installPossessionChains(match, env, football.chains, splitCommentaryByChain(football.chains, lines));
+        told = true;
+      } else {
+        recordCommentary(match, lines);
+        told = true;
+      }
+    }
+
+    if (!told && match.spatial) {
+      // The possession model has already decided the minute, chain by chain;
+      // this hands those decisions to the continuous state as a queue of plans
+      // the pitch executes one after another, a fixed step at a time. The
+      // passage is built beside it — but only the narrator reads it.
+      //
+      // There is nothing to fall back to and nothing to fall back *for*: if no
+      // chain names anybody on the pitch, or a goal is still being celebrated,
+      // there is simply no move to play this minute, and the pitch waits for the
+      // next one. The passage is not a second way to play football.
+      installPossessionChains(match, env, football.chains);
     }
   }
 
@@ -665,7 +745,9 @@ export function simulateToCompletion(match: Match, env: MatchEnvironment): void 
   if (match.status === 'scheduled') beginMatch(match, env);
   let guard = 0;
   while (match.status !== 'finished' && guard < 400) {
-    advanceMinute(match, env);
+    // Run out without watching: there is no picture for the words to keep step
+    // with, so they are written down as the football is decided.
+    advanceMinute(match, env, false);
     guard += 1;
   }
 }

@@ -16,10 +16,11 @@ import { weeklyApproaches, type DiscoveryResult } from './recruitment/discovery'
 import { divisionOf, leagueClubIds, standingsFor, cupCompetitions } from './pyramid';
 import { allCupRoundSlots, cupTieNews, drawCupRound, isLeagueMatchday, readCupRound } from './cup';
 import { prepareMatchday } from './matchday';
-import { simulateToCompletion } from './match/engine';
+import { simulateMatchHeadless } from './match/matchEngine';
 import { matchEnvironment } from './matchday';
 import { rollWeeklyAvailabilityForAll } from './gameSetup';
 import { decidePostponement, isActiveFixture, postponeFixture } from './postponement';
+import { settleShortSides } from './forfeit';
 import { stream } from './rng';
 import { everyFixtureSettled, finishSeason } from './season';
 import { snapshotStandings } from './gameSetup';
@@ -456,8 +457,32 @@ function applyFixtures(state: GameState, date: ISODate, options: DayOptions): Fi
     // his shift moved, and he tells you two hours before kick-off.
     if (involvesUser) outcome.events.push(...callLateWithdrawals(state, match, date));
 
+    // A club with fewer than seven fit players has no team to put out. The
+    // fixture is not simulated and not rearranged — it is forfeited, the
+    // opposition is awarded the points, and the calendar moves on.
+    const forfeit = settleShortSides(state, match);
+    if (forfeit) {
+      outcome.events.push(...forfeit.events);
+      if (involvesUser) outcome.notes.push(forfeit.note);
+      if (match.result) {
+        outcome.results.push({
+          matchId: match.id,
+          homeClubId: match.homeClubId,
+          awayClubId: match.awayClubId,
+          homeGoals: match.result.homeGoals,
+          awayGoals: match.result.awayGoals,
+          involvesUser,
+        });
+      }
+      if (involvesUser) state.lastMatchId = match.id;
+      continue;
+    }
+
+    // One engine decides every match, watched or not: an AI fixture is played
+    // by the same MatchEngine the manager watches, headless. There is no second,
+    // simplified simulation for the games he is not looking at.
     const env = matchEnvironment(state, match, { autoManageAllBenches: true });
-    simulateToCompletion(match, env);
+    simulateMatchHeadless(match, env);
     const consequences = applyMatchConsequences(state, match);
     outcome.events.push(...consequences.events);
     // A cup tie that went the wrong way for the big club is the story of a cup
@@ -867,6 +892,19 @@ export function continueTime(state: GameState, options: ContinueOptions = {}): C
     );
     const alreadyTold = (state.schedule?.notifiedThrough ?? null) !== null && state.schedule.notifiedThrough! >= today;
     if (flagged.length > 0 && !alreadyTold) {
+      // He has now been shown it, so the day counts as told.
+      //
+      // This is what "pressing Continue twice should move the clock, not repeat
+      // the message" actually requires. Nothing else can mark it, because the
+      // only thing that marks a day is simulating it — and this is precisely a
+      // day we are refusing to simulate. So without this the flag is shown
+      // once and then shown forever: Continue stops on the same day, every
+      // press, and the career cannot be moved past it at all.
+      //
+      // The event itself stays unresolved, so a Thursday's training is still
+      // waiting to be run and still shows in the training view. All this says is
+      // that he has read the notice, not that he has acted on it.
+      markNotifiedThrough(state, today);
       outcome.stop = {
         date: today,
         headline: flagged[0]!.title,
@@ -936,15 +974,23 @@ export function currentAttention(state: GameState): ContinueStop | null {
   if (blocking.length > 0) {
     return { date: today, headline: blocking[0]!.title, detail: blocking[0]!.detail, kind: 'blocking', events: blocking };
   }
-  // A day the manager has already been shown is not worth stopping on again:
-  // pressing Continue twice should move the clock, not repeat the message.
-  const told = (state.schedule?.notifiedThrough ?? null) !== null && state.schedule.notifiedThrough! >= today;
-  if (told) return null;
   const flagged = eventsOn(state, today).filter(
     (item) => item.priority === 'important' && item.resolvedOn === null,
   );
-  if (flagged.length > 0) {
-    return { date: today, headline: flagged[0]!.title, detail: flagged[0]!.detail, kind: 'flagged', events: flagged };
+  // A day the manager has already been shown is normally not worth stopping on
+  // again: pressing Continue twice should move the clock, not repeat the
+  // message.
+  //
+  // The exception is the training session. A notice being read is not the same
+  // as the session being run, and the session only leaves the day's events once
+  // it has been recorded. Without this the command bar would fall through to
+  // Continue on a training Thursday, and pressing it would run the session out
+  // from under the manager and move the clock on — which is exactly what made
+  // pre-season skip its training days.
+  const told = (state.schedule?.notifiedThrough ?? null) !== null && state.schedule.notifiedThrough! >= today;
+  const pending = told ? flagged.filter((item) => item.kind === 'training') : flagged;
+  if (pending.length > 0) {
+    return { date: today, headline: pending[0]!.title, detail: pending[0]!.detail, kind: 'flagged', events: pending };
   }
   return null;
 }

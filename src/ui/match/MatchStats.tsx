@@ -70,20 +70,55 @@ function rowsFrom(stats: Stats): Row[] {
  * The manager should be able to read the state of the game in one glance
  * without giving up any height to it — the detailed version is a tab away, and
  * is what half time and full time put in front of him.
+ *
+ * Each figure carries a swing bar: a see-saw pivoted in the middle, leaning
+ * towards whichever side is winning it, in that side's *shirt*. Two numbers side
+ * by side tell you the score of a battle; a row of bars leaning the same way
+ * tells you at a glance which way the afternoon is going.
  */
-export function MatchStatsStrip({ match }: { match: Match }) {
+export function MatchStatsStrip({
+  match,
+  homeColour,
+  awayColour,
+}: {
+  match: Match;
+  /** The first colour of the strip each side is actually wearing. */
+  homeColour: string;
+  awayColour: string;
+}) {
   const stats = matchStats(match);
-  const pairs: Array<{ label: string; home: number | string; away: number | string }> = [
+  const share = (home: number, away: number) => {
+    const total = home + away;
+    // Nothing has happened yet, so the bar rests level rather than claiming a
+    // side is ahead of nothing.
+    return total > 0 ? home / total : 0.5;
+  };
+
+  const pairs: Array<{ label: string; home: number | string; away: number | string; homeShare: number }> = [
     {
       label: 'Possession',
       home: `${Math.round(stats.home.possession * 100)}%`,
       away: `${Math.round(stats.away.possession * 100)}%`,
+      homeShare: stats.home.possession,
     },
-    { label: 'Shots', home: stats.home.shots, away: stats.away.shots },
-    { label: 'On target', home: stats.home.shotsOnTarget, away: stats.away.shotsOnTarget },
-    { label: 'Corners', home: stats.home.corners, away: stats.away.corners },
-    { label: 'Fouls', home: stats.home.fouls, away: stats.away.fouls },
-    { label: 'Cards', home: stats.home.yellowCards + stats.home.redCards, away: stats.away.yellowCards + stats.away.redCards },
+    { label: 'Shots', home: stats.home.shots, away: stats.away.shots, homeShare: share(stats.home.shots, stats.away.shots) },
+    {
+      label: 'On target',
+      home: stats.home.shotsOnTarget,
+      away: stats.away.shotsOnTarget,
+      homeShare: share(stats.home.shotsOnTarget, stats.away.shotsOnTarget),
+    },
+    { label: 'Corners', home: stats.home.corners, away: stats.away.corners, homeShare: share(stats.home.corners, stats.away.corners) },
+    { label: 'Fouls', home: stats.home.fouls, away: stats.away.fouls, homeShare: share(stats.home.fouls, stats.away.fouls) },
+    {
+      label: 'Cards',
+      home: stats.home.yellowCards + stats.home.redCards,
+      away: stats.away.yellowCards + stats.away.redCards,
+      homeShare: share(
+        stats.home.yellowCards + stats.home.redCards,
+        stats.away.yellowCards + stats.away.redCards,
+      ),
+    },
   ];
 
   return (
@@ -91,8 +126,26 @@ export function MatchStatsStrip({ match }: { match: Match }) {
       {pairs.map((pair) => (
         <span key={pair.label} className="statstrip__item">
           <span className="statstrip__label">{pair.label}</span>
-          <strong className="statstrip__value">{pair.home}</strong>
-          <span className="statstrip__value statstrip__value--away">{pair.away}</span>
+          <span className="statstrip__reading">
+            <strong className="statstrip__value">{pair.home}</strong>
+            {/* The home half is anchored to the pivot and grows leftwards, so
+                the joint between them lands at the home side's share of the
+                figure: the bar leans towards whoever is ahead. A floor on each
+                half keeps a one-sided figure visible rather than collapsing it
+                to a hairline. */}
+            <span className="statstrip__swing" aria-hidden="true">
+              <span
+                className="statstrip__swing-half statstrip__swing-half--home"
+                style={{ flexGrow: Math.max(pair.homeShare, 0.06), background: homeColour }}
+              />
+              <span className="statstrip__swing-pivot" />
+              <span
+                className="statstrip__swing-half statstrip__swing-half--away"
+                style={{ flexGrow: Math.max(1 - pair.homeShare, 0.06), background: awayColour }}
+              />
+            </span>
+            <span className="statstrip__value statstrip__value--away">{pair.away}</span>
+          </span>
         </span>
       ))}
     </div>

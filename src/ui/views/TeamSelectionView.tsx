@@ -5,8 +5,9 @@ import { FORMATION_IDS, getFormation, POSITIONS, type PositionCode } from '@/dom
 import { autoPickLineup, positionScore, validateLineup } from '@/simulation/selection';
 import { availabilityTone, playerName } from '../format';
 import { gameActions, useGame, useNextFixture, useSquad } from '../hooks';
-import { Button, EmptyState, Meter, PageHeader, Panel, Pill } from '../components/primitives';
+import { Button, Meter, PageHeader, Panel, Pill } from '../components/primitives';
 import { PlayerLink } from '../components/Links';
+import { MetricTile, Section, StatusTile, TileGrid } from '../components/hierarchy';
 import {
   applyFormation,
   assignToBench,
@@ -19,6 +20,15 @@ import {
 
 type PickerTarget = { kind: 'starting'; index: number } | { kind: 'bench' };
 
+/**
+ * Picking the side.
+ *
+ * Read top down: what state the selection is in, then the pitch, then the
+ * decisions. The four tiles under the header answer the only questions worth
+ * asking before starting work — is the XI legal, is there a bench, who wears
+ * the armband, what is wrong — and the rest of the screen is the pitch and the
+ * lists. Nothing here explains what a pitch or a substitute is.
+ */
 export function TeamSelectionView() {
   const game = useGame();
   const squad = useSquad();
@@ -28,9 +38,14 @@ export function TeamSelectionView() {
   if (!game) return null;
   if (!fixture) {
     return (
-      <Panel title="No fixture this week">
-        <EmptyState>There is nothing to select a team for. Advance the week from the dashboard.</EmptyState>
-      </Panel>
+      <div className="stack">
+        <PageHeader eyebrow="Team" title="Team selection" />
+        <Section title="Next match">
+          <TileGrid min={215}>
+            <MetricTile label="Fixture" value="None" note="Nothing to pick a team for" tone="muted" />
+          </TileGrid>
+        </Section>
+      </div>
     );
   }
 
@@ -48,6 +63,7 @@ export function TeamSelectionView() {
   const selectedIds = new Set([...lineup.starting.map((slot) => slot.playerId), ...lineup.bench.map((slot) => slot.playerId)]);
   const candidates = squad.filter((player) => !selectedIds.has(player.id));
   const formation = getFormation(lineup.tactics.formation);
+  const captain = lineup.captainId ? players(lineup.captainId) : undefined;
 
   // The store clones the game, finds the player's own fixture and passes that
   // lineup into the updater, so edits are always applied to the right side.
@@ -70,10 +86,10 @@ export function TeamSelectionView() {
   return (
     <div className="stack">
       <PageHeader
-        eyebrow="Club"
+        eyebrow="Team"
         title="Team selection"
-        subtitle={`${isHome ? 'Home' : 'Away'} against ${opponent.identity.name} · ${lineup.formation} · ${lineup.starting.length}/11 picked${
-          errors.length > 0 ? ' · the XI is not legal yet' : ''
+        subtitle={`${isHome ? 'Home' : 'Away'} against ${opponent.identity.name} · ${lineup.formation} · ${
+          errors.length > 0 ? `${errors.length} problem${errors.length === 1 ? '' : 's'}` : 'XI legal'
         }`}
         tone={errors.length > 0 ? 'danger' : 'default'}
         meta={
@@ -81,7 +97,7 @@ export function TeamSelectionView() {
             <span className="small muted">
               {fixture.kickOff} · {game.world.grounds[fixture.groundId]?.name ?? 'ground to be confirmed'}
             </span>
-            <span className="small muted">{lineup.bench.length} on the bench</span>
+            <span className="small muted">{game.season.label}</span>
           </>
         }
         actions={
@@ -89,6 +105,7 @@ export function TeamSelectionView() {
             <select
               className="input input--small"
               value={lineup.tactics.formation}
+              aria-label="Formation"
               onChange={(event) => withLineup((current) => applyFormation(current, event.target.value as never, squad))}
             >
               {FORMATION_IDS.map((id) => (
@@ -125,110 +142,139 @@ export function TeamSelectionView() {
         }
       />
 
-      <Panel level="primary" title="The XI" subtitle="Click or tap a shirt to change who plays there">
-        <div className="lineup">
-          <div className="lineup__pitch">
-            <div className="pitch pitch--static">
-              <span className="pitch__halfway" />
-              <span className="pitch__circle" />
-              {lineup.starting.map((slot, index) => {
-                const player = players(slot.playerId);
-                const formationSlot = formation.slots[index] ?? formation.slots[0]!;
-                // Position bases are written for a side attacking left to
-                // right; the away side's shape is turned right round, both
-                // axes, or its right back would be drawn as a left back.
-                const x = isHome ? formationSlot.x : 1 - formationSlot.x;
-                const y = isHome ? formationSlot.y : 1 - formationSlot.y;
-                return (
-                  <button
-                    key={`${slot.playerId}-${index}`}
-                    type="button"
-                    className={`pitch__player${target?.kind === 'starting' && target.index === index ? ' pitch__player--active' : ''}${
-                      slot.outOfPosition ? ' pitch__player--oops' : ''
-                    }`}
-                    style={{ left: `${x * 100}%`, top: `${y * 100}%` }}
-                    onClick={() => setTarget({ kind: 'starting', index })}
-                    title={player ? `${playerName(player)} — ${POSITIONS[slot.position].label}` : 'Empty'}
-                  >
-                    <span className="pitch__shirt" style={{ background: game.clubs[clubId]!.identity.colours.primary }}>
-                      {slot.position}
-                    </span>
-                    <span className="pitch__name">
-                      {player ? player.surname : 'Empty'}
-                      {slot.outOfPosition ? ' ⚠' : ''}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-            <p className="muted small">
-              ⚠ marks a player a long way from his usual role — allowed, but the engine will judge it on the day.
-            </p>
-          </div>
+      <Section title="Selection">
+        <TileGrid min={170}>
+          <MetricTile
+            label="Starting XI"
+            value={`${lineup.starting.length}/11`}
+            note={errors.length > 0 ? 'Not legal yet' : warnings.length > 0 ? `${warnings.length} to watch` : 'Ready'}
+            tone={errors.length > 0 ? 'bad' : warnings.length > 0 ? 'warn' : 'ok'}
+          />
+          <MetricTile
+            label="Bench"
+            value={`${lineup.bench.length}/5`}
+            note={lineup.bench.length === 0 ? 'No substitutes' : 'Substitutes'}
+            tone={lineup.bench.length === 0 ? 'warn' : 'default'}
+          />
+          <StatusTile
+            label="Captain"
+            status={captain ? `${captain.firstName.charAt(0)}. ${captain.surname}` : 'Not set'}
+            tone={captain ? 'accent' : 'warn'}
+          />
+          <MetricTile
+            label="Problems"
+            value={problems.length === 0 ? 'None' : `${problems.length}`}
+            note={problems.length === 0 ? 'Nothing to fix' : `${errors.length} blocking · ${warnings.length} to watch`}
+            tone={errors.length > 0 ? 'bad' : warnings.length > 0 ? 'warn' : 'ok'}
+          />
+        </TileGrid>
+      </Section>
 
-          <div className="lineup__side">
-            <h4 className="subhead">Substitutes ({lineup.bench.length}/5)</h4>
-            <ul className="tight-list">
-              {lineup.bench.map((slot: BenchSlot) => {
-                const player = players(slot.playerId);
-                return (
-                  <li key={slot.playerId} className="rating-row">
-                    <span>
-                      <PlayerLink personId={slot.playerId}>
-                        <strong>{player ? player.surname : 'Unknown'}</strong>
-                      </PlayerLink>{' '}
-                      <span className="muted small">{player?.preferredPosition}</span>
-                    </span>
-                    <button type="button" className="link" onClick={() => withLineup((current) => removeFromBench(current, slot.playerId))}>
-                      remove
+      <Section title="The XI">
+        <Panel level="primary">
+          <div className="lineup">
+            <div className="lineup__pitch">
+              <div className="pitch pitch--static">
+                <span className="pitch__halfway" />
+                <span className="pitch__circle" />
+                {lineup.starting.map((slot, index) => {
+                  const player = players(slot.playerId);
+                  const formationSlot = formation.slots[index] ?? formation.slots[0]!;
+                  // Position bases are written for a side attacking left to
+                  // right; the away side's shape is turned right round, both
+                  // axes, or its right back would be drawn as a left back.
+                  const x = isHome ? formationSlot.x : 1 - formationSlot.x;
+                  const y = isHome ? formationSlot.y : 1 - formationSlot.y;
+                  return (
+                    <button
+                      key={`${slot.playerId}-${index}`}
+                      type="button"
+                      className={`pitch__player${target?.kind === 'starting' && target.index === index ? ' pitch__player--active' : ''}${
+                        slot.outOfPosition ? ' pitch__player--oops' : ''
+                      }`}
+                      style={{ left: `${x * 100}%`, top: `${y * 100}%` }}
+                      onClick={() => setTarget({ kind: 'starting', index })}
+                      title={
+                        player
+                          ? `${playerName(player)} — ${POSITIONS[slot.position].label}${
+                              slot.outOfPosition ? ' · out of position' : ''
+                            }`
+                          : 'Empty'
+                      }
+                    >
+                      <span className="pitch__shirt" style={{ background: game.clubs[clubId]!.identity.colours.primary }}>
+                        {slot.position}
+                      </span>
+                      <span className="pitch__name">
+                        {player ? player.surname : 'Empty'}
+                        {slot.outOfPosition ? ' ⚠' : ''}
+                      </span>
                     </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="lineup__side">
+              <h4 className="subhead">Substitutes ({lineup.bench.length}/5)</h4>
+              <ul className="tight-list">
+                {lineup.bench.map((slot: BenchSlot) => {
+                  const player = players(slot.playerId);
+                  return (
+                    <li key={slot.playerId} className="rating-row">
+                      <span>
+                        <PlayerLink personId={slot.playerId}>
+                          <strong>{player ? player.surname : 'Unknown'}</strong>
+                        </PlayerLink>{' '}
+                        <span className="muted small">{player?.preferredPosition}</span>
+                      </span>
+                      <button type="button" className="link" onClick={() => withLineup((current) => removeFromBench(current, slot.playerId))}>
+                        remove
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+              <Button variant="ghost" onClick={() => setTarget({ kind: 'bench' })}>
+                Add a substitute
+              </Button>
+
+              <h4 className="subhead">Captain</h4>
+              <select
+                className="input input--small"
+                value={lineup.captainId ?? ''}
+                aria-label="Captain"
+                onChange={(event) => withLineup((current) => setCaptain(current, event.target.value || null))}
+              >
+                <option value="">No captain</option>
+                {lineup.starting.map((slot: LineupSlot) => {
+                  const player = players(slot.playerId);
+                  return (
+                    <option key={slot.playerId} value={slot.playerId}>
+                      {player ? `${player.firstName.charAt(0)}. ${player.surname}` : 'Unknown'}
+                    </option>
+                  );
+                })}
+              </select>
+
+              <h4 className="subhead">Selection problems</h4>
+              {problems.length === 0 && <p className="empty">None.</p>}
+              <ul className="tight-list">
+                {[...errors, ...warnings].map((problem, index) => (
+                  <li key={`${problem.message}-${index}`}>
+                    <Pill tone={problem.severity === 'error' ? 'bad' : 'warn'}>{problem.severity === 'error' ? 'Problem' : 'Watch'}</Pill>{' '}
+                    {problem.message}
                   </li>
-                );
-              })}
-            </ul>
-            <Button variant="ghost" onClick={() => setTarget({ kind: 'bench' })}>
-              Add a substitute
-            </Button>
-
-            <h4 className="subhead">Captain</h4>
-            <select
-              className="input input--small"
-              value={lineup.captainId ?? ''}
-              onChange={(event) => withLineup((current) => setCaptain(current, event.target.value || null))}
-            >
-              <option value="">No captain</option>
-              {lineup.starting.map((slot: LineupSlot) => {
-                const player = players(slot.playerId);
-                return (
-                  <option key={slot.playerId} value={slot.playerId}>
-                    {player ? `${player.firstName.charAt(0)}. ${player.surname}` : 'Unknown'}
-                  </option>
-                );
-              })}
-            </select>
-
-            <h4 className="subhead">Selection problems</h4>
-            {problems.length === 0 && <p className="empty">Nothing obvious. That never means it will work.</p>}
-            <ul className="tight-list">
-              {[...errors, ...warnings].map((problem, index) => (
-                <li key={`${problem.message}-${index}`}>
-                  <Pill tone={problem.severity === 'error' ? 'bad' : 'warn'}>{problem.severity === 'error' ? 'Problem' : 'Watch'}</Pill>{' '}
-                  {problem.message}
-                </li>
-              ))}
-            </ul>
+                ))}
+              </ul>
+            </div>
           </div>
-        </div>
-      </Panel>
+        </Panel>
+      </Section>
 
       {target && (
         <Panel
           title={target.kind === 'starting' ? `Who plays ${pickerSlotPosition ?? ''}?` : 'Who is on the bench?'}
-          subtitle={
-            target.kind === 'starting'
-              ? 'Ordered by how well they fit the role, then condition.'
-              : 'Five substitutes. Sunday League benches are short and rarely full.'
-          }
           actions={<Button variant="ghost" onClick={() => setTarget(null)}>Close</Button>}
         >
           {candidates.length === 0 && <p className="empty">Nobody else is free to select.</p>}

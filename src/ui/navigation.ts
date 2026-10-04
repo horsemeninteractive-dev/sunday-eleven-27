@@ -170,10 +170,11 @@ export const VIEW_LABEL: Record<ViewId, string> = {
   history: 'History',
   world: 'The local game',
   match: 'Match',
+  replay: 'Match replay',
 };
 
 /** Screens reached from a flow rather than the navigation. */
-const OFF_NAV: ViewId[] = ['start', 'profile', 'select-club', 'create-club', 'match'];
+const OFF_NAV: ViewId[] = ['start', 'profile', 'select-club', 'create-club', 'match', 'replay'];
 
 export function isNavigable(view: ViewId): boolean {
   return !OFF_NAV.includes(view);

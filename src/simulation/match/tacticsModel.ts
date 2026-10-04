@@ -1,5 +1,6 @@
-import type { MatchConditions } from '@/domain/match';
-import type { Tactics } from '@/domain/tactics';
+import type { Match, MatchConditions } from '@/domain/match';
+import type { Side } from './core';
+import type { SetPieceRoutines, Tactics } from '@/domain/tactics';
 
 /**
  * Tactics are translated into multipliers rather than "correct answers".
@@ -98,6 +99,25 @@ export function conditionEffects(conditions: MatchConditions): ConditionEffects 
   if (conditions.temperatureC <= 3) fatigueRate += 0.03;
 
   return { errorRate, fatigueRate, injuryRate, passControlPenalty, shotQualityPenalty };
+}
+
+/**
+ * The set pieces a side has worked on, as the set-piece code needs them.
+ *
+ * Optional all the way down, because that is the honest default: a club with no
+ * routines block has *no routines*, and every choice here falls back to the
+ * untrained answer rather than to a well-drilled one it never asked for. The
+ * fallback is written once, here, so no caller has to remember to ask.
+ */
+export function setPieceRoutinesFor(match: Match, side: Side): Required<Pick<SetPieceRoutines, 'corner' | 'freeKick'>> &
+  Pick<SetPieceRoutines, 'penaltyTakerId'> {
+  const tactics = match.lineups[side].tactics;
+  const routines = tactics?.setPieceRoutines;
+  return {
+    corner: routines?.corner ?? 'untrained',
+    freeKick: routines?.freeKick ?? 'untrained',
+    penaltyTakerId: routines?.penaltyTakerId ?? undefined,
+  };
 }
 
 export function tacticalProfile(tactics: Tactics, conditions: MatchConditions): TacticalProfile {

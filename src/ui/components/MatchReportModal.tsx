@@ -1,5 +1,7 @@
 import type { GameState } from '@/domain/game';
 import type { Match } from '@/domain/match';
+import { gameActions } from '../hooks';
+import { Button } from './primitives';
 import { MatchDetailPanel } from './FixtureInfo';
 
 /**
@@ -10,6 +12,10 @@ import { MatchDetailPanel } from './FixtureInfo';
  * the list he was reading is exactly where he left it when he closes it. The
  * panel inside is the same one the live match screen uses, so a report reads
  * the same wherever it is opened from.
+ *
+ * A match that has been played can also be watched back: the replay reads the
+ * same stored record this report does, so a manager who wants to see it again
+ * rather than read it can.
  */
 export function MatchReportModal({
   state,
@@ -25,6 +31,18 @@ export function MatchReportModal({
       <div className="overlay__panel">
         <div className="overlay__bar">
           <span className="overlay__title">Match report</span>
+          {match.events.length > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                onClose();
+                gameActions().openReplay(match.id);
+              }}
+            >
+              Watch replay
+            </Button>
+          )}
           <button type="button" className="overlay__close" aria-label="Close" onClick={onClose}>
             ✕
           </button>

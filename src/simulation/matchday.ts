@@ -6,7 +6,7 @@ import type { Ground } from '@/domain/world';
 import { monthOf } from './calendar';
 import { stream, Rng } from './rng';
 import { estimateAttendance } from './match/attendance';
-import type { MatchEnvironment } from './match/engine';
+import type { MatchEnvironment } from './match/core';
 import { isPlayer } from '@/domain/person';
 import { nextFixtureFor } from './schedule';
 import { fixtureIdsOnMatchday } from './pyramid';

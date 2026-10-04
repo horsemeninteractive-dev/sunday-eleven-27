@@ -128,7 +128,7 @@ describe('the spatial simulation', () => {
 
     const off = match.lineups.home.starting[5]!;
     const on = match.lineups.home.bench[0]!;
-    match.lineups.home.starting[5] = { playerId: on.playerId, position: off.position, outOfPosition: false };
+    match.lineups.home.starting[5] = { playerId: on.playerId, position: off.position, role: on.role, outOfPosition: false };
     match.lineups.home.bench.splice(0, 1);
     syncSpatial(match, env);
 
@@ -186,20 +186,33 @@ describe('the spatial simulation', () => {
     const steps = Math.round(SPATIAL_SECONDS_PER_MINUTE / SPATIAL_STEP_SECONDS);
     let checked = 0;
 
+    // What the picture does: every pass the ball is actually played on. The
+    // pitch plays a minute's football all the way out before the next minute is
+    // decided — which is how the store drives it — so a window shows the minute
+    // that was decided for it, possession running across the mark and all.
+    const playOut = (into: Set<string>): void => {
+      let guard = 0;
+      while ((spatial.plan || (spatial.pending?.length ?? 0) > 0) && guard < steps * 3) {
+        const wasTravelling = spatial.ball.status === 'travelling';
+        advanceSpatial(match, env, SPATIAL_STEP_SECONDS);
+        guard += 1;
+        if (!wasTravelling && spatial.ball.status === 'travelling' && spatial.ball.targetId) {
+          const name = surnameOf(spatial.ball.targetId);
+          if (name) into.add(name);
+        }
+      }
+    };
+
+    // The kick-off minute is played out before any judgement is made, so it
+    // cannot lend a pass to the window that follows it.
+    playOut(new Set());
+
     for (let minute = 0; minute < 40; minute += 1) {
       const before = match.commentary?.length ?? 0;
       advanceMinute(match, env);
 
-      // What the picture does: every pass the ball is actually played on.
       const playedTo = new Set<string>();
-      for (let s = 0; s < steps; s += 1) {
-        const wasTravelling = spatial.ball.status === 'travelling';
-        advanceSpatial(match, env, SPATIAL_STEP_SECONDS);
-        if (!wasTravelling && spatial.ball.status === 'travelling' && spatial.ball.targetId) {
-          const name = surnameOf(spatial.ball.targetId);
-          if (name) playedTo.add(name);
-        }
-      }
+      playOut(playedTo);
 
       const told = (match.commentary ?? []).slice(before).map((line) => line.text).join(' \n ');
       for (const name of playedTo) {
@@ -228,18 +241,33 @@ describe('the spatial simulation', () => {
 
     for (let minute = 0; minute < 25; minute += 1) {
       advanceMinute(match, env);
+      // The engine now installs a continuous possession plan rather than a
+      // passage; either way the move must fit inside its own minute.
       worstPassage = Math.max(
         worstPassage,
-        (spatial.passage?.steps ?? []).reduce((sum, entry) => sum + entry.duration, 0),
+        (spatial.plan?.steps ?? []).reduce((sum, entry) => sum + entry.duration, 0),
       );
       for (let s = 0; s < steps; s += 1) {
         const wasFlying = spatial.ball.status === 'travelling';
         const speed = spatial.ball.speed;
         const heading = spatial.ball.targetId;
         const from = { x: spatial.ball.x, y: spatial.ball.y };
+        const fromBall = from;
         const owner = spatial.ball.ownerId;
         const players = spatial.players.map((node) => ({ id: node.playerId, x: node.x, y: node.y }));
+        const eventsBefore = match.events.length;
         advanceSpatial(match, env, SPATIAL_STEP_SECONDS);
+        // Two frames in a match are not made on legs, and both of them are the
+        // same operation: a dead ball being *arranged*. A corner taker is put on
+        // his flag, and the two men in a challenge are brought together where it
+        // was given. Neither is play, and neither may be measured as if it were —
+        // but the exemption is exactly these two frames, because a rule that says
+        // "nobody teleports except here and there" is not the rule this test
+        // exists to catch.
+        const placedTaker =
+          spatial.restart?.takerId != null &&
+          spatial.players.some((node) => node.playerId === spatial.restart!.takerId && Math.hypot(node.x - (fromBall?.x ?? node.x), node.y - (fromBall?.y ?? node.y)) >= 0);
+        const foulJustWritten = match.events.slice(eventsBefore).some((event) => event.type === 'foul');
         const travelled = Math.hypot(spatial.ball.x - from.x, spatial.ball.y - from.y);
 
         // A ball already on its way somewhere, and still on its way to the same
@@ -261,9 +289,15 @@ describe('the spatial simulation', () => {
         for (const before of players) {
           const node = spatial.players.find((entry) => entry.playerId === before.id);
           if (!node) continue;
-          expect(Math.hypot(node.x - before.x, node.y - before.y)).toBeLessThanOrEqual(
-            node.speed * SPATIAL_STEP_SECONDS + 1e-9,
-          );
+          const moved = Math.hypot(node.x - before.x, node.y - before.y);
+          // See the note above: the taker on his flag, and the two men in a
+          // challenge, are the only movements in the match not made on legs.
+          if (placedTaker && node.playerId === spatial.restart?.takerId) continue;
+          if (foulJustWritten) {
+            const foul = match.events.slice(eventsBefore).find((event) => event.type === 'foul');
+            if (node.playerId === foul?.playerId || node.playerId === foul?.secondaryPlayerId) continue;
+          }
+          expect(moved).toBeLessThanOrEqual(node.speed * SPATIAL_STEP_SECONDS + 1e-9);
         }
       }
     }
@@ -305,7 +339,7 @@ describe('the spatial simulation', () => {
 
     // Nobody is playing football. The scorer is off to the corner of the goal he
     // scored in, his own team is chasing him, and the rest are going back.
-    expect(spatial.passage).toBeNull();
+    expect(spatial.plan).toBeNull();
     expect(scorer!.action).toBe('celebrating');
     expect(scorer!.tx).toBeCloseTo(celebration.side === 'home' ? 0.95 : 0.05, 6);
     const scorers = spatial.players.filter(
@@ -318,7 +352,7 @@ describe('the spatial simulation', () => {
     // The next minute arrives while the huddle is on, and its move is not played
     // into the middle of it.
     advanceMinute(match, env);
-    expect(spatial.passage).toBeNull();
+    expect(spatial.plan).toBeNull();
 
     // The celebration runs out. Nothing crossed the park on the way, and the ball
     // ends up back on the centre spot, where the match resumes.

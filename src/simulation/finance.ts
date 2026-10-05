@@ -1,7 +1,8 @@
 import type { ClubFinances, LedgerCategory, LedgerEntry } from '@/domain/club';
 import type { GameState } from '@/domain/game';
-import type { ClubId, ISODate } from '@/domain/ids';
+import type { ClubId, ISODate, PersonId } from '@/domain/ids';
 import { isCompetitiveMatch, type Match } from '@/domain/match';
+import { emptyPlayerSubs, type Player } from '@/domain/person';
 import { nextId } from './ids';
 import { Rng, stream } from './rng';
 
@@ -56,16 +57,25 @@ export function applySubsAndSponsorship(state: GameState, clubId: ClubId, date: 
   const club = state.clubs[clubId];
   if (!club) return { income: 0, expenditure: 0, balance: 0 };
   const finances = club.finances;
-  const payingPlayers = club.squadIds.filter((id) => state.people[id]?.kind === 'player').length;
+  const squad = club.squadIds
+    .map((id) => state.people[id])
+    .filter((person): person is Player => Boolean(person && person.kind === 'player'));
+  const owed = settlePlayerSubs(state, clubId, squad, finances.subscriptionPerPlayer, date);
   let income = 0;
 
-  const subs = addLedgerEntry(state, clubId, {
-    date,
-    description: `Player subs (${payingPlayers} players)`,
-    category: 'subs',
-    amount: payingPlayers * finances.subscriptionPerPlayer,
-  });
-  income += subs?.amount ?? 0;
+  // One line for the week, saying how many of how many actually paid. The
+  // ledger records what *arrived*; each man's own record says what did not. The
+  // two cannot drift, because the ledger is written from the same settlement
+  // that writes them.
+  if (owed.paid > 0) {
+    const subs = addLedgerEntry(state, clubId, {
+      date,
+      description: `Player subs (${owed.paid} of ${squad.length} players)`,
+      category: 'subs',
+      amount: owed.paid * finances.subscriptionPerPlayer,
+    });
+    income += subs?.amount ?? 0;
+  }
 
   if (finances.sponsorIncomePerWeek > 0) {
     const sponsor = addLedgerEntry(state, clubId, {
@@ -78,6 +88,112 @@ export function applySubsAndSponsorship(state: GameState, clubId: ClubId, date: 
   }
 
   return { income: Math.round(income), expenditure: 0, balance: finances.balance };
+}
+
+/**
+ * Settle the subs book, man by man.
+ *
+ * The club's money has always moved in one weekly tick for the whole squad, so
+ * the game could say how much came in and never who did not pay. This is the
+ * attribution the ledger could not carry, and it is the only thing in the
+ * finance system that decides whether a player is behind.
+ *
+ * Two rules it must never break:
+ *
+ *  - **Money moves when money moves.** A player who pays has his `owed` cleared
+ *    here, on this day, because the money genuinely arrived. Nothing else in
+ *    the game may clear it — in particular, nothing anybody *says* may.
+ *  - **The balance never counts a debt.** What has not arrived is not income,
+ *    so it is not on the ledger. Only real money is.
+ *
+ * How often a man pays comes from his own reliability and from whether the club
+ * itself is in a position to argue, on the same named stream every time, so the
+ * same career produces the same book.
+ */
+function settlePlayerSubs(
+  state: GameState,
+  clubId: ClubId,
+  squad: readonly Player[],
+  subscription: number,
+  date: ISODate,
+): { paid: number } {
+  let paid = 0;
+  for (const player of squad) {
+    ensurePlayerSubs(player);
+    if (subscription <= 0) {
+      // A club that charges nothing cannot be owed anything, and a man already
+      // behind is written off rather than left owing forever.
+      player.subs = { owed: 0, missedWeeks: 0, lastPaidOn: player.subs.lastPaidOn };
+      continue;
+    }
+
+    const rng = stream(state.seed, 'subs', clubId, player.id, date);
+    const reliability = player.attributes.behavioural.reliability / 20;
+    // A club that has not paid its own bills is in no position to chase anybody,
+    // and the man most likely to stop paying is the one already behind.
+    const clubStrained = state.clubs[clubId]!.finances.balance < 0;
+    const pressure = player.subs.owed > 0 ? 0.88 : 1;
+    // Calibrated so that most of a squad is level and a few are not. Set this
+    // too high and the treasurer never has anybody to chase, which makes the
+    // whole conversation layer untestable in play; set it too low and half the
+    // club is in arrears every week, which is a different game.
+    //
+    // A man at 0.72 misses roughly one week in four, so over a season he drifts
+    // to four or five weeks before he catches up. A man at 0.94 misses one in
+    // sixteen and is square most weeks. Those are the two ends worth having.
+    const chance = Math.min(0.97, (0.72 + reliability * 0.22) * pressure * (clubStrained ? 0.97 : 1));
+
+    if (rng.chance(chance)) {
+      player.subs = {
+        owed: 0,
+        missedWeeks: 0,
+        lastPaidOn: date,
+      };
+      paid += 1;
+    } else {
+      player.subs = {
+        owed: Math.round((player.subs.owed + subscription) * 100) / 100,
+        missedWeeks: player.subs.missedWeeks + 1,
+        lastPaidOn: player.subs.lastPaidOn,
+      };
+    }
+  }
+  return { paid };
+}
+
+/**
+ * Settle one man's debt by hand — the treasurer taking cash on a Sunday.
+ *
+ * Goes through `addLedgerEntry`, so the balance, the ledger line and his record
+ * all move together. This is the only other thing in the game that may clear an
+ * `owed`, and it exists because a real manager has a cash tin.
+ */
+export function collectPlayerSubs(state: GameState, clubId: ClubId, playerId: PersonId, date: ISODate): number {
+  const club = state.clubs[clubId];
+  const person = state.people[playerId];
+  if (!club || !person || person.kind !== 'player') return 0;
+  ensurePlayerSubs(person);
+  const owed = person.subs.owed;
+  if (owed <= 0) return 0;
+
+  const entry = addLedgerEntry(state, clubId, {
+    date,
+    description: `Subs from ${person.firstName} ${person.surname}`,
+    category: 'subs',
+    amount: owed,
+  });
+  person.subs = { owed: 0, missedWeeks: 0, lastPaidOn: date };
+  return entry?.amount ?? 0;
+}
+
+/** Give a player the record if a save predates it. Never invents a debt. */
+export function ensurePlayerSubs(player: Player): void {
+  if (!player.subs) {
+    // A save written before subs were tracked had every player paying in full,
+    // because the ledger said they had. Giving anybody an opening balance would
+    // be inventing a debt the club never recorded.
+    player.subs = emptyPlayerSubs();
+  }
 }
 
 /** Wednesday: pitch hire, insurance and the small things that add up. */

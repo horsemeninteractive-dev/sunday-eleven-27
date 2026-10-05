@@ -39,7 +39,22 @@ export function Crest({ club, size = 'sm' }: { club: Club; size?: 'sm' | 'lg' })
   );
 }
 
-export function ClubLink({ clubId, children }: { clubId: string; children?: ReactNode }) {
+export function ClubLink({
+  clubId,
+  children,
+  reverse = false,
+}: {
+  clubId: string;
+  children?: ReactNode;
+  /**
+   * Name before crest rather than crest before name, right-aligned.
+   *
+   * A fixture reads crest-then-name on the left and name-then-crest on the
+   * right, so both crests sit nearest the middle of the row and the two names
+   * point away from it.
+   */
+  reverse?: boolean;
+}) {
   const game = useGame();
   const openProfile = useOpenProfile();
   const club = game?.clubs[clubId];
@@ -47,7 +62,7 @@ export function ClubLink({ clubId, children }: { clubId: string; children?: Reac
   return (
     <button
       type="button"
-      className="link clubcell"
+      className={`link clubcell${reverse ? ' clubcell--reverse' : ''}`}
       title={`${club.identity.name} — ${club.identity.nickname}`}
       onClick={() => openProfile({ kind: 'club', id: clubId })}
     >

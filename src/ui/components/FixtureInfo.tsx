@@ -4,7 +4,7 @@ import type { Match } from '@/domain/match';
 import { PITCH_LABEL, WEATHER_LABEL } from '@/domain/match';
 import { isPlayer, type Official } from '@/domain/person';
 import { MENTALITY_LABEL, PRESSING_LABEL } from '@/domain/tactics';
-import { formatDate } from '@/simulation/calendar';
+import { formatDate, formatKickOff } from '@/simulation/calendar';
 import { expectedAttendanceFor } from '@/simulation/matchday';
 import { journeyDistanceKm, matchOpponent, matchVenueLabel } from '@/simulation/queries';
 import { ordinal } from '@/simulation/news';
@@ -55,7 +55,7 @@ export function NextFixturePanel({ state, match }: { state: GameState; match: Ma
       title={`Next: ${opponent.identity.name} (${venue})`}
       subtitle={
         <>
-          {formatDate(match.date)} · {match.kickOff} · <CompetitionLink>{match.competitionName}</CompetitionLink>
+          {formatDate(match.date)} · {formatKickOff(match.kickOff)} · <CompetitionLink>{match.competitionName}</CompetitionLink>
         </>
       }
       tone="accent"

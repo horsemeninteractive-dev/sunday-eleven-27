@@ -41,6 +41,21 @@ export function ProfileView() {
 
   const age = /^\d{4}-\d{2}-\d{2}$/.test(profile.birthday) ? ageOn(profile.birthday, seasonStart) : null;
 
+  /**
+   * Whether the header button should be live.
+   *
+   * The same three conditions `begin` checks, read up front so the button can be
+   * disabled rather than clicked into an error. Both use one source of truth on
+   * purpose: a button that is wrong about being enabled is worse than no
+   * pre-check at all.
+   */
+  const ready =
+    isManagerProfileComplete(profile) &&
+    age !== null &&
+    age >= MIN_MANAGER_AGE &&
+    age <= MAX_MANAGER_AGE &&
+    seed.trim().length >= 3;
+
   const begin = () => {
     if (!isManagerProfileComplete(profile)) {
       setError('Give yourself a first name, a surname and a birthday.');
@@ -65,9 +80,18 @@ export function ProfileView() {
         eyebrow={mode === 'create-club' ? 'Create a club' : 'New career'}
         title="Your profile"
         actions={
-          <Button variant="ghost" onClick={() => gameActions().cancelSetup()}>
-            Back to menu
-          </Button>
+          <>
+            <Button variant="ghost" onClick={() => gameActions().cancelSetup()}>
+              Back to menu
+            </Button>
+            {/* The one button that starts a career, beside the one that gives
+                up. It was at the bottom of the form, under a panel about world
+                seeds, which put the last step of the setup below the fold on a
+                laptop. */}
+            <Button variant="primary" onClick={begin} disabled={!ready}>
+              {mode === 'create-club' ? 'Generate world and design your club' : 'Generate world'}
+            </Button>
+          </>
         }
       />
 
@@ -176,11 +200,11 @@ export function ProfileView() {
               </Button>
             ))}
           </div>
-          <div className="row">
-            <Button variant="primary" onClick={begin}>
-              {mode === 'create-club' ? 'Generate world and design your club' : 'Generate world'}
-            </Button>
-          </div>
+          <p className="muted small">
+            {ready
+              ? 'The world is built from the seed above — the same words always make the same towns, clubs and players.'
+              : 'Fill in your name and your date of birth to carry on.'}
+          </p>
           {error && <p className="tone tone--bad">{error}</p>}
         </Panel>
       </div>

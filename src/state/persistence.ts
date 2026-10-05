@@ -1,6 +1,8 @@
 import { GAME_STATE_VERSION, type GameState } from '@/domain/game';
 import type { Player, PlayerDevelopment } from '@/domain/person';
 import { birthdayForAge, type ManagerProfile } from '@/domain/manager';
+import { ensurePlayerSubs } from '@/simulation/finance';
+import { emptyCommunicationStore } from '@/domain/communication';
 import { emptyRecruitmentStore } from '@/domain/recruitment';
 import { DEFAULT_PYRAMID, FRIENDLY_COMPETITION_ID, type Competition, type FixtureList, type PyramidConfig } from '@/domain/competition';
 import type { ClubId, CompetitionId } from '@/domain/ids';
@@ -22,12 +24,13 @@ import {
 } from '@/simulation/generation/worldGenerator';
 import { rebuildRelationshipIndex, relationshipStore } from '@/simulation/relationships';
 import { pruneCandidates } from '@/simulation/recruitment/store';
+import { pruneCommunication } from '@/simulation/communication/store';
 import { ensureTrainingState, pruneTrainingHistory, trainingStore } from '@/simulation/training/store';
 import { ensureLineupRoles } from '@/simulation/match/roles';
 import { overallAbility } from '@/simulation/training/development';
 import { buildSeasonCalendarWithCups, yearOf } from '@/simulation/calendar';
 import { matchdayCount } from '@/simulation/generation/fixtureGenerator';
-import { drawCupRound, cupRoundSlots, newCupState, seedOrder } from '@/simulation/cup';
+import { drawCupRound, cupRoundSlots, mainCupPlan, newCupState, platePlan, seedOrder } from '@/simulation/cup';
 import {
   divisionCompetitionId,
   divisionNameFor,
@@ -199,6 +202,9 @@ function enqueueWrite<T>(slot: string, work: () => Promise<T>): Promise<T> {
  *    peak age. Each is given one from the ability and age he already has, on a
  *    stream of his own, and a session that does not say what age took back is
  *    given an empty record of it.
+ *  - version 9 predates communication: it has no conversations. It is given an
+ *     empty inbox, which is what it had, rather than one seeded with threads it
+ *     never held.
  */
 function migrateSave(file: SaveFile): SaveFile {
   const state = file.state as GameState & {
@@ -233,6 +239,21 @@ function migrateSave(file: SaveFile): SaveFile {
 
   if (!state.recruitment || !state.recruitment.candidates) {
     state.recruitment = emptyRecruitmentStore();
+  }
+
+  // Communication came after this save was written, so it had no conversations
+  // and is given an empty inbox. Nothing is generated: a career that had not
+  // been talking to anybody should not wake up with a full one.
+  if (!state.communication || typeof state.communication !== 'object' || !state.communication.conversations) {
+    state.communication = emptyCommunicationStore();
+  }
+  pruneCommunication(state);
+
+  // Subs became per-player after this save was written. Every man in it was
+  // paying in full, because the ledger said they were, so each is given a
+  // clear record rather than an invented debt.
+  for (const person of Object.values(state.people)) {
+    if (person.kind === 'player') ensurePlayerSubs(person);
   }
 
   // A career that predates training has no session history, no plans and no
@@ -398,7 +419,7 @@ function migrateToPyramid(state: GameState): void {
       tier: 0,
       seasonId: state.season.id,
       clubIds: seedOrder(state, ladderClubs),
-      cup: newCupState(),
+      cup: newCupState(mainCupPlan(ladderClubs.length)),
     };
     fixtures[LEAGUE_CUP_ID] = { competitionId: LEAGUE_CUP_ID, byMatchday: {}, matchdayOf: {} };
     if (config.consolationCup) {
@@ -409,7 +430,7 @@ function migrateToPyramid(state: GameState): void {
         tier: 0,
         seasonId: state.season.id,
         clubIds: [],
-        cup: newCupState(LEAGUE_CUP_ID),
+        cup: newCupState(platePlan(mainCupPlan(ladderClubs.length)), LEAGUE_CUP_ID),
       };
       fixtures[PLATE_ID] = { competitionId: PLATE_ID, byMatchday: {}, matchdayOf: {} };
     }

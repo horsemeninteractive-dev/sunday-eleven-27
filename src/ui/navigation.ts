@@ -23,6 +23,7 @@ export type NavIcon =
   | 'fixtures'
   | 'league'
   | 'news'
+  | 'messages'
   | 'finances'
   | 'history'
   | 'kit'
@@ -76,22 +77,38 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    id: 'team',
-    label: 'Team',
-    icon: 'squad',
+    id: 'inbox',
+    label: 'Messages',
+    icon: 'messages',
+    // Deliberately not a section with screens inside it. Messages is one screen
+    // the manager opens when he wants to write to somebody or read what he has
+    // been sent, and it carries its own badge — the number is the point of it.
+    //
+    // It sits high up because it is the one thing that can be waiting on him
+    // without his knowing: above the sections he goes to when he means to.
+    direct: true,
     leaves: [
-      { id: 'squad', label: 'Squad', icon: 'squad', hint: 'Everyone registered, and how they are' },
-      { id: 'team', label: 'Team selection', short: 'Team', icon: 'team', hint: 'Pick the XI, the bench and the captain' },
-      { id: 'tactics', label: 'Tactics', icon: 'tactics', hint: 'How you want to play' },
-      { id: 'training', label: 'Training', icon: 'training', hint: "Thursday night's session" },
+      {
+        id: 'inbox',
+        label: 'Messages',
+        short: 'Messages',
+        icon: 'messages',
+        hint: 'What the club has been telling you',
+      },
     ],
   },
   {
-    id: 'recruitment',
-    label: 'Recruitment',
-    icon: 'recruitment',
-    direct: true,
+    id: 'team',
+    label: 'Team',
+    icon: 'squad',
+    // Recruitment is here rather than beside it: finding a player is part of
+    // building a side, and a manager looking for a left back is thinking about
+    // his team first and the transfer market second.
     leaves: [
+      { id: 'squad', label: 'Squad', icon: 'squad', hint: 'Everyone registered, and how they are' },
+      { id: 'team', label: 'Selection', short: 'Team', icon: 'team', hint: 'Pick the XI, the bench and the captain' },
+      { id: 'tactics', label: 'Tactics', icon: 'tactics', hint: 'How you want to play' },
+      { id: 'training', label: 'Training', icon: 'training', hint: "Thursday night's session" },
       {
         id: 'recruitment',
         label: 'Recruitment',
@@ -104,18 +121,13 @@ export const NAV_SECTIONS: NavSection[] = [
     id: 'competitions',
     label: 'Competitions',
     icon: 'league',
+    // Fixtures first: the next game is the question a manager opens the game to
+    // answer, and the table is where he checks how the answer went.
     leaves: [
-      { id: 'league', label: 'League table', short: 'League', icon: 'league', hint: 'The table and results elsewhere' },
-      { id: 'cup', label: 'Cups', short: 'Cups', icon: 'league', hint: 'The League Cup and the Plate' },
       { id: 'fixtures', label: 'Schedule', short: 'Matches', icon: 'fixtures', hint: 'The season, week by week' },
+      { id: 'league', label: 'League Table', short: 'League', icon: 'league', hint: 'The table and results elsewhere' },
+      { id: 'cup', label: 'Cups', short: 'Cups', icon: 'league', hint: 'The League Cup and the Plate' },
     ],
-  },
-  {
-    id: 'media',
-    label: 'Media',
-    icon: 'news',
-    direct: true,
-    leaves: [{ id: 'news', label: 'News', short: 'News', icon: 'news', hint: 'Everything the local game has to say' }],
   },
   {
     id: 'club',
@@ -124,8 +136,12 @@ export const NAV_SECTIONS: NavSection[] = [
     // The kit is deliberately not a place in the navigation: a club picks its
     // strip once, in pre-season, when the new shirts turn up. The screen still
     // exists, and the overview offers it in the weeks before the season starts.
+    //
+    // Media lives here rather than beside the club: what the local game says
+    // about this club, its players and its money is the club's own news.
     leaves: [
       { id: 'finances', label: 'Finances', icon: 'finances', hint: 'The treasurer’s book' },
+      { id: 'news', label: 'Media', short: 'News', icon: 'news', hint: 'Everything the local game has to say' },
       { id: 'history', label: 'History', icon: 'history', hint: 'Honours, records and past seasons' },
     ],
   },
@@ -165,6 +181,7 @@ export const VIEW_LABEL: Record<ViewId, string> = {
   league: 'League table',
   cup: 'Cups',
   news: 'News',
+  inbox: 'Messages',
   finances: 'Finances',
   kit: 'The kit',
   history: 'History',

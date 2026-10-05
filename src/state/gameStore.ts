@@ -56,7 +56,15 @@ import {
   type WorldDraft,
 } from '@/simulation/gameSetup';
 import { defaultManagerProfile, type ManagerProfile } from '@/domain/manager';
-import { continueTime, currentAttention, processDay, callLateWithdrawals, readyForToday } from '@/simulation/day';
+import {
+  continueTime,
+  continueTimeSteps,
+  currentAttention,
+  processDaySteps,
+  callLateWithdrawals,
+  readyForToday,
+  type DayStep,
+} from '@/simulation/day';
 import { startNextSeason } from '@/simulation/season';
 import { nextFixtureFor } from '@/simulation/schedule';
 import { daysBetween } from '@/simulation/calendar';
@@ -68,6 +76,10 @@ import {
   requestRecommendations as askSquadForNames,
 } from '@/simulation/recruitment/discovery';
 import { inviteToTrial as inviteCandidate, runTrialSession as runSession } from '@/simulation/recruitment/trials';
+import type { CommunicationIntent } from '@/domain/communication';
+import { markConversationRead } from '@/simulation/communication/store';
+import { openPlayerThread, sendPlayerMessage } from '@/simulation/communication/playerConversation';
+import { sendFromManager, threadWith } from '@/simulation/communication/system';
 // The kit planner is pure decisions about colours — no React, no rendering — so
 // the action that changes the club's kit can name the kit it just changed to.
 import { clubKit, KIT_OPTION_COUNT } from '@/ui/kit';
@@ -124,6 +136,7 @@ export type ViewId =
   | 'replay'
   | 'recruitment'
   | 'training'
+  | 'inbox'
   | 'match';
 
 /** Something the manager can pull up over the top of the current screen. */
@@ -206,6 +219,29 @@ export interface SetupState {
  */
 export type DialogId = 'preferences' | 'changelog' | 'credits' | 'profiles';
 
+/**
+ * What the game is doing while the manager waits for the rest of the league.
+ *
+ * A matchday means five or six other clubs being played out by the same engine
+ * the manager watches, each long enough that a screen with no explanation of it
+ * reads as a freeze. This is that explanation: which match is being worked out,
+ * how far through the day it is, and what has come out of it so far.
+ */
+export interface ProcessingState {
+  /** What the game is doing, in the manager's words. */
+  headline: string;
+  /** The match being worked out, or null between two of them. */
+  current: string | null;
+  /** Fixtures finished so far, out of `total`. */
+  done: number;
+  /** The day's other fixtures, which the loop knows before it plays the first. */
+  total: number;
+  /** Results as they arrive, oldest first. */
+  results: string[];
+  /** The day the football belongs to, for the heading once it is known. */
+  date: ISODate | null;
+}
+
 export interface GameStore {
   /**
    * Whether the game knows whether there is a career to reopen.
@@ -233,8 +269,23 @@ export interface GameStore {
   profile: ProfileTarget | null;
   /** A transfer/recruitment negotiation opened from a candidate. */
   negotiationId: PersonId | null;
+  /** Which conversation the inbox is showing. Null means the list. */
+  openConversationId: string | null;
   /** Which of the game's own dialogs is open, if any. */
   dialog: DialogId | null;
+  /**
+   * The game is playing out football the manager is not watching.
+   *
+   * Non-null only while the clock is being moved across other clubs' fixtures.
+   * The modal reads it; nothing else may act on it, and it closes itself.
+   */
+  processing: ProcessingState | null;
+  /**
+   * The clock is moving. True from the first day to the last, which is longer
+   * than `processing` is non-null: the dialog only appears once there is football
+   * to wait for, but a second Continue must be refused either way.
+   */
+  advancing: boolean;
   /** How the game behaves for the person playing it. Held outside any career. */
   preferences: Preferences;
 
@@ -261,10 +312,27 @@ export interface GameStore {
   openNegotiation: (personId: PersonId) => void;
   closeNegotiation: () => void;
 
+  // Communication: opening a thread, reading it, and writing back.
+  /** Open a thread. Opening it is what marks it read, not leaving it. */
+  openConversation: (conversationId: string) => void;
+  /** Back to the list. The thread stays where it was, read. */
+  closeConversation: () => void;
+  /** Start a thread with somebody if there is not one already. */
+  startConversationWith: (personId: PersonId) => void;
+  /**
+   * Write to a thread with an intent behind it. The words the manager would
+   * have typed come from the intent, so nothing here needs a keyboard.
+   */
+  sendConversationMessage: (conversationId: string, intent: CommunicationIntent) => void;
+  /** Open a thread with a player from his profile and go to it. */
+  messagePlayer: (personId: PersonId) => void;
+  /** Put an intent to a player. Replies, follow-ups and relationships follow. */
+  sendPlayerIntent: (personId: PersonId, intent: CommunicationIntent) => void;
+
   // The calendar: FM's Continue button, day by day.
-  continueGame: () => void;
-  advanceDays: (days: number) => void;
-  jumpToDate: (date: ISODate) => void;
+  continueGame: () => Promise<void>;
+  advanceDays: (days: number) => Promise<void>;
+  jumpToDate: (date: ISODate) => Promise<void>;
 
   // Career lifecycle: choose a mode, say who you are, then take or build a club.
   beginSetup: (mode: SetupMode) => void;
@@ -487,6 +555,124 @@ function advanceLiveEngine(game: GameState, live: Match, deltaSeconds: number, m
  * there being no career. `ready` stays false until that has happened, which is
  * what the menu waits on.
  */
+/**
+ * How long the processing modal stays up when the work turns out to be quick.
+ *
+ * A flash of a dialog that appears and vanishes inside a blink is worse than no
+ * dialog at all: it reads as a glitch rather than as an explanation.
+ */
+const MINIMUM_PROCESSING_MS = 700;
+
+/** A frame the browser can actually paint before the next fixture is simulated. */
+function paintFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    // The store is also driven from tests, where there is no frame to wait for.
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => setTimeout(resolve, 0));
+    else setTimeout(resolve, 0);
+  });
+}
+
+/**
+ * Move the clock, showing the football as it is played out.
+ *
+ * The stepping loop is the one the synchronous button drains; the only
+ * difference is that this one stands between fixtures long enough for the bar
+ * to move, and reports each result as it lands. Every way of moving the clock
+ * that crosses somebody else's football comes through here, so the wait is
+ * explained wherever the manager caused it.
+ */
+async function runWithProgress<T>(
+  state: GameState,
+  steps: Generator<DayStep, T, void>,
+  commit: (outcome: T) => void,
+  headline = 'Playing out the rest of the league',
+): Promise<void> {
+  const store = useGameStore;
+  // The career this play-out was started from. Held so the result is only handed
+  // over if it is still the one on screen: the work spans several frames, and a
+  // manager who quit to the menu in the middle of it must not find a month of
+  // football written over the career he has just loaded.
+  const startedFrom = store.getState().game;
+  let shownAt: number | null = null;
+  store.setState({ plannerOpen: false, advancing: true });
+
+  let next = steps.next();
+  while (!next.done) {
+    const step: DayStep = next.value;
+    const now = store.getState().processing;
+    if (step.kind === 'fixture') {
+      // The dialog goes up when there is football to wait for, not when the clock
+      // was moved. A Tuesday with nothing on it must not produce a progress bar
+      // for a wait that never happened.
+      if (!now) {
+        shownAt = Date.now();
+        store.setState({
+          processing: {
+            headline,
+            current: `${step.home} v ${step.away}`,
+            done: step.done,
+            total: step.total,
+            results: [],
+            date: step.date,
+          },
+        });
+      } else {
+        store.setState({
+          processing: { ...now, current: `${step.home} v ${step.away}`, done: step.done, total: step.total, date: step.date },
+        });
+      }
+    } else if (now) {
+      // Null here means the dialog was never opened, or that another career has
+      // been loaded over the top: either way there is nothing left to draw.
+      store.setState({ processing: { ...now, current: null, done: step.done, total: step.total, results: [...now.results, step.line] } });
+    }
+    // Paint before the next engine run, or the manager watches a frozen screen
+    // for a second and then everything happens at once.
+    await paintFrame();
+    next = steps.next();
+  }
+
+  readyForManager(state);
+  // Only ever hold the finished dialog open if it was ever opened.
+  if (shownAt !== null) {
+    const remaining = MINIMUM_PROCESSING_MS - (Date.now() - shownAt);
+    if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
+  }
+  if (store.getState().game === startedFrom) commit(next.value);
+  store.setState({ processing: null, advancing: false });
+}
+
+/**
+ * The calendar planner's own day loop, paused the same way.
+ *
+ * Advancing days by hand crosses exactly the same football as Continue does, so
+ * it gets the same explanation rather than a different silence.
+ */
+function* advanceDaysSteps(state: GameState, days: number): Generator<DayStep, string[], void> {
+  const notes: string[] = [];
+  for (let i = 0; i < days; i += 1) {
+    const stop = currentAttention(state);
+    if (stop && stop.kind !== 'flagged') break;
+    const day = yield* processDaySteps(state, state.date, { resolveUserMatch: false });
+    notes.push(...day.notes);
+    if (day.seasonFinished) break;
+  }
+  return notes;
+}
+
+/** Running the calendar to a chosen date, paused the same way. */
+function* jumpToDateSteps(state: GameState, days: number): Generator<DayStep, string[], void> {
+  const notes: string[] = [];
+  for (let i = 0; i < days; i += 1) {
+    const stop = currentAttention(state);
+    if (stop && stop.kind !== 'flagged') break;
+    const day = yield* processDaySteps(state, state.date, { resolveUserMatch: false });
+    notes.push(...day.notes);
+    if (day.seasonFinished) break;
+  }
+  return notes;
+}
+
 export const useGameStore = create<GameStore>((set, get) => ({
   ready: false,
   game: null,
@@ -502,11 +688,24 @@ export const useGameStore = create<GameStore>((set, get) => ({
   plannerOpen: false,
   profile: null,
   negotiationId: null,
+  openConversationId: null,
   dialog: null,
+  processing: null,
+  advancing: false,
   preferences: loadPreferences(),
 
   setView: (view) =>
-    set({ view, replay: null, profile: null, negotiationId: null, plannerOpen: false, dialog: null }),
+    set({
+      view,
+      replay: null,
+      profile: null,
+      negotiationId: null,
+      // Leaving the inbox altogether drops the open thread, so coming back to
+      // Messages shows the list rather than re-reading a thread already read.
+      ...(view === 'inbox' ? {} : { openConversationId: null }),
+      plannerOpen: false,
+      dialog: null,
+    }),
 
   openReplay: (matchId, from) => {
     const game = get().game;
@@ -557,6 +756,114 @@ export const useGameStore = create<GameStore>((set, get) => ({
   closeNegotiation: () => set({ negotiationId: null }),
 
   /**
+   * Open a thread, and read it.
+   *
+   * Reading happens on open rather than on leave, because a message the manager
+   * has actually looked at has been read whether or not he went back to the
+   * list — a phone that only clears its badge when you swipe away is a phone
+   * that lies to you about your own post.
+   */
+  openConversation: (conversationId) => {
+    const game = get().game;
+    if (!game) return;
+    const state = clone(game);
+    markConversationRead(state, conversationId);
+    set({ game: state, openConversationId: conversationId, error: null });
+  },
+
+  closeConversation: () => set({ openConversationId: null }),
+
+  startConversationWith: (personId) => {
+    const game = get().game;
+    if (!game) return;
+    const state = clone(game);
+    // A thread he has to write first, or a man who has never written to him
+    // is not a conversation: it is a contact. Either way the manager is taken
+    // to it, and an empty one says so rather than looking like a broken screen.
+    const conversation = threadWith(state, personId);
+    set({
+      game: state,
+      view: 'inbox',
+      openConversationId: conversation.id,
+      error: null,
+    });
+  },
+
+  sendConversationMessage: (conversationId, intent) => {
+    const game = get().game;
+    if (!game) return;
+    const state = clone(game);
+    const conversation = state.communication?.conversations[conversationId];
+    if (!conversation) return;
+    // Whoever else is in the thread is who the message is for; a one-to-one has
+    // exactly one, and a group broadcast goes to all of them.
+    const targetId = conversation.participantIds.find((id) => id !== 'user_manager') ?? null;
+    // A one-to-one with a player goes through the player path, so the answer is
+    // read from his record and the relationship moves. Everything else — the
+    // committee, a group, a trialist — is a generic message.
+    if (targetId && conversation.type === 'player' && state.people[targetId]?.kind === 'player') {
+      const sent = sendPlayerMessage(state, targetId, intent);
+      if (!sent) return;
+      set({
+        game: state,
+        error: null,
+        notice: sent.followUp ? `${state.people[targetId]!.firstName} will let you know.` : null,
+      });
+      return;
+    }
+    const person = targetId ? state.people[targetId] : undefined;
+    const result = sendFromManager(state, {
+      conversationId,
+      intent,
+      targetId,
+      context: person
+        ? { name: person.firstName, topic: person.surname }
+        : { topic: conversation.title },
+    });
+    if (!result.message) return;
+    set({ game: state, error: null });
+  },
+
+  /**
+   * Open a thread with a player from his profile.
+   *
+   * Reopening a profile to find out what he said is the whole point of opening
+   * it, so this goes to the thread rather than leaving the manager to look for
+   * it — and closing the profile first means the thread is what he is looking at
+   * when the overlay goes.
+   */
+  messagePlayer: (personId) => {
+    const game = get().game;
+    if (!game) return;
+    const state = clone(game);
+    const conversationId = openPlayerThread(state, personId);
+    if (!conversationId) return;
+    markConversationRead(state, conversationId);
+    set({ game: state, view: 'inbox', openConversationId: conversationId, error: null, profile: null });
+  },
+
+  sendPlayerIntent: (personId, intent) => {
+    const game = get().game;
+    if (!game) return;
+    const state = clone(game);
+    const conversationId =
+      state.communication?.conversations[openPlayerThread(state, personId) ?? '']?.id ??
+      openPlayerThread(state, personId);
+    if (!conversationId) return;
+    const sent = sendPlayerMessage(state, personId, intent);
+    if (!sent) return;
+    // The reply has arrived and nobody has read it — the manager is not looking
+    // at this thread, or he would not be asking.
+    set({
+      game: state,
+      error: null,
+      notice: sent.followUp
+        ? `${state.people[personId]?.firstName ?? 'He'} will let you know.`
+        : null,
+    });
+  },
+
+  /**
    * The Continue button.
    *
    * Days are simulated, one at a time, until something needs the manager. The
@@ -564,18 +871,23 @@ export const useGameStore = create<GameStore>((set, get) => ({
    * "Training tonight" standing on Thursday — and refuses to move at all when
    * there is something he cannot let slide, like an unplayed match.
    */
-  continueGame: () => {
+  continueGame: async () => {
     const game = get().game;
-    if (!game) return;
+    // A second press while the clock is still moving would run a second copy of
+    // the same day, and the two would fight over one state.
+    if (!game || get().advancing) return;
     const state = clone(game);
-    const outcome = continueTime(state);
-    // The clock stops on the day things happen, so today's own fixtures have to
-    // be made ready here rather than being left until a day that never comes.
-    readyForManager(state);
-    // The view is left alone: working out where the manager should be looking is
-    // the command bar's job, and yanking him into a screen is how players lose
-    // track of what just happened.
-    set({ game: state, error: null, plannerOpen: false, notice: continueNotice(outcome) });
+    // Moving the clock across a matchday means running the match engine once per
+    // other club, which is seconds of work. It is done a fixture at a time, and
+    // the progress dialog opens only if a fixture is actually reached: a
+    // Tuesday with nothing on it must not produce a bar for a wait that never
+    // happened.
+    await runWithProgress(state, continueTimeSteps(state), (outcome) => {
+      // The view is left alone: working out where the manager should be looking
+      // is the command bar's job, and yanking him into a screen is how players
+      // lose track of what just happened.
+      set({ game: state, error: null, notice: continueNotice(outcome) });
+    });
   },
 
   /**
@@ -585,32 +897,28 @@ export const useGameStore = create<GameStore>((set, get) => ({
    * surfaced rather than skipped, because the whole point of stopping the clock
    * is that the manager does not lose a game he forgot to play.
    */
-  advanceDays: (days) => {
+  advanceDays: async (days) => {
     const game = get().game;
-    if (!game) return;
+    if (!game || get().advancing) return;
     const state = clone(game);
     const blocked = currentAttention(state);
     if (blocked && blocked.kind !== 'flagged') {
       set({ game: state, error: null, notice: `${blocked.headline} — ${blocked.detail}` });
       return;
     }
-    const notes: string[] = [];
     const wanted = Math.max(1, Math.min(30, Math.round(days)));
-    for (let i = 0; i < wanted; i += 1) {
-      const stop = currentAttention(state);
-      if (stop && stop.kind !== 'flagged') break;
-      const day = processDay(state, state.date, { resolveUserMatch: false });
-      notes.push(...day.notes);
-      if (day.seasonFinished) break;
-    }
-    readyForManager(state);
-    set({ game: state, error: null, notice: notes.join(' ') || null });
+    await runWithProgress(
+      state,
+      advanceDaysSteps(state, wanted),
+      (notes) => set({ game: state, error: null, notice: notes.join(' ') || null }),
+      'Moving the calendar',
+    );
   },
 
   /** Run the calendar forward to a date, stopping for anything that matters. */
-  jumpToDate: (date) => {
+  jumpToDate: async (date) => {
     const game = get().game;
-    if (!game) return;
+    if (!game || get().advancing) return;
     if (date <= game.date) {
       set({ error: 'That day has already been and gone.' });
       return;
@@ -621,16 +929,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
       set({ error: 'That is more than four months away — pick something closer.' });
       return;
     }
-    const notes: string[] = [];
-    for (let i = 0; i < days; i += 1) {
-      const stop = currentAttention(state);
-      if (stop && stop.kind !== 'flagged') break;
-      const day = processDay(state, state.date, { resolveUserMatch: false });
-      notes.push(...day.notes);
-      if (day.seasonFinished) break;
-    }
-    readyForManager(state);
-    set({ game: state, error: null, notice: notes.join(' ') || `Calendar moved to ${date}.` });
+    await runWithProgress(
+      state,
+      jumpToDateSteps(state, days),
+      (notes) => set({ game: state, error: null, notice: notes.join(' ') || `Calendar moved to ${date}.` }),
+      'Moving the calendar',
+    );
   },
 
   beginSetup: (mode) => {
@@ -1342,8 +1646,18 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (!Number.isInteger(option) || option < 0 || option >= KIT_OPTION_COUNT) return;
     const state = clone(game);
     const club = state.clubs[state.userClubId];
-    if (!club || (club.kitChoice ?? 0) === option) return;
+    if (!club) return;
+    // "Already chosen" means *for this season*, not "the same design as before".
+    // Bailing out on an unchanged design would mean a manager who confirms the
+    // first shirt — which is what an unset club is already wearing — never
+    // settles anything, and the kit prompt sat on the dashboard for ever.
+    const alreadySettled = club.kitSeason === state.season.label;
+    if (alreadySettled && (club.kitChoice ?? 0) === option) return;
     club.kitChoice = option;
+    // Recorded so the kit screen can stop offering itself once the manager has
+    // chosen, and start again at the next pre-season without anything having to
+    // reset it.
+    club.kitSeason = state.season.label;
     const kit = clubKit(state, club.id);
     set({
       game: state,

@@ -57,6 +57,29 @@ export interface MovementRecord {
 }
 
 /**
+ * One round of a knockout, as the competition was planned at the start of the
+ * season.
+ *
+ * `field` is every club the round knows about — the ones playing and the ones
+ * on a bye — while `entrants` is how many of them actually appear in a tie. The
+ * gap between the two is the byes, and it is why a cup's opening round can hold
+ * eight clubs in front of a round of thirty-two without anybody having to be
+ * knocked out to make room.
+ */
+export interface CupRound {
+  /** 1-based round number. */
+  round: number;
+  /** Clubs still in the competition when this round is drawn. */
+  field: number;
+  /**
+   * Clubs that play a tie. Below `field` means the rest get a bye: they are
+   * still in `competition.clubIds`, and a round that finishes reads them back
+   * out as survivors because they never lost.
+   */
+  entrants: number;
+}
+
+/**
  * A knockout competition's own state.
  *
  * The ladder itself is held by the competition record; this is only the
@@ -93,6 +116,15 @@ export interface CupState {
    * count as its offset, which puts it strictly after.
    */
   matchdayOffset?: number;
+  /**
+   * How many clubs each round holds, fixed when the season was built.
+   *
+   * Stored rather than recomputed because the shape of a cup depends on how many
+   * clubs entered it, and that number changes under the competition's feet as
+   * clubs are relegated out of the pyramid. A competition with no plan is a
+   * pre-planning save, and is read as a plain knockout with no byes.
+   */
+  plan?: CupRound[];
 }
 
 export interface Competition {

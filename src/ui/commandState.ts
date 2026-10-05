@@ -3,7 +3,7 @@ import type { ISODate } from '@/domain/ids';
 import { FORFEIT_GOALS, MIN_SIDE, periodLabel, type Match } from '@/domain/match';
 import { canFieldSide } from '@/simulation/forfeit';
 import { isPlayer } from '@/domain/person';
-import { daysBetween, formatDayMonth } from '@/simulation/calendar';
+import { daysBetween, formatDayMonth, formatKickOff } from '@/simulation/calendar';
 import { currentScore } from '@/simulation/match/matchEngine';
 import { currentAttention, type ContinueStop } from '@/simulation/day';
 import { currentMatchday, matchOpponent, matchVenueLabel, squadAvailability } from '@/simulation/queries';
@@ -207,7 +207,7 @@ export function commandStateFor(game: GameState, session: MatchSession | null): 
       titleClubId: opponent.id,
       lines: [
         ...(playedToday ? [`Today: ${playedToday}`] : []),
-        `${competitionDay(fixture)} · ${fixture.kickOff}`,
+        `${competitionDay(fixture)} · ${formatKickOff(fixture.kickOff)}`,
         `${venue} · ${game.world.grounds[fixture.groundId]?.name ?? 'ground to confirm'}`,
         before ? `${stop.headline} on ${formatDayMonth(stop.date)} comes first` : hint,
       ],
@@ -278,7 +278,7 @@ function matchdayState(
     title: `${opponent.identity.name} (${venue})`,
     titleClubId: opponent.id,
     lines: [
-      `Kick-off ${match.kickOff} · ${venue}`,
+      `Kick-off ${formatKickOff(match.kickOff)} · ${venue}`,
       `${game.world.grounds[match.groundId]?.name ?? 'ground to confirm'}${weather ? ` · ${weather}` : ''}`,
       match.refereeId ? `Referee: ${personName(game, match.refereeId)}` : 'No referee allocated yet',
     ],

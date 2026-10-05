@@ -17,6 +17,8 @@ export type SeasonId = string;
 export type NewsId = string;
 export type EventId = string;
 export type RelationshipId = string;
+export type ConversationId = string;
+export type MessageId = string;
 
 /** ISO calendar date, `YYYY-MM-DD`. Game time is day-granular. */
 export type ISODate = string;

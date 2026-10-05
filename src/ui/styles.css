@@ -625,17 +625,22 @@ a,
 }
 
 .nextmatch {
-  /* The band: who is next on one line, when and where on the next.
+  /* The band: who is next, and when and where, on one line.
 
      A shade of the club's colour, so the fixture reads as a band of its own
-     rather than as more of the shirt behind it — and the facts get a line of
-     their own instead of being strung along beside the fixture, where they were
-     the first thing to be squeezed and the last thing to be read. */
+     rather than as more of the shirt behind it.
+
+     The facts used to sit on a line of their own under the fixture, which cost a
+     whole extra row of the bar for no reason: they are short, and the band is
+     wide enough to hold them beside the opponent. So the band is one line, and
+     it wraps *within itself* rather than being given a line to itself — a narrow
+     window still stacks the facts, but a normal one does not pay for it. */
   order: 2;
   flex: 1 0 100%;
   display: flex;
-  flex-direction: column;
-  gap: 1px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1px var(--s3);
   min-width: 0;
   padding: 4px var(--s2) 5px;
   background: var(--club-band);
@@ -650,6 +655,10 @@ a,
   align-items: baseline;
   gap: var(--s3);
   min-width: 0;
+  /* The head takes the slack between itself and the facts, so the facts end up
+     against the right-hand edge of the band rather than trailing the club name.
+     A fixture list is read left to right: who is next, then when and where. */
+  flex: 1 1 auto;
 }
 .nextmatch__label {
   flex: 0 0 auto;
@@ -675,9 +684,13 @@ a,
   gap: var(--s3);
   font-size: var(--fs-xs);
   opacity: 0.85;
-  /* Each fact stays whole; the line breaks between them if it has to. */
+  /* Each fact stays whole; the line breaks between them if it has to. These are
+     the second thing in the band and the head grows first, so on a wide window
+     this is one row of facts against the right-hand edge, and only a narrow one
+     (or a very long club name) drops them to a line of their own. */
   flex-wrap: wrap;
   row-gap: 1px;
+  min-width: 0;
 }
 .nextmatch__meta span {
   flex: 0 0 auto;
@@ -691,6 +704,14 @@ a,
 }
 
 .topbar__search {
+  /* The search box is the left-hand end of the right-hand cluster — search, date,
+     continue, tools — so *this* is where the free space belongs: it pushes the
+     whole cluster against the edge of the bar.
+
+     The date used to claim an auto margin as well, and two auto margins in one
+     flex row split the free space between them instead of pushing the group to
+     one end, which opened a gap as wide as the club badge between the search box
+     and the date. Only one item in a row should own the slack. */
   margin-left: auto;
   position: relative;
   width: 260px;
@@ -764,7 +785,6 @@ a,
 }
 
 .topbar__date {
-  margin-left: auto;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -955,24 +975,37 @@ a,
 .sidenav__group {
   border-bottom: 1px solid var(--line-soft);
 }
+/* A section heading and one of the screens inside it have to read as the same
+   list, so the heading's metrics are the screen's: the same left padding, so the
+   icons sit in one column, the same type size, so the labels start at the same
+   width. It keeps the taller row a heading should have; what it gives up is the
+   smaller type, which was the visible jog between the two kinds of row. */
 .sidenav__toggle {
   display: flex;
   align-items: center;
   gap: var(--s3);
   width: 100%;
   background: none;
+  /* The screens below carry a 2px active rule on their left edge. Without the
+     same border here the heading's icon sat 2px left of every icon under it. */
   border: none;
+  border-left: 2px solid transparent;
   color: var(--text-dim);
-  padding: 10px var(--s3);
+  padding: 10px var(--s3) 10px var(--s4);
   cursor: pointer;
   text-align: left;
   min-height: 40px;
-  font-size: var(--fs-sm);
+  font-size: var(--fs-base);
   font-weight: 600;
 }
 .sidenav__toggle:hover {
   color: var(--text);
   background: var(--panel);
+}
+.sidenav__toggle .glyph {
+  width: 15px;
+  height: 15px;
+  opacity: 0.85;
 }
 .sidenav__toggle--has-active {
   color: var(--text);
@@ -1363,6 +1396,23 @@ a,
 }
 .page-head--warn .page-head__title {
   color: var(--warn);
+}
+/* The three setup screens are the only ones with no flat game background behind
+ * them: the profile and club-selection headers sit straight on the pitch
+ * photograph, and the create-a-club header sits on a green gradient lighter
+ * than the eyebrow's own colour. Small green capitals on grass read as mud, so
+ * the heading block is given the drop shadow the brand word already wears over
+ * the scene. It is deliberately scoped: inside a career the same header sits on
+ * flat black, where a shadow would only muddy the edges of a large title. */
+.profile-setup .page-head__eyebrow,
+.club-select .page-head__eyebrow,
+.create-club .page-head__eyebrow {
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.8), 0 0 2px rgba(0, 0, 0, 0.65);
+}
+.profile-setup .page-head__title,
+.club-select .page-head__title,
+.create-club .page-head__title {
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.55);
 }
 .page-head--danger .page-head__title {
   color: var(--bad);
@@ -1785,6 +1835,15 @@ select.input {
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
+/* A pill that holds a time is the one thing not shouted. Kick-off times are
+   written as a manager reads them — `7:45pm`, not `7:45PM` — and a league
+   game and a cup tie sitting in the same list should not disagree about it just
+   because one of them happens to be in a pill. */
+.pill--time {
+  color: var(--text-faint);
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
 .pill--ok {
   color: var(--ok);
   border-color: rgba(79, 179, 124, 0.45);
@@ -2090,6 +2149,192 @@ select.input {
   cursor: pointer;
   border-bottom: 1px solid transparent;
 }
+/* The away side of a fixture: name before crest, right-aligned, so the two
+   crests in a row face each other across the middle. */
+.clubcell--reverse {
+  flex-direction: row-reverse;
+  justify-content: flex-end;
+  text-align: right;
+}
+
+/* The record books ------------------------------------------------------- */
+/* A name, the club he plays for, and the number. Not a table with headers: the
+   chart is read by the number, and the heading already says what it counts. */
+.statcards {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+.statcards tr {
+  border-bottom: 1px solid var(--line-soft);
+}
+.statcards tr:last-child {
+  border-bottom: none;
+}
+.statcards td {
+  padding: 4px 0;
+  vertical-align: middle;
+}
+.statcards__name {
+  padding-right: var(--s2);
+  min-width: 0;
+}
+.statcards__name > * {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.statcards__club {
+  width: 42%;
+  min-width: 0;
+  color: var(--text-dim);
+}
+.statcards__club span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.statcards__note {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
+  padding-right: var(--s2);
+  color: var(--text-faint);
+}
+.statcards__value {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+.statcards__pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--s3);
+}
+.statcards__heading {
+  margin: 0 0 var(--s1);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 700;
+}
+
+/* One fixture line ------------------------------------------------------- */
+/* Five columns, and the two club columns are the same width: that is what puts
+   the `v` on the centre of the row instead of in the gap between whatever the
+   longest club name happens to leave. */
+.fixrow {
+  display: grid;
+  /* The margin and the result are the same width on purpose: with five columns,
+     the `v` is only on the centre of the row when the two outer columns are
+     equal, and off-centre by half the difference otherwise. */
+  grid-template-columns: 78px minmax(0, 1fr) 22px minmax(0, 1fr) 78px;
+  gap: var(--s2);
+  align-items: center;
+  padding: 5px var(--s3);
+  border-bottom: 1px solid var(--line-soft);
+  font-size: var(--fs-base);
+  list-style: none;
+}
+.fixrow:last-child {
+  border-bottom: none;
+}
+.fixrow--mine {
+  background: var(--club-wash);
+}
+.fixrow__side {
+  display: flex;
+  min-width: 0;
+}
+.fixrow__side--home {
+  justify-content: flex-start;
+}
+.fixrow__side--away {
+  justify-content: flex-end;
+}
+.fixrow__side > * {
+  min-width: 0;
+}
+.fixrow__side span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fixrow__v {
+  text-align: center;
+}
+.fixrow__result {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: var(--s2);
+  text-align: right;
+}
+.fixrow__score {
+  font-variant-numeric: tabular-nums;
+}
+.fixrow__meta {
+  white-space: nowrap;
+}
+/* A fixture that was called off stays in the list it was drawn for, dimmed
+   rather than hidden: a game that did not happen is still part of that round's
+   record. The reason and the new date span the row rather than sitting in the
+   result column, which is far too narrow to hold a sentence. */
+.fixrow--postponed {
+  grid-template-areas:
+    'meta home v away result'
+    'replay replay replay replay replay';
+  opacity: 0.72;
+}
+/* These are scoped to the called-off row on purpose. Naming a grid area on the
+   shared classes would apply it to every fixture row, and a row with no
+   grid-template-areas to resolve the name against collapses its children into a
+   single implicit cell: the two club names and the score land on top of one
+   another. Only the row that declares the template may reference it. */
+.fixrow--postponed .fixrow__meta {
+  grid-area: meta;
+}
+.fixrow--postponed .fixrow__side--home {
+  grid-area: home;
+}
+.fixrow--postponed .fixrow__v {
+  grid-area: v;
+}
+.fixrow--postponed .fixrow__side--away {
+  grid-area: away;
+}
+.fixrow--postponed .fixrow__result {
+  grid-area: result;
+}
+.fixrow__pp {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  line-height: 1.25;
+}
+.fixrow__pp-score {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--warn, #e0a33e);
+}
+.fixrow__pp span:last-child {
+  max-width: 22ch;
+  text-align: right;
+  line-height: 1.3;
+}
+.fixrow__replay {
+  grid-area: replay;
+  padding-top: 3px;
+  text-align: right;
+}
+/* The same story on the schedule screen, which has its own row layout. */
+.fixture--postponed {
+  opacity: 0.72;
+}
 .clubcell:hover,
 .clubcell:focus-visible {
   color: var(--link-hover, var(--club));
@@ -2302,34 +2547,8 @@ select.input {
   margin: 0;
   padding: 0;
 }
-.cup__tie {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: var(--s3);
-  align-items: center;
-  padding: 7px 0;
-  border-bottom: 1px solid var(--line-soft);
-}
-.cup__tie:last-child {
-  border-bottom: none;
-}
-/* The manager's own ties, marked the way his own league games are. */
-.cup__tie--mine {
-  border-left: 2px solid var(--club);
-  padding-left: var(--s2);
-}
-.cup__tie-teams {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--s2);
-}
-.cup__tie-result {
-  display: flex;
-  align-items: baseline;
-  gap: var(--s2);
-  text-align: right;
-}
+/* The cup's ties are drawn by the shared fixture row; only the list itself is
+   styled here. */
 .cup__mine + .cup__mine {
   margin-left: var(--s1);
 }
@@ -4996,6 +5215,82 @@ html[data-motion='reduced'] .incident {
   padding: var(--s3);
 }
 
+/* The rest of the league, being played out ---------------------------------- */
+/* A wait the manager did not ask for, so it is said plainly and left alone:
+   no close button, no dismiss-on-click, one line saying what is happening and
+   one saying what came of it. */
+.overlay--processing .overlay__scrim {
+  background: rgba(4, 8, 6, 0.82);
+}
+.overlay--processing .overlay__panel {
+  /* Nothing here can be clicked, so it should not read as something that can. */
+  cursor: progress;
+}
+.processing__body {
+  gap: var(--s3);
+}
+.progress {
+  position: relative;
+  height: 8px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+.progress__fill {
+  display: block;
+  height: 100%;
+  background: var(--club);
+  transition: width 200ms ease;
+}
+.processing__count {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.processing__current {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 44px;
+}
+.processing__label {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.11em;
+  font-weight: 700;
+  color: var(--text-dim);
+}
+.processing__fixture {
+  font-size: var(--fs-base);
+  font-weight: 600;
+}
+.processing__fixture--quiet {
+  color: var(--text-dim);
+  font-weight: 400;
+}
+.processing__results {
+  list-style: none;
+  margin: 0;
+  padding: var(--s2) 0 0;
+  border-top: 1px solid var(--line-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  /* Only the last handful matter: the results table is one screen away. */
+  max-height: 168px;
+  overflow-y: auto;
+}
+.processing__result {
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+@media (prefers-reduced-motion: reduce) {
+  .progress__fill {
+    transition: none;
+  }
+}
+
 /* The head of a profile: who it is, then one strip of the facts you always
    want. Two rows, full width, rather than a name boxed into a column with the
    facts floating off to the right of it. */
@@ -6160,6 +6455,12 @@ html[data-motion='reduced'] .incident {
     grid-template-columns: 62px minmax(0, 1fr) 54px;
     font-size: var(--fs-sm);
   }
+  .fixrow {
+    grid-template-columns: 54px minmax(0, 1fr) 18px minmax(0, 1fr) 54px;
+    gap: var(--s1);
+    padding: 5px var(--s2);
+    font-size: var(--fs-sm);
+  }
   .timeline__item {
     grid-template-columns: 70px minmax(0, 1fr);
   }
@@ -6610,4 +6911,496 @@ html[data-motion='reduced'] *::after {
   height: 6px;
   border-radius: 50%;
   background: currentColor;
+}
+/* ==========================================================================
+   Messages
+   --------------------------------------------------------------------------
+   One screen, two shapes. On a phone the list and the thread are the same
+   column: the thread replaces the list and a back bar returns to it. From a
+   wide screen they sit side by side, so a message can be read without losing
+   sight of what else is waiting.
+
+   The rule that shaped the sizing: nothing here has a width of its own. Every
+   row is a flex line with `min-width: 0` on the text and no fixed columns, so a
+   long name or a long message truncates instead of pushing the row wider and
+   forcing the phone to scroll sideways. A message screen that scrolls sideways
+   is a broken one.
+   ========================================================================== */
+
+.inbox {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  /* The one screen that fills the frame rather than sitting in it.
+     `.app__main > *` is `flex: 0 0 auto` so that ordinary screens keep their own
+     height, and a conversation is the exception: its log has to take whatever is
+     left so the head and the reply bar stay put at the edges of the phone. */
+  flex: 1 1 auto;
+}
+
+.inbox__list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* An empty inbox is the first thing a manager sees when nothing has happened
+   yet, so it sits in the middle of its pane rather than clinging to the top of
+   a screen that is otherwise empty. */
+.inbox__list .empty-state {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2);
+  padding: var(--s4) var(--s3);
+  text-align: center;
+}
+
+.inbox__list .empty-state .empty {
+  max-width: 26rem;
+}
+
+/* --- The list ----------------------------------------------------------- */
+
+.inbox__rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--line);
+  min-width: 0;
+}
+
+.inbox__row {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  width: 100%;
+  min-width: 0;
+  padding: var(--s3);
+  border: 0;
+  border-bottom: 1px solid var(--line-soft);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.inbox__row:hover {
+  background: var(--panel-2);
+}
+
+.inbox__row:focus-visible {
+  outline: 1px solid var(--club);
+  outline-offset: -1px;
+}
+
+/* The thread being read is marked by the club's own colour, which is the only
+   accent on this screen: an inbox should not look like a dashboard. */
+.inbox__row--open {
+  background: var(--panel-2);
+  box-shadow: inset 2px 0 0 var(--club);
+}
+
+.inbox__row-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.inbox__row-top,
+.inbox__row-bottom {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  min-width: 0;
+}
+
+.inbox__row-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* An unread thread is bolder. Not a coloured row: on a club-coloured screen a
+   background wash competes with the club's own identity for attention. */
+.inbox__row--unread .inbox__row-name {
+  font-weight: 700;
+}
+
+.inbox__row-when {
+  flex: none;
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.inbox__row-preview {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-dim);
+  /* One line, cut with an ellipsis by the browser rather than by measuring the
+     string in JavaScript: it is faster, it reflows on resize for free, and it
+     cannot disagree with the width the row actually has. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inbox__row--unread .inbox__row-preview {
+  color: var(--text);
+}
+
+.inbox__row-you {
+  color: var(--text-faint);
+}
+
+/* The unread count. Small, round, and the one thing on a row allowed to be
+   bright: it is the reason the manager opened the screen. */
+.inbox__dot {
+  flex: none;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--club);
+  color: var(--club-ink);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.inbox__kind {
+  flex: none;
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+  /* Only shown for the kinds that need it, so it must not become the widest
+     thing on the row. */
+  max-width: 6.5rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inbox__unread-note {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--club);
+  font-weight: 700;
+}
+
+/* The count on the navigation. The only place outside the inbox itself where a
+   number is allowed to be bright, and only for Messages: a badge on every
+   destination is a badge the manager stops seeing. */
+.sidenav__badge {
+  margin-left: auto;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--club);
+  color: var(--club-ink);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  line-height: 17px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.inbox__footnote {
+  margin: auto 0 0;
+  padding: var(--s3);
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+  border-top: 1px solid var(--line-soft);
+}
+
+/* --- The thread --------------------------------------------------------- */
+
+/* Hidden on a phone until a conversation is opened; `inbox--reading` on the
+   parent is what puts it on screen. */
+.inbox__thread {
+  display: none;
+  flex-direction: column;
+  /* Grows to fill the frame. Without this the thread is exactly as tall as its
+     messages and the reply bar floats halfway down a phone, with dead space
+     under it — which is the same as saying there is nothing more to read. */
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.inbox__thread-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.inbox__back {
+  /* Hidden on a wide layout, where there is nothing to go back to. Hidden with
+     CSS rather than removed, so the button keeps its accessible name. */
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: var(--s1) var(--s2) var(--s1) 0;
+  border: 0;
+  background: transparent;
+  color: var(--club);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.inbox__back span {
+  font-size: 1.2em;
+  line-height: 1;
+}
+
+.inbox__thread-name {
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: 700;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inbox__thread-kind {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+}
+
+.inbox__thread-people {
+  margin: 0;
+  flex: 1 1 100%;
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The log is the only scrolling region on the phone: the head and the reply bar
+   stay put, so there is always a way back and always something to say. */
+.inbox__log {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--s3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+.inbox__log--empty {
+  align-items: center;
+  justify-content: center;
+}
+
+.inbox__day {
+  margin: var(--s3) 0 var(--s1);
+  text-align: center;
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+}
+
+.inbox__day:first-child {
+  margin-top: 0;
+}
+
+/* --- A message ---------------------------------------------------------- */
+
+/* Lightweight on purpose: a name above, the words, a time underneath, and a
+   left or right alignment. No avatars, no ticks, no reaction counts — a Sunday
+   League thread is a handful of sentences, and the chrome should cost less
+   attention than the sentence does. */
+.bubble {
+  max-width: 85%;
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+/* The manager's own words carry the club colour as a thin edge rather than a
+   filled block, which keeps a long thread readable when both sides are talking. */
+.bubble--mine {
+  align-self: flex-end;
+  background: var(--panel-3);
+  box-shadow: inset 2px 0 0 var(--club);
+}
+
+.bubble__from {
+  margin: 0 0 2px;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--club);
+}
+
+.bubble__body {
+  margin: 0;
+  /* A long word in a long message must wrap rather than widen the bubble and
+     force the log to scroll sideways. */
+  overflow-wrap: anywhere;
+}
+
+.bubble__when {
+  margin: 3px 0 0;
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Saying something --------------------------------------------------- */
+
+.inbox__reply {
+  display: flex;
+  gap: var(--s1);
+  flex-wrap: wrap;
+  padding: var(--s2) var(--s3);
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+  /* On a phone this sits above the browser chrome and above the home gesture,
+     so it needs the safe area as well as the padding. */
+  padding-bottom: max(var(--s2), env(safe-area-inset-bottom));
+}
+
+.inbox__reply .btn {
+  font-size: var(--fs-sm);
+  padding: var(--s2) var(--s3);
+  /* Big enough to hit with a thumb, which is the whole point on a phone. */
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+.inbox__reply-glyph {
+  display: none;
+}
+
+/* --- Wide layout -------------------------------------------------------- */
+
+@media (min-width: 860px) {
+  .inbox {
+    flex-direction: row;
+    align-items: stretch;
+  }
+
+  .inbox__list {
+    flex: 0 0 clamp(280px, 30%, 380px);
+    border-right: 1px solid var(--line);
+    min-width: 0;
+  }
+
+  /* Both panes are present at once, so there is nothing to go back to and the
+     list is a permanent reference rather than a screen. */
+  .inbox__thread {
+    display: flex;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .inbox__back {
+    display: none;
+  }
+
+  .inbox__reply-glyph {
+    display: inline-block;
+    margin-right: 6px;
+    vertical-align: -2px;
+  }
+
+  .bubble {
+    max-width: 72%;
+  }
+}
+
+/* --- Phone -------------------------------------------------------------- */
+
+@media (max-width: 859px) {
+  /* Opening a thread swaps the panes. Both are in the same flex column, so this
+     is a display change rather than a navigation: the back bar is the browser
+     back gesture's equal, not its replacement. */
+  .inbox--reading .inbox__list {
+    display: none;
+  }
+
+  .inbox--reading .inbox__thread {
+    display: flex;
+  }
+}
+
+/* --- Landscape phone ---------------------------------------------------- */
+
+/* A landscape phone has very little height, and a conversation is the one
+   screen where height is the scarce thing: the log gets what it needs and the
+   reply row is allowed to be the tallest part of the frame. */
+@media (orientation: landscape) and (max-height: 520px) {
+  .inbox__log {
+    padding: var(--s2);
+  }
+
+  .inbox__reply {
+    padding: var(--s1) var(--s2);
+    padding-bottom: max(var(--s1), env(safe-area-inset-bottom));
+  }
+
+  .inbox__reply .btn {
+    min-height: 38px;
+    padding: var(--s1) var(--s2);
+  }
+}
+
+/* --- Narrow phones ------------------------------------------------------ */
+
+@media (max-width: 420px) {
+  .inbox__row {
+    padding: var(--s2) var(--s3);
+  }
+
+  .inbox__reply .btn {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .inbox__kind {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inbox__log {
+    scroll-behavior: auto;
+  }
+}
+
+/* The standing on an inbox row: the one thing about a player the thread
+ * itself cannot say, because it is the state of the *conversation* rather
+ * than the state of the man. Kept small and set apart from the preview so the
+ * row still reads as a name and a sentence. */
+.inbox__row-standing {
+  color: var(--s3, #7c868f);
+  font-variant-numeric: tabular-nums;
 }

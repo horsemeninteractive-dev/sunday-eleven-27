@@ -2,7 +2,7 @@ import type { GameState } from '@/domain/game';
 import { PITCH_LABEL, WEATHER_LABEL, type Match } from '@/domain/match';
 import { isPlayer, type Player } from '@/domain/person';
 import { POSITIONS } from '@/domain/positions';
-import { formatDayMonth } from '@/simulation/calendar';
+import { formatDayMonth, formatKickOff } from '@/simulation/calendar';
 import { expectedAttendanceFor } from '@/simulation/matchday';
 import { currentScore } from '@/simulation/match/matchEngine';
 import {
@@ -66,7 +66,7 @@ export function PreMatchPanel({
           <dl className="briefing__facts">
         <div>
           <dt>Kick-off</dt>
-          <dd>{match.kickOff}</dd>
+          <dd>{formatKickOff(match.kickOff)}</dd>
         </div>
         <div>
           <dt>Venue</dt>

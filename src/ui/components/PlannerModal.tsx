@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { ISODate } from '@/domain/ids';
-import { daysBetween, formatDate, MONTH_NAMES, toDate } from '@/simulation/calendar';
+import { MONTH_NAMES, daysBetween, formatDate, formatKickOff, toDate } from '@/simulation/calendar';
 import { dayEvents, plannerDays, plannerMonth } from '@/simulation/planner';
 import { nextStop } from '@/simulation/schedule';
 import { gameActions, useGame, useNextFixture } from '../hooks';
@@ -240,7 +240,7 @@ export function PlannerModal() {
                     <ClubLink clubId={fixture.homeClubId === game.userClubId ? fixture.awayClubId : fixture.homeClubId} />
                   </p>
                   <p className="muted small">
-                    {formatDate(fixture.date)} · {fixture.kickOff} ·{' '}
+                    {formatDate(fixture.date)} · {formatKickOff(fixture.kickOff)} ·{' '}
                     {game.world.grounds[fixture.groundId]?.name ?? 'ground to confirm'}
                   </p>
                 </Panel>

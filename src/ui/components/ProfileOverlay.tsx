@@ -378,6 +378,13 @@ function PlayerProfile({ personId }: { personId: string }) {
                     <Button
                       variant="primary"
                       block
+                      onClick={() => gameActions().messagePlayer(player.id)}
+                    >
+                      Have a word
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      block
                       onClick={() => {
                         gameActions().closeProfile();
                         gameActions().setView('team');

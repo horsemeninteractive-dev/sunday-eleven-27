@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { StandingRow } from '@/domain/club';
 import type { Competition } from '@/domain/competition';
-import { formatDayMonth } from '@/simulation/calendar';
+import { formatDayMonth, formatKickOff } from '@/simulation/calendar';
 import { currentMatchday, userClub } from '@/simulation/queries';
 import { divisionOf, fixtureIdsFor, leagueCompetitions, standingsFor } from '@/simulation/pyramid';
 import { ordinal } from '@/simulation/news';
@@ -9,6 +9,9 @@ import { gameActions, useGame, useStandings } from '../hooks';
 import { Button, FormPips, PageHeader, Panel, Pill, SortTh } from '../components/primitives';
 import { MetricTile, Section, TileGrid } from '../components/hierarchy';
 import { ClubLink } from '../components/Links';
+import { FixtureRow } from '../components/FixtureRow';
+import { Statistics } from '../components/Statistics';
+import { competitionStats } from '@/simulation/tables';
 import { applySort, UNSORTED, type SortAccessors, type SortState } from '../tableSort';
 
 /**
@@ -128,6 +131,9 @@ export function LeagueView() {
   const playerCount = competition.clubIds.length;
   const thisWeek = fixtureIdsFor(game, competition.id, matchday);
   const lastWeek = fixtureIdsFor(game, competition.id, matchday - 1);
+  // Scoped to this division's clubs, so the charts answer "who is scoring in my
+  // division" rather than "who is scoring anywhere in the world".
+  const stats = competitionStats(game, competition.clubIds);
   const rows: PositionedRow[] = standings.map((row, index) => ({
     ...row,
     position: index + 1,
@@ -269,25 +275,25 @@ export function LeagueView() {
             {thisWeek.map((id) => {
               const match = game.matches[id];
               if (!match) return null;
-              const home = game.clubs[match.homeClubId]!;
-              const away = game.clubs[match.awayClubId]!;
-              const involvesUser = match.homeClubId === clubRow.id || match.awayClubId === clubRow.id;
               return (
-                <li key={id} className={`result-row${involvesUser ? ' result-row--mine' : ''}`}>
-                  <span className="muted small">{formatDayMonth(match.date)}</span>
-                  <span>
-                    {home.identity.shortName} <span className="muted">v</span> {away.identity.shortName}
-                  </span>
-                  <span>
-                    {match.result ? (
-                      <strong>
+                <FixtureRow
+                  key={id}
+                  state={game}
+                  match={match}
+                  meta={formatDayMonth(match.date)}
+                  homeClubId={match.homeClubId}
+                  awayClubId={match.awayClubId}
+                  result={
+                    match.result ? (
+                      <strong className="fixrow__score">
                         {match.result.homeGoals}–{match.result.awayGoals}
                       </strong>
-                    ) : (
-                      <span className="muted small">{match.kickOff}</span>
-                    )}
-                  </span>
-                </li>
+                    ) : undefined
+                  }
+                  mine={match.homeClubId === clubRow.id || match.awayClubId === clubRow.id}
+                >
+                  {formatKickOff(match.kickOff)}
+                </FixtureRow>
               );
             })}
           </ul>
@@ -299,25 +305,27 @@ export function LeagueView() {
             {lastWeek.map((id) => {
               const match = game.matches[id];
               if (!match || !match.result) return null;
-              const home = game.clubs[match.homeClubId]!;
-              const away = game.clubs[match.awayClubId]!;
-            const involvesUser = match.homeClubId === clubRow.id || match.awayClubId === clubRow.id;
-            return (
-              <li key={id} className={`result-row${involvesUser ? ' result-row--mine' : ''}`}>
-                <span className="muted small">{match.result.attendance} att.</span>
-                  <span>
-                    {home.identity.shortName} v {away.identity.shortName}
-                  </span>
-                  <span>
-                    <strong>
+              return (
+                <FixtureRow
+                  key={id}
+                  meta={`${match.result.attendance} att.`}
+                  homeClubId={match.homeClubId}
+                  awayClubId={match.awayClubId}
+                  result={
+                    <strong className="fixrow__score">
                       {match.result.homeGoals}–{match.result.awayGoals}
                     </strong>
-                  </span>
-                </li>
+                  }
+                  mine={match.homeClubId === clubRow.id || match.awayClubId === clubRow.id}
+                />
               );
             })}
           </ul>
         </Panel>
+
+      <Section title="Statistics" action={<span className="small muted">{competition.name}</span>}>
+        <Statistics stats={stats} subtitle={`${competition.name} · matchday ${matchday}`} />
+      </Section>
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
 import { DEFAULT_PYRAMID } from '@/domain/competition';
 import type { GameState, StandingSnapshot } from '@/domain/game';
 import { GAME_STATE_VERSION } from '@/domain/game';
+import { emptyCommunicationStore } from '@/domain/communication';
 import { emptyRecruitmentStore } from '@/domain/recruitment';
 import { emptyTrainingStore } from '@/domain/training';
 import type { ClubId, GroundId, ISODate, PersonId, TownId } from '@/domain/ids';
@@ -701,6 +702,7 @@ export function startGameFromDraft(draft: WorldDraft, options: StartGameOptions)
     relationships: structuredClone(draft.relationships),
     recruitment: emptyRecruitmentStore(),
     training: emptyTrainingStore(),
+    communication: emptyCommunicationStore(),
     competitions: {},
     pyramid: { ...DEFAULT_PYRAMID },
     fixtures: {},

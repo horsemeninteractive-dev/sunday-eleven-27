@@ -8,6 +8,7 @@ import { gameActions, useGame, useNextFixture, useSquad } from '../hooks';
 import { Button, Meter, PageHeader, Panel, Pill } from '../components/primitives';
 import { PlayerLink } from '../components/Links';
 import { MetricTile, Section, StatusTile, TileGrid } from '../components/hierarchy';
+import { formatKickOff } from '@/simulation/calendar';
 import {
   applyFormation,
   assignToBench,
@@ -95,7 +96,7 @@ export function TeamSelectionView() {
         meta={
           <>
             <span className="small muted">
-              {fixture.kickOff} · {game.world.grounds[fixture.groundId]?.name ?? 'ground to be confirmed'}
+              {formatKickOff(fixture.kickOff)} · {game.world.grounds[fixture.groundId]?.name ?? 'ground to be confirmed'}
             </span>
             <span className="small muted">{game.season.label}</span>
           </>

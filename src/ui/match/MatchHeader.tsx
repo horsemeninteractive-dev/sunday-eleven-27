@@ -4,6 +4,7 @@ import { currentScore, displayMinute } from '@/simulation/match/matchEngine';
 import { expectedAttendanceFor } from '@/simulation/matchday';
 import { matchKitColours } from '../kit';
 import { ClubBadge } from '../components/Badge';
+import { formatKickOff } from '@/simulation/calendar';
 
 /**
  * The one line the manager never has to look for.
@@ -37,7 +38,7 @@ export function MatchHeader({
 
   const status =
     phase === 'pre-match'
-      ? `Kick-off ${match.kickOff}`
+      ? `Kick-off ${formatKickOff(match.kickOff)}`
       : phase === 'half-time'
         ? 'Half time'
         : phase === 'full-time'

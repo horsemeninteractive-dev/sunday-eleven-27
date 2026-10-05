@@ -59,7 +59,7 @@ export function Pill({
   title,
 }: {
   children: ReactNode;
-  tone?: 'default' | 'ok' | 'warn' | 'bad' | 'accent' | 'muted';
+  tone?: 'default' | 'ok' | 'warn' | 'bad' | 'accent' | 'muted' | 'time';
   title?: string;
 }) {
   return (

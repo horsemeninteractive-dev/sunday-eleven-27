@@ -10,6 +10,389 @@ move (any save from an older build is migrated forward on load). `1.0.0` means
 it is finished. This file is also the changelog inside the game, reachable from
 the main menu.
 
+## [Unreleased]
+
+## [0.6.0] - 2026-10-05 — two cups that finish, and a season that lasts the year
+
+### Two cups that actually finish
+
+The knockout structure is rebuilt around the two competitions sharing one set of
+losers, so that a tie always has a winner and a round always completes.
+
+- **The Main Cup opens with a preliminary.** Thirty-six clubs do not fit a
+  knockout without byes, and pairing them blind produced a round of nine and
+  then a round of five. The bottom of the ladder now plays a preliminary of
+  eight; the four who win join the other twenty-eight on a bye to make a round of
+  thirty-two, and it runs clean from there — 32, 16, 8, 4, 2 — for **35 ties**,
+  with every club playing at least twice before it can be knocked out.
+- **The Plate is fed from both opening rounds.** The four who lose the
+  preliminary and the sixteen who lose the round of thirty-two are twenty clubs;
+  eight of them play a Plate preliminary — the preliminary losers have to be in
+  it, or they walk into the second round without playing for it — and the other
+  twelve take a bye into a round of sixteen. **19 ties**, and **54 across both**.
+- **Rounds are named, not numbered.** *Preliminary Round*, *Round of 32*, *Last
+  16*, *Quarter-finals*, *Semi-finals*, *Final*, read off the competition's own
+  plan rather than counted off ties — the same eight clubs are the quarter-finals
+  in one round and the preliminary in another, and only the plan knows which.
+- **Three bugs that stopped a round ever finishing**, all found in one real
+  career where a single tie went unplayed from September to November:
+  - The season calendar was sorted by matchday number rather than by date, so
+    the cup rounds — numbered above the league's — read as though February came
+    before September, and fixture lists met cup ties dated in the past. Nothing
+    ever plays a fixture that has already been.
+  - A round drawn during pre-season fell back to "the next free Wednesday from
+    today", which could be before the season had even started.
+  - The guard that decides whether a round keeps its own date demanded three
+    clear days, which a slot ten days away never satisfied — so the round settled
+    for a Saturday the clock then stepped straight over.
+- **A postponed fixture now shows as P-P**, in the cup, the league table and the
+  schedule alike: the reason it was called off, the date the replay has been
+  moved to, and the replay listed as a fixture in its own right. It used to be
+  dropped from the round entirely, which made a round waiting on one look
+  identical to a round the simulation had forgotten.
+- **A pitch can be bad without being unplayable.** Ground quality used to be
+  subtracted from the flood risk as a flat offset, so the worst pitches in the
+  county computed as waterlogged *in clear weather* — there was no date on which
+  those fixtures could ever be played. Drainage now scales the wetness rather
+  than inventing water, and a fixture called off three times is abandoned instead
+  of being rearranged for the fourth.
+- **And the P-P row did not break the other ones.** Naming a grid area on the
+  shared fixture row applied it to *every* fixture, and a row with no
+  `grid-template-areas` to resolve the name against collapses its children into
+  one cell — so the moment postponements went in, every league and cup fixture
+  that had not been called off rendered its two club names on top of each other.
+  The areas are scoped to the row that declares the template.
+### The header, put back together
+
+Three things in the bar across the top, all of them visible the moment the game
+opens.
+
+- **The next match is one line.** The opponent, the date and kick-off, the
+  competition and the venue sat on two lines, which cost a whole extra row of
+  the bar for no reason — the band was 895 pixels wide holding about 570 pixels of
+  text. It is now a single line and the bar is 18 pixels shorter, which is a row
+  of the screen given back to the game. The comment in the stylesheet claimed the
+  facts needed their own line "so they were not squeezed"; measuring them showed
+  they never were.
+- **And that line is centred, with the facts against the right-hand edge.** The
+  band aligned its contents on their *baselines*, which is right for reading and
+  wrong for the box — the shorter row of facts sat high in it. They are centred
+  now, and the fixture takes the slack between itself and the facts so the facts
+  end against the edge rather than trailing the club name.
+- **The gap between the search box and the date is gone.** Both used to claim
+  `margin-left: auto`, and two auto margins in one flex row split the free space
+  between them rather than pushing a group to one end — a hole as wide as the
+  club badge. Only the search box owns the slack now, which is where it belongs.
+
+### A season that is actually a season
+
+- **The league plays fortnightly, September to June.** The calendar was
+  consecutive Sundays, which crammed a twenty-two matchday double round robin
+  into September to February and then left **March to May with nothing in it at
+  all** — the back half of the season, when the title is being won, was simply
+  not written. League matchdays are now a fortnight apart, so the same fixtures
+  spread across the months a season really has.
+- **The cups take the Sundays in between.** A round is played on the free Sunday
+  in the off-week rather than on a Wednesday night, so there is no midweek game
+  in the middle of every working week, and the rounds are spread right down the
+  season with the finals at the back of it rather than finished by February.
+- **Nothing is played on a Thursday or a Saturday.** Thursday is training
+  night; Saturday has other football on. Stated once in `NO_GAME_WEEKDAYS` and
+  applied to every search for a date to play on — a rearranged fixture, a cup
+  round that has to move. Saturday used to be offered as the last resort for a
+  fixture with nowhere else to go, which is exactly how a quiet exception
+  becomes the normal case.
+- **Two bugs the new calendar exposed, both found by the tests rather than by
+  playing:**
+  - A round whose slot fell in the Christmas fortnight was **dropped**, leaving
+    it with no date at all — and a knockout tie that is never drawn is a tie
+    nobody is ever waiting for, so the competition could never finish. It now
+    moves to the next Sunday clear of the break.
+  - Moving that round forward by seven days landed it **straight back on a league
+    matchday**, putting a last-sixteen tie and a quarter-final on the same
+    afternoon with every club in both playing twice. A round now claims a Sunday
+    nobody is already playing on.
+
+- **Kick-off times are written the same way everywhere.** Cup ties said `19:45`
+  and rearranged replays `18:45`, while every league fixture said `10:30am` —
+  two spellings of one thing, often in the same list. Times are now stored and
+  shown as a manager reads them, `7:45pm`, and the ones already sitting in a
+  save are converted on the way out rather than needing the career to be
+  restarted.
+
+### Small screens, put right
+
+Four things that made the game feel unfinished rather than unfinished. None of
+them add anything; all of them remove something in the way.
+
+- **One list of clubs, not three.** Choosing a club showed every club in the
+  league, all thirty-six of them, in one column. There is now a division
+  tabstrip above the list — the same one the league table uses — and it shows
+  one division at a time. The whole ladder is still two taps away.
+- **The button that matters is in the header.** *Generate world* on the manager
+  profile and *Take charge of {club}* on the club screen now sit in the page
+  header, to the right of *Back*, where the thing you came to do is. They were
+  at the bottom of a long panel, below a squad table, which is the last place to
+  put them. *Generate world* stays disabled until the profile is actually
+  complete, and says so.
+- **The kit is reachable again.** Pre-season had no way to reach the kit screen
+  at all. It is offered from the home screen in the weeks before the first
+  league game, and once a design is confirmed the offer disappears — it comes
+  back at the start of the following summer, and not before. Confirming the design the
+  club was already wearing now counts as confirming a kit, which it never did:
+  the action used to give up because there was nothing to change, and the prompt
+  never cleared.
+- **The sidebar is one column.** Section headings and their screens had two
+  different left edges, so their icons sat in two columns. Both now share the
+  same padding, type size and left rule.
+- **The sidebar in the order a manager thinks in it.** Home, Manager, Messages,
+  then Team, Competitions, Club and the World — with Recruitment moved inside
+  Team, because finding a player is part of building a side, and Media moved
+  inside Club, because the news is mostly about his club. The schedule now sits
+  above the league table, since the next game is the question the screen is
+  opened to answer. Messages stays a single row rather than a group, because
+  that is what lets it carry its unread count.
+
+### The rest of the league, being played out
+
+Press Continue after a game and the division finishes its Sunday around you —
+every other club, run through the same match engine the manager watches, one at
+a time. That is several seconds of work with nothing on screen to say so, and it
+read as a freeze. There is now a dialog for it.
+
+- **It appears when there is football to wait for, and not otherwise.** The bar
+  comes up on the first match of the day and closes itself when the last one is
+  in. A Tuesday with nothing on it moves the clock exactly as before and shows
+  nothing at all.
+- **It says what it is doing.** A progress bar across the day's fixtures, *Now
+  playing: The Wheatsheaf v The Bull FC*, and every result as it lands, so the
+  wait is something to read rather than something to sit through.
+- **It cannot be dismissed.** There is no close button, because the only way past
+  it is for the football to finish, and a dismissible one would let a second
+  Continue run the same day twice.
+- **The same for the calendar.** Advancing days by hand or jumping to a date
+  crosses the same football, so it gets the same dialog — and the same silence
+  when there is nothing to play.
+- **Nothing about the simulation changed.** The loop that shows the manager the
+  match being calculated is the loop that decided it, and one test plays the same
+  matchday both ways and checks the two careers come out identical.
+
+### Fixtures read like fixtures, and the record books
+
+Two things the league table and the cups were missing: a fixture line that reads
+like a fixture, and any idea of who in the competition is actually doing
+something.
+
+- **A fixture is crest, name, v, name, crest.** The home club reads crest then
+  name from the left; the away club reads name then crest at the far right; the
+  `v` sits on the centre of the row; and the kick-off time or the score is the
+  last thing in the line, to the right of both clubs. The two crests now face
+  each other across the middle and the two names point outwards, which is how a
+  manager scans a fixture list for his own club. The same line is drawn on the
+  league table's fixtures and on every cup tie.
+- **Statistics, for the division and for the cup.** Top scorers, top assists,
+  highest rated, and the two card books — read straight out of the performances
+  the match engine already recorded, so a chart of goals cannot disagree with the
+  results it was built from. The ratings chart leaves out anybody with fewer than
+  three appearances, because one game is a swing and not an average, and it prints
+  the competition's average beside the chart.
+- **A chart is only made of men who are in it.** No zeroes: a red-card chart
+  padded with players who have never been sent off is a list of the division's
+  luckiest men, so an empty one says "nobody has been sent off" instead. The
+  whole block says so when a competition has not been played yet.
+- **Scoped to what you are looking at.** The league page charts the division on
+  screen and the cup page charts that competition's entrants, so nothing from
+  another division or another cup leaks in, and a pre-season friendly never
+  reaches the league scoring charts.
+
+### Messages — the inbox you actually read
+
+The communication system could hold a conversation but had no way to show one.
+There is now a Messages screen: the people involved in the club, what they have
+said, and a way to say something back.
+
+- **One screen, two shapes.** On a phone the list and the conversation are one
+  column, and opening a thread replaces the list with a back bar. From a desktop
+  width they sit side by side, so a message can be read without losing sight of
+  what else is waiting. No horizontal scrolling at any width.
+- **People first.** A row is a name, what was last said, when, and an unread
+  count. The conversation type is shown only where it earns its place — a group
+  or a committee — and left off the ordinary one-to-one, which is most of them.
+- **Unread goes first.** Threads with something waiting are sorted above read
+  ones however old they are; read threads fall back into plain recency. Opening a
+  thread marks it read, because a message the manager has looked at has been
+  read whether or not he went back to the list.
+- **No internal vocabulary on the buttons.** The simulation's eleven intents are
+  never shown as they are stored. They appear as what a manager would say — *Are
+  you free?*, *How are you feeling?*, *Remind about subs*, *Give him a lift* —
+  with the intent travelling underneath where no screen displays it. The three
+  a message has suggested come first, and the rest are one tap behind *More*.
+- **Dates in the words you would use them in.** Today, Yesterday, then a weekday,
+  then a date. The year is compared against the game's own calendar rather than
+  the wall clock, so a career set in 2026 does not start printing years because
+  the player's real one moved on.
+- **A badge, not a dashboard.** Messages is a navigation destination like any
+  other and carries an unread count; it is not a panel of messages on the home
+  screen, and it is not one of the five phone destinations.
+
+### Communication — the manager can be written to
+
+The game had news, relationships, availability, subs and a calendar, and no way
+for any of them to *speak*. Everything the manager is told arrived as a headline
+or a number; nothing arrived as a message from a person who wanted something.
+There is now one system for conversations, and it is a game system rather than a
+screen: the stores and services live with the simulation and survive a save.
+
+- **Conversations are first-class.** A thread has participants, a type — player,
+  staff, board, club, league, recruitment, general or group — a title, its
+  messages, when it was last active, how much of it is unread and whether it is
+  still open. Closing a thread keeps its history; nothing is deleted.
+- **Messages carry structure, not just prose.** Every message records who sent
+  it, who it went to, when (on the game's own date, with a sequence number so two
+  messages on one day still have a defined order after a reload), its type, the
+  thing it is about, and what it expects to cause.
+- **Manager messages carry an intent.** `ASK_AVAILABILITY`, `ASK_FITNESS`,
+  `REMIND_PAYMENT`, `WARN_PAYMENT`, `PRAISE`, `CRITICISE`, `INVITE_TO_TRAINING`,
+  `INVITE_TO_TRIAL`, `OFFER_ROLE`, `ASK_ADVICE`, `GENERAL_CHECK_IN`. Intents are
+  data, not buttons: an inbound message lists the intents that would make sense
+  there, each carrying the person it would apply to, so a later screen offers
+  what the conversation can actually answer rather than a fixed menu.
+- **Replies are generated, not scripted.** A reply is written from personality,
+  the relationship the manager has with that person, their role and their
+  circumstances — a man rolled `unavailable` answers the way he is, not the way a
+  template would like. Every draw comes from a named stream off the world seed,
+  so the same career produces the same words; there is no `Math.random()` anywhere
+  in the system and no dialogue tree.
+- **Consequences are anticipated but not yet wired.** A message records the intent
+  it was sent with and stays unresolved until something acts on it. Systems claim
+  an intent by registering a handler, so availability, money, relationships and
+  the calendar can each attach later without the conversation layer knowing they
+  exist.
+- **It survives a reload.** Conversations, messages, ordering and read state are
+  held on the game state and saved with everything else (save format 10). A save
+  written before any of this gets an empty inbox rather than an invented one, and
+  people who have left the world are swept out of threads without erasing the
+  messages they were in.
+
+### Players answer for themselves
+
+A manager could ask a question into the void. Now a squad member can be written
+to, and answers as himself: the thread is opened from his profile, and what he
+says back is written from the state he is actually in rather than from a line
+picked at random.
+
+- **Six things worth saying to a player.** *Are you free?*, *How are you
+  feeling?*, *How are you?*, well done, where you sit, and a request for his
+  opinion. Selection talks only use the states the selection system already has
+  — in the eleven, on the bench, left out, or not yet decided because the team
+  has not been picked.
+- **The answer matches the man.** An injured player says the knee is still
+  playing him; one who has picked up a late shift says he cannot make it; one the
+  game has flagged doubtful says he thinks so but will know by Saturday; one who
+  is fit and does not much rate the manager says he will be there and leaves it
+  there. A player is never told he is out while the availability system has him
+  available, and the doubt is deliberate wording, not a different record.
+- **Wording varies, structure does not.** Each answer is chosen from variants
+  written for that exact situation, so the words differ between two managers
+  asking the same question, but the underlying state behind them is the same.
+  There is no dialogue tree, and every draw comes off the world seed.
+- **"I'll let you know Saturday" is kept.** An answer that does not settle
+  anything says so on the message, and the day it lands is scheduled through the
+  game's own calendar rather than a second scheduler. When that day arrives the
+  unresolved answer resolves and may produce the follow-up itself.
+- **Saying something changes something, gently.** Praise and criticism go
+  through the relationship service that already existed, using its own
+  `manager-praise` and `manager-criticism` events, so a man who has been told
+  well of himself carries it into the next conversation. The effects are the
+  existing small ones — no second set of feelings is kept anywhere.
+- **Relationships are read in the right direction.** What a reply is made of is
+  the player's own side of the relationship, and the profile knows who the
+  manager is, so a cold man with the player and a cold manager with the player
+  are not the same conversation.
+- **Nothing here is invented twice.** Player data, availability, injuries,
+  personality, morale, the team sheet and the calendar are all read from the
+  systems already in place; the communication layer adds conversation on top and
+  keeps none of it.
+
+### Availability speaks for itself
+
+The roll that decides who can play has always been the record, and it stays
+the record. What it could not do was speak: a man rolled doubtful was a word in
+a list, and the manager had no way of asking him about it without a phone call
+that the game did not model. Communication now wraps the availability system in
+a human layer — and the wrap reads the record, never writes to it.
+
+- **The roll decides; the conversation explains.** Availability is written
+  exactly as before, in exactly the same place, and the announcement is made
+  *after* it. Nothing in this layer can move a player between available,
+  doubtful and unavailable, and a man saying "I think I will be alright" does
+  not become available because he said so. What the message changes is how sure
+  everybody is.
+- **Players write when their Sunday changes.** A man who has just lost his
+  morning to a late shift tells the manager; a man whose knee has gone again
+  tells the manager; and they talk about the thing that actually happened,
+  because the message is written from the reason the roll gave rather than from
+  a generic pool of availability wording.
+- **It does not spam.** Only the manager's own squad, only on a genuine change,
+  only once per event — a reloaded save or a twice-visited day finds the message
+  already there and writes nothing. A doubt that clears and comes back a week
+  later is a different event and does produce a second message, because it is
+  one.
+- **Four words, one of them new.** *Available*, *Doubtful — player says they
+  expect to play*, *Awaiting player confirmation*, *Confirmed unavailable*. The
+  fourth state is the one the simulation does not have and a manager genuinely
+  is in: a doubt nobody has yet asked about. It is derived from the record and
+  the thread rather than stored, so it cannot disagree with the roll.
+- **A man can be chased.** *Can you confirm?* and *Any news?* are now
+  intentions of their own, and the chase appears at the front of the options
+  exactly when there is something to press him about. A chase with nothing
+  outstanding sends nothing.
+- **One Saturday, not three.** A man who stays vague books one day on the
+  calendar however often he is asked, so the manager's week shows a single
+  thing to do rather than a pile of duplicates.
+- **Selection stays the manager's.** Nothing here picks anybody. A doubtful man
+  is told, and whether to take him on a bad knee is the manager's judgement,
+  made on the selection screen from the record this layer only reports.
+
+### The subs book, per man
+
+A player who has not paid could not be told, because the game had never worked
+out whether he had. Subs settled weekly for the whole squad at once, so the
+ledger could say what came in and never who it did not come from. The money
+still moves exactly where it always did; what is new is that the ledger can now
+say whose it was.
+
+- **Money is still finance's business.** The balance, the ledger line and the
+  date all come from the finance system and from nothing else. What did not
+  arrive is *not* income and is not on the ledger — a club that books money it
+  has not been given is a club that never folds.
+- **A promise is not a payment.** "I'll bring it Sunday" is recorded as a
+  promise, on the message that carried it, and it moves the conversation and
+  nothing else. On Friday the debt is exactly where it was, and the test suite
+  says so out loud. The treasurer taking cash on a Sunday is the only other
+  thing in the game that can clear a debt, and it goes through the ledger.
+- **Four ways to say it.** A reminder, a straight ask, a word about how he is
+  managing, and a warning — and the warning says how far behind he is, because
+  a warning without a figure is a threat. The first three are available early;
+  the warning only to a man well behind, because offering it over one missed
+  week is the screen making a decision that is not its to make.
+- **Nobody rolls over.** A man who is annoyed stays annoyed, and a man whose
+  trust in the manager has gone can be spoken to twice running and bristle both
+  times. What decides it is how he already feels about the man asking, read in
+  the direction that matters, and asking him moves that same side — so chasing
+  a man is something he notices and remembers.
+- **The treasurer says it once.** A man falling further behind is a threshold
+  crossing, not a weekly update: the message is written when he goes from paid
+  up to behind, or from behind to several weeks, and not again until that
+  changes. A man five weeks in arrears does not get a fifth reminder.
+- **Selection is still the manager's, and the gap is named.** The selection
+  screen validates availability, fitness, position and duplicates, and has
+  never been told anything about money. Rather than add a second gate or fail
+  men quietly, the choices are offered — leave it, chase him, warn him, keep an
+  eye on his selection — and the manager takes one. Wiring it to selection needs
+  a decision about whether it is a warning or a bar, and that is not one to
+  make silently inside a communications feature.
+
 ## [0.5.0] - 2026-10-04 — the match simulation and the thing watching it are two systems
 
 The match used to be watched at a fixed compression: one minute of football was

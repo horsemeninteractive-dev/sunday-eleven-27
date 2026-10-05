@@ -122,11 +122,25 @@ export function rollMatchConditions(rng: Rng, ground: Ground, date: ISODate): Ma
   const temperatureC = temperatureFor(rng, month);
 
   // Poor, badly-draining pitches suffer most from rain and frost.
+  //
+  // The penalty for a poor ground *multiplies* the wetness rather than adding to
+  // it. An earlier version subtracted the ground's drainage and quality as a flat
+  // offset, which meant the worst grounds in the county computed a flood risk
+  // above the waterlogged threshold before a drop of rain had fallen: a pitch
+  // that was waterlogged in clear weather, and therefore one whose fixtures could
+  // be called off for ever. Scaling by wetness keeps the rule honest — a bad
+  // ground holds on to the rain it is given instead of inventing water — while
+  // still making it far more likely to be unusable than a good one.
   const drainage = ground.drainage;
   const quality = ground.quality;
   let pitch: PitchCondition;
   const wetness = weather === 'heavy-rain' ? 2 : weather === 'light-rain' ? 1 : 0;
-  const floodRisk = wetness - (drainage - 8) / 4 - (quality - 10) / 8;
+  // The multiplier on wetness, and it is *worse* drainage that raises it: an
+  // average pitch sits at about 1.1, the county's worst around 1.8, and a good
+  // one sheds rain at around 0.4. So the worst ground floods in a shower, an
+  // average one is merely muddy, and a good pitch is barely affected.
+  const drainageFactor = Math.min(1.8, Math.max(0.3, (20 - drainage) / 10));
+  const floodRisk = wetness * drainageFactor + (weather === 'heavy-rain' ? 0.3 : 0);
 
   if (ground.surface === '3G') {
     pitch = 'excellent';

@@ -1,6 +1,6 @@
 import { clampAttribute, type PlayerAttributes } from '@/domain/attributes';
 import type { ClubId, GroundId, ISODate, PlayerId, TownId } from '@/domain/ids';
-import { createSystemFamiliarity, type Personality, type Player, type PlayerDevelopment, type PlayerRecord } from '@/domain/person';
+import { createSystemFamiliarity, emptyPlayerSubs, type Personality, type Player, type PlayerDevelopment, type PlayerRecord } from '@/domain/person';
 import { ALL_POSITION_CODES, POSITIONS, positionalSimilarity, type PositionCode, type PositionGroup } from '@/domain/positions';
 import { Rng } from '../rng';
 import { maybeNickname, occupationForAge, personFirstName, personSurname } from './names';
@@ -481,6 +481,7 @@ export function generatePlayer(options: GeneratePlayerOptions): Player {
     joinedClubOn: seasonStart,
     record,
     notes: [],
+    subs: emptyPlayerSubs(),
   };
 }
 

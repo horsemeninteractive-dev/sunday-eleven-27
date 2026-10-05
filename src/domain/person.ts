@@ -73,6 +73,31 @@ export interface AvailabilityState {
   discoveredLate: boolean;
 }
 
+/**
+ * What a player owes the club.
+ *
+ * The club's money has always been authoritative and stays that way: the ledger
+ * says what arrived, the balance says what is in the account, and neither is
+ * touched by anything anybody says. This record is the one thing the ledger
+ * could not say — *whose* money did not arrive — and it is written only by the
+ * finance system, on the day it settles the subs book.
+ *
+ * A promise is deliberately not a field. Promises live on the conversation that
+ * made them, because a promise is a thing a man said, not a thing that happened.
+ */
+export interface PlayerSubs {
+  /** What he owes the club right now, in pounds. Cleared only by a real payment. */
+  owed: number;
+  /** Consecutive weeks the subs book has gone unpaid by him. 0 when level. */
+  missedWeeks: number;
+  /** When the money last actually arrived. */
+  lastPaidOn: ISODate | null;
+}
+
+export function emptyPlayerSubs(): PlayerSubs {
+  return { owed: 0, missedWeeks: 0, lastPaidOn: null };
+}
+
 export interface InjuryState {
   description: string;
   severity: 'knock' | 'minor' | 'moderate' | 'serious';
@@ -192,6 +217,8 @@ export interface Player extends PersonBase {
   record: PlayerRecord;
   /** Free-text impressions gathered about the player (scouting hooks). */
   notes: string[];
+  /** What he owes the club, written by the finance system and by nothing else. */
+  subs: PlayerSubs;
 }
 
 export type OfficialRole = 'manager' | 'assistant' | 'coach' | 'chairman' | 'secretary' | 'treasurer' | 'volunteer' | 'referee';

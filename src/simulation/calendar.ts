@@ -73,6 +73,30 @@ export function formatDayMonth(iso: ISODate): string {
   return `${DAY_NAMES[date.getUTCDay()]!.slice(0, 3)} ${date.getUTCDate()} ${MONTH_NAMES[date.getUTCMonth()]!.slice(0, 3)}`;
 }
 
+/**
+ * A kick-off time as the game writes it: `10:30am`, `7:45pm`.
+ *
+ * Kick-off times are stored as plain strings and are never parsed back into a
+ * date or a number, so they are written in the shape a manager reads them in.
+ * Cup and replay times used to be written in 24-hour form (`19:45`) while the
+ * league wrote `10:30am`, which put two spellings of the same thing on screen
+ * in the same fixture list. This is the one place that decides which it is, so
+ * that both read the same: a 24-hour string is rewritten on the way out, which
+ * also rescues the ties already sitting in a save.
+ *
+ * Anything that is not a 24-hour time is returned untouched — the league has
+ * always written `10:30am`, and that needs no help.
+ */
+export function formatKickOff(time: string): string {
+  const parsed = /^(\d{1,2}):(\d{2})$/.exec(time.trim());
+  if (!parsed) return time;
+  const hour = Number(parsed[1]);
+  const minute = parsed[2];
+  const suffix = hour < 12 ? 'am' : 'pm';
+  const twelve = hour % 12 === 0 ? 12 : hour % 12;
+  return `${twelve}:${minute}${suffix}`;
+}
+
 export function monthOf(iso: ISODate): number {
   return toDate(iso).getUTCMonth();
 }
@@ -112,14 +136,63 @@ export function preSeasonStart(firstLeagueDate: ISODate): ISODate {
   return addDays(firstLeagueDate, -7 * PRE_SEASON_WEEKS);
 }
 
-/** Build the season's matchday calendar: consecutive Sundays from `startDate`. */
+/**
+ * Weekdays on which no game in this league is ever played.
+ *
+ * Thursday is out because it is training night: a midweek match would take the
+ * squad out of the one session they get to prepare for the weekend. Saturday is
+ * out because there is other football on — this is a Sunday league, and a club
+ * whose players are turned out on a Saturday afternoon has not turned anybody
+ * out.
+ *
+ * Neither is negotiable, so it is stated once here rather than decided
+ * separately in each place that has to pick a date. Every search for a date to
+ * play on — a rearranged fixture, a cup round that has to move — is bounded by
+ * this rather than by whatever days that particular search happened to think of.
+ *
+ * Saturday was previously offered as the last resort for a fixture that could
+ * find nowhere else, which is precisely the sort of quiet exception that becomes
+ * the normal case.
+ */
+export const NO_GAME_WEEKDAYS: ReadonlySet<number> = new Set([
+  4, // Thursday — training
+  6, // Saturday — other football
+]);
+
+/** Whether a game may be played on a date with this `getUTCDay()` weekday. */
+export function canPlayOnWeekday(weekday: number): boolean {
+  return !NO_GAME_WEEKDAYS.has(weekday);
+}
+
+/**
+ * How many Sundays separate one league matchday from the next.
+ *
+ * The league plays fortnightly, and the weeks in between are for the cups. A
+ * weekly calendar crammed a whole double round robin into September to February
+ * and then left March to May with nothing in it at all — the back half of the
+ * season, when the title is actually being won, was empty. Spreading the same
+ * fixtures over the weeks that a Sunday league really has also thins out the
+ * autumn, when the rain is worst and the postponements come from.
+ *
+ * The alternative was to keep playing weekly and simply stop in February, which
+ * left a third of the season unwritten.
+ */
+export const MATCHDAY_INTERVAL_DAYS = 14;
+
+/**
+ * Build the season's matchday calendar.
+ *
+ * Every `MATCHDAY_INTERVAL_DAYS` from `startDate`, stepping over the Christmas
+ * fortnight. The dates between two matchdays are not returned: they are the cup
+ * weeks, and `buildSeasonCalendarWithCups` fills them.
+ */
 export function buildSeasonCalendar(startDate: ISODate, matchdays: number): SeasonCalendarEntry[] {
   const entries: SeasonCalendarEntry[] = [];
   let cursor = startDate;
   while (entries.length < matchdays) {
     entries.push({ matchday: entries.length + 1, date: cursor });
-    cursor = addDays(cursor, 7);
-    while (isChristmasBreak(cursor)) cursor = addDays(cursor, 7);
+    cursor = addDays(cursor, MATCHDAY_INTERVAL_DAYS);
+    while (isChristmasBreak(cursor)) cursor = addDays(cursor, MATCHDAY_INTERVAL_DAYS);
   }
   return entries;
 }
@@ -145,11 +218,15 @@ export interface CupRoundSlot {
   beforeMatchday: number;
 }
 
-export const CUP_KICKOFF = '19:45';
+// Written the way the rest of the game writes a kick-off time, so a cup tie in
+// a fixture list reads the same as the league game above it.
+export const CUP_KICKOFF = '7:45pm';
 
 export function cupRoundDate(leagueDate: ISODate): ISODate {
-  // The Wednesday before the Sunday.
-  return addDays(leagueDate, -4);
+  // The Sunday of the week *before* the league matchday. With the league playing
+  // fortnightly this is the free Sunday in the off-week, so a cup tie no longer
+  // lands on a Wednesday night in the middle of a working week.
+  return addDays(leagueDate, -7);
 }
 
 /**
@@ -168,15 +245,46 @@ export function buildSeasonCalendarWithCups(
   const extra: SeasonCalendarEntry[] = [];
   const nextMatchday = league.length;
 
+  // Every Sunday already spoken for: the league's own, and the rounds placed
+  // ahead of this one. A cup round needs a day to itself, because the whole
+  // field plays on the same one.
+  const taken = new Set(league.map((entry) => entry.date));
+
   for (const slot of slots) {
     const leagueEntry = league[slot.beforeMatchday - 1];
     if (!leagueEntry) continue;
-    const date = cupRoundDate(leagueEntry.date);
-    if (isChristmasBreak(date)) continue;
+    let date = cupRoundDate(leagueEntry.date);
+    // A round whose slot falls in the Christmas fortnight moves on to the next
+    // Sunday out of it rather than being dropped. Dropping it left the round with
+    // no date at all: the competition could then never finish, because a
+    // knockout tie that has never been drawn is a tie nobody is ever waiting for.
+    //
+    // The skip was easy to miss because the league calendar steps *over*
+    // Christmas by a whole fortnight, so the Sunday a round inherits from a
+    // matchday that had already jumped the break can land back inside it.
+    //
+    // It has to be a Sunday nobody is already playing on, and not merely the
+    // next one: stepping forward seven days from a dead Christmas Sunday lands
+    // straight back on a league matchday, which put a last-sixteen tie and a
+    // quarter-final on the same afternoon and had every club in both playing
+    // twice.
+    for (let week = 0; week < 8; week += 1) {
+      if (!isChristmasBreak(date) && !taken.has(date)) break;
+      date = addDays(date, 7);
+    }
+    if (isChristmasBreak(date) || taken.has(date)) continue;
+    taken.add(date);
     extra.push({ matchday: nextMatchday + extra.length + 1, date });
   }
 
-  return [...league, ...extra].sort((a, b) => a.matchday - b.matchday);
+  // Numbered in one sequence, but the numbers are *not* in date order: a cup
+  // round is numbered above the league's matchdays while being played on a
+  // Wednesday well before the last of them. Sorting by matchday therefore used to
+  // leave the calendar reading as though February came before September, and any
+  // code that walked it in date order — as the fixture list does — met cup ties
+  // dated in the past, which nothing ever plays. Sorted by date, the sequence is
+  // the order things actually happen in.
+  return [...league, ...extra].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.matchday - b.matchday));
 }
 
 /**

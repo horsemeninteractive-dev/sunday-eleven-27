@@ -7,6 +7,7 @@ import { currentMatchday, squadOf, standings as computeTable, userClub } from '@
 import { eventsOn, nextFixtureFor, upcomingEvents } from '@/simulation/schedule';
 import type { ScheduledEvent } from '@/domain/events';
 import { useGameStore } from '@/state/gameStore';
+import { inboxUnread } from './inboxState';
 
 /**
  * Thin read-only hooks over the store. Components use these instead of
@@ -76,4 +77,16 @@ export function useSelectedPlayer(): Player | null {
   if (!game || !selectedId) return null;
   const person = game.people[selectedId];
   return person && person.kind === 'player' ? person : null;
+}
+
+/**
+ * How many messages are waiting for the manager.
+ *
+ * Read through `inboxState` rather than from the store directly so the number on
+ * a badge and the number on the screen are the same number by construction: the
+ * navigation should not be able to disagree with the inbox it sends him to.
+ */
+export function useUnreadMessages(): number {
+  const game = useGame();
+  return useMemo(() => (game ? inboxUnread(game) : 0), [game]);
 }

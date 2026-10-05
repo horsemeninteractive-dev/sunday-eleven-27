@@ -336,6 +336,43 @@ export function kitRequest(game: GameState, club: Club): KitRequest {
 }
 
 /** The design the club is wearing, clamped to the designs that were offered. */
+/**
+ * Has this club settled its shirts for the season it is in?
+ *
+ * True when a kit has been picked with this season label on it. A save written
+ * before the label existed has no `kitSeason`, so a club that *did* pick a kit
+ * is treated as settled — otherwise every old career would be handed a kit
+ * prompt it had already answered.
+ */
+export function kitChosenForSeason(club: Club, seasonLabel: string): boolean {
+  if (club.kitSeason === seasonLabel) return true;
+  return club.kitSeason === undefined && club.kitChoice !== undefined;
+}
+
+/**
+ * Is the club still in the summer, before the first league game of the season?
+ *
+ * Not `game.phase`: a career opens with `phase` already set to `'season'` and
+ * the six weeks before the opener are pre-season in every sense that matters
+ * here. The league calendar is the honest boundary — friendlies can only be
+ * arranged for dates before its first entry.
+ */
+export function inPreSeason(game: GameState): boolean {
+  const opener = game.season.calendar[0]?.date;
+  return opener !== undefined && game.date < opener;
+}
+
+/**
+ * Whether the kit is worth offering: a new season's shirts have arrived and the
+ * manager has not yet said which to run out in.
+ */
+export function kitDecisionOutstanding(game: GameState, clubId: ClubId): boolean {
+  if (!inPreSeason(game)) return false;
+  const club = game.clubs[clubId];
+  if (!club) return false;
+  return !kitChosenForSeason(club, game.season.label);
+}
+
 export function chosenKitOption(club: Club): number {
   const option = Math.floor(club.kitChoice ?? 0);
   return Number.isFinite(option) && option >= 0 && option < KIT_OPTION_COUNT ? option : 0;

@@ -35,6 +35,10 @@ const PATHS: Record<NavIcon, string[]> = {
     'M16 5.4h2.6v1.6a3.2 3.2 0 0 1-3 3.2',
   ],
   news: ['M6 3.6h8.4L18.6 8v12.4H6z', 'M14.2 3.6V8h4.4', 'M8.6 12.4h6.8', 'M8.6 15.8h4.6'],
+  // A speech balloon with a tail, drawn to the same grid as the rest. It has to
+  // read as "somebody said something" at 20px and not as an envelope, because
+  // the screen it opens is a conversation rather than a post.
+  messages: ['M3.6 5.4h16.8v11.2H9.4l-4.4 3.4v-3.4H3.6z'],
   finances: ['M2.8 7h18.4v10H2.8z', 'M12 14.4a2.4 2.4 0 1 0 0-4.8 2.4 2.4 0 0 0 0 4.8', 'M6 9.4v5.2', 'M18 9.4v5.2'],
   history: ['M3.4 12a8.6 8.6 0 1 0 2.9-6.4', 'M3.2 4.4v4.6h4.6', 'M12 8.2v4.2l3 1.8'],
   kit: [

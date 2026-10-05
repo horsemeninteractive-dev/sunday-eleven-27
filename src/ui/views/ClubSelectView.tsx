@@ -23,6 +23,10 @@ const SQUAD_SORT: SortAccessors<Player, SquadSortKey> = {
 export function ClubSelectView() {
   const draft = useGameStore((state) => state.draft);
   const [selected, setSelected] = useState<string | null>(draft?.divisionClubIds[0] ?? null);
+  // Which division the manager is looking at. Opens on the one holding the
+  // club they would start in, because that is the one they are most likely to
+  // want, and the tabstrip is how they get to the other thirty.
+  const [tier, setTier] = useState<number>(1);
   const [sort, setSort] = useState<SortState<SquadSortKey>>(UNSORTED);
 
   /**
@@ -51,6 +55,7 @@ export function ClubSelectView() {
   const selectedTier = divisions.find((division) => division.clubs.some((club) => club.id === selected))?.tier;
 
   const clubCount = divisions.reduce((total, division) => total + division.clubs.length, 0);
+  const visible = divisions.find((division) => division.tier === tier) ?? divisions[0];
 
   if (!draft) return null;
 
@@ -67,22 +72,56 @@ export function ClubSelectView() {
         title="Choose your club"
         subtitle={`${draft.leagueName} · seed “${draft.seed}”. ${clubCount} local clubs in ${divisions.length} division${divisions.length === 1 ? '' : 's'}, each with its own squad, ground, committee and history.`}
         actions={
-          <Button variant="ghost" onClick={() => gameActions().abandonDraft()}>
-            Back
-          </Button>
+          <>
+            <Button variant="ghost" onClick={() => gameActions().abandonDraft()}>
+              Back
+            </Button>
+            {/* The decision this screen exists to make, next to the way out of
+                it. It was at the bottom of the detail panel, which meant the
+                manager had to scroll past a whole squad snapshot to reach the
+                one button that starts a career. */}
+            <Button
+              variant="primary"
+              disabled={!selectedClub}
+              onClick={() => selectedClub && gameActions().chooseClub(selectedClub.id)}
+              title={selectedClub ? `Take charge of ${selectedClub.identity.name}` : 'Pick a club first'}
+            >
+              {selectedClub ? `Take charge of ${selectedClub.identity.shortName}` : 'Take charge'}
+            </Button>
+          </>
         }
       />
 
+      {/* The ladder, as a tabstrip, the same one the league table uses. Thirty-six
+          clubs in one column is a list nobody reads and a scroll nobody
+          finishes; twelve at a time is a decision. */}
+      {divisions.length > 1 && (
+        <div className="segmented" role="tablist" aria-label="Divisions">
+          {divisions.map((division) => (
+            <button
+              type="button"
+              key={division.tier}
+              role="tab"
+              aria-selected={division.tier === visible?.tier}
+              className={`segmented__item${division.tier === visible?.tier ? ' segmented__item--active' : ''}`}
+              onClick={() => setTier(division.tier)}
+            >
+              Division {ordinal(division.tier)}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="club-select__grid">
         <div className="stack">
-          {divisions.map((division) => (
+          {visible && (
             <Panel
-              key={division.tier}
-              title={`Division ${ordinal(division.tier)}`}
-              subtitle={`${division.clubs.length} clubs · ordered by standing`}
+              key={visible.tier}
+              title={`Division ${ordinal(visible.tier)}`}
+              subtitle={`${visible.clubs.length} clubs · ordered by standing`}
             >
               <ul className="club-list">
-                {division.clubs.map((club) => {
+                {visible.clubs.map((club) => {
                   const town = draft.world.towns[club.townId];
                   const ground = draft.world.grounds[club.groundId];
                   const isSelected = club.id === selected;
@@ -117,7 +156,7 @@ export function ClubSelectView() {
                 })}
               </ul>
             </Panel>
-          ))}
+          )}
         </div>
 
         <div className="club-select__detail">
@@ -179,11 +218,6 @@ export function ClubSelectView() {
                   Taking charge here means this squad, this bank balance and this club's history. Availability,
                   finances and results all follow from it.
                 </p>
-                <div className="row">
-                  <Button variant="primary" onClick={() => gameActions().chooseClub(selectedClub.id)}>
-                    Take charge of {selectedClub.identity.shortName}
-                  </Button>
-                </div>
               </Panel>
 
               <Panel title="Squad snapshot" subtitle="Who you would inherit">

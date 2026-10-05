@@ -289,7 +289,7 @@ describe('the store’s autosave', () => {
     await new Promise((resolve) => setTimeout(resolve, 1000));
 
     const before = useGameStore.getState().game!;
-    store.advanceDays(3);
+    await store.advanceDays(3);
     await new Promise((resolve) => setTimeout(resolve, 1000));
 
     const onDisk = await resumeCareer();

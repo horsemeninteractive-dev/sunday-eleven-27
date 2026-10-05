@@ -144,6 +144,16 @@ export interface Club {
    */
   kitChoice?: number;
   /**
+   * The season label this club last picked a kit for.
+   *
+   * `kitChoice` alone cannot say whether the manager has *chosen* this season or
+   * is merely wearing whatever the first design was, because absent and "design
+   * one" mean the same thing. This is the difference between "we are in a new
+   * season and the shirts have arrived" and "that was settled last July", which
+   * is what decides whether the kit screen is still worth offering.
+   */
+  kitSeason?: string;
+  /**
    * The badge the manager designed for this club, if he designed one.
    *
    * Absent for every club the world generated, which wears the badge the

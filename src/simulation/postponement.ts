@@ -1,8 +1,7 @@
 import type { GameState } from '@/domain/game';
 import type { ClubId, ISODate, MatchId } from '@/domain/ids';
 import { isCompetitiveMatch, type Match } from '@/domain/match';
-import { addDays, isChristmasBreak, toDate } from './calendar';
-import { isCup } from '@/domain/competition';
+import { addDays, canPlayOnWeekday, isChristmasBreak, toDate } from './calendar';
 import { createMatchRecord } from './matchday';
 import { registerFixture } from './pyramid';
 import { stream } from './rng';
@@ -89,7 +88,50 @@ function homeClubCannotRaiseATeam(state: GameState, match: Match): boolean {
 }
 
 /**
- * How long past the season's last scheduled Sunday a game may still be played.
+ * How many times one fixture may be called off and rearranged.
+ *
+ * The deadline below stops a postponed game running past the season, but it does
+ * not stop it being called off *again* every time it comes round: a fixture whose
+ * home ground has the worst drainage in the county was observed being rearranged
+ * five times in a row, from September to November, because the pitch was
+ * waterlogged on every one of them. Real leagues stop bothering after a couple of
+ * attempts and go to a neutral venue or play it on the next available surface,
+ * and so does this one — past the limit the fixture is abandoned rather than
+ * bounced for another month.
+ */
+const MAX_REARRANGEMENTS = 3;
+
+/**
+ * How many times this fixture has already been put back on.
+ *
+ * Counted by walking the chain of replacements out of the world rather than off a
+ * counter, so a fixture that was already bouncing when this rule was introduced
+ * is counted correctly rather than starting again from zero.
+ */
+export function rearrangementsSoFar(state: GameState, match: Match): number {
+  // The chain is recorded forwards — the called-off match points at its
+  // replacement, never the other way round — so it has to be walked backwards
+  // from the match in hand: find whatever was postponed in its place, and keep
+  // going. `originalDate` is the marker that a fixture is a replacement at all.
+  let count = 0;
+  let current: Match | undefined = match;
+  const seen = new Set<MatchId>([match.id]);
+  while (current?.originalDate && count < 50) {
+    const original = Object.values(state.matches).find(
+      (candidate) =>
+        !seen.has(candidate.id) &&
+        candidate.replacedByMatchId === current!.id &&
+        candidate.date === current!.originalDate,
+    );
+    if (!original) break;
+    seen.add(original.id);
+    count += 1;
+    current = original;
+  }
+  return count;
+}
+
+/** How long past the season's last scheduled Sunday a game may still be played.
  *
  * A rearranged fixture has to be played, and until there was a deadline it always
  * could be: a slot can always be found within a month, so a game called off in a
@@ -120,10 +162,14 @@ export function rearrangementDeadlineFor(state: GameState): ISODate {
 /**
  * When the rearranged game is played.
  *
- * The natural slot is a free Sunday — the Christmas gap, or one of the weeks
- * after the last scheduled matchday. During the season every Sunday is taken,
- * so the league falls back the way real Sunday leagues do: a midweek evening
- * under the lights, and Saturday afternoon if even that is taken.
+ * A Sunday, the way everything else in this league is played. With the league on
+ * a fortnightly rhythm there is a free Sunday in most weeks — it is the off-week,
+ * or a cup week the club is not drawn in — so a postponed game usually has
+ * somewhere to go without anybody having to give up a Wednesday evening.
+ *
+ * Midweek is the fallback and only the fallback: a Saturday afternoon if even
+ * that is taken. Nothing in the league is played on a weeknight, so putting a
+ * rearranged game there is a genuine exception rather than a scheduling choice.
  *
  * The calendar is the authority on *when*: this only finds a date that suits
  * both clubs, is not a dead Sunday in the middle of winter, and is still inside
@@ -132,18 +178,14 @@ export function rearrangementDeadlineFor(state: GameState): ISODate {
  */
 export function rescheduleDateFor(state: GameState, match: FixtureSlotRequest, from: ISODate): ISODate | null {
   const deadline = rearrangementDeadlineFor(state);
-  // A cup tie is already a midweek game. Putting its replay on a Sunday means
-  // competing with the league fixture that Sunday for the same players, which
-  // is how one tie ends up bounced five times before the round can move.
-  const midweekFirst = isCup(state.competitions[match.competitionId]);
-  if (midweekFirst) {
-    return findSlot(state, match, from, [3], 30, deadline) ?? findSlot(state, match, from, [6], 30, deadline);
-  }
   const sunday = findSlot(state, match, from, [0], 30, deadline);
   if (sunday) return sunday;
   const evening = findSlot(state, match, from, [3], 30, deadline);
   if (evening) return evening;
-  return findSlot(state, match, from, [6], 30, deadline);
+  // No Saturday. There is other football on and a club that turns its players out
+  // on Saturday afternoon has not turned anybody out, so a fixture with nowhere
+  // else to go is abandoned rather than played then.
+  return null;
 }
 
 /** The two clubs and the competition a date search has to avoid clashes for. */
@@ -182,7 +224,13 @@ function findSlot(
   let candidate = addDays(from, 3);
   for (let day = 0; day < limit; day += 1) {
     if (candidate > deadline) return null;
-    if (weekdays.includes(toDate(candidate).getUTCDay()) && !isChristmasBreak(candidate) && !clubBusyOn(state, match, candidate)) {
+    const weekday = toDate(candidate).getUTCDay();
+    if (
+      weekdays.includes(weekday) &&
+      canPlayOnWeekday(weekday) &&
+      !isChristmasBreak(candidate) &&
+      !clubBusyOn(state, match, candidate)
+    ) {
       return candidate;
     }
     candidate = addDays(candidate, 1);
@@ -203,12 +251,9 @@ function clubBusyOn(state: GameState, match: FixtureSlotRequest, date: ISODate):
   );
 }
 
-/** Midweek games kick off after work; Saturday ones in the afternoon. */
+/** Midweek games kick off after work; Sunday ones keep the usual morning. */
 export function kickOffForReplay(date: ISODate, fallback: string): string {
-  const weekday = toDate(date).getUTCDay();
-  if (weekday === 3) return '18:45';
-  if (weekday === 6) return '14:00';
-  return fallback;
+  return toDate(date).getUTCDay() === 3 ? '6:45pm' : fallback;
 }
 
 /**
@@ -227,6 +272,21 @@ export function postponeFixture(
   match.status = 'postponed';
   match.postponedOn = date;
   match.postponementReason = reason;
+
+  // Past the limit there is no point arranging a sixth game on a pitch that has
+  // already failed its inspection five times: the league gives up on it.
+  if (rearrangementsSoFar(state, match) >= MAX_REARRANGEMENTS) {
+    match.status = 'abandoned';
+    scheduleEvent(state, {
+      date: addDays(date, 2),
+      kind: 'postponed',
+      priority: 'important',
+      source: 'fixture',
+      title: 'Called off for good',
+      detail: `${reason}. It has now been rearranged ${MAX_REARRANGEMENTS} times without finding a playable pitch, so the league has abandoned the fixture.`,
+    });
+    return null;
+  }
 
   const replacementDate = rescheduleDateFor(state, match, date);
   if (!replacementDate) {

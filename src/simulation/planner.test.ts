@@ -47,7 +47,12 @@ describe('the game date', () => {
     expect(nextMatchday(state, firstSunday)).toBe(1);
     expect(matchdaysPlayed(state, addDays(firstSunday, 1))).toBe(1);
     expect(nextMatchday(state, addDays(firstSunday, 1))).toBe(2);
-    expect(matchdaysPlayed(state, addDays(firstSunday, 8))).toBe(2);
+    // The following matchday is a fortnight away, not a week: the count comes
+    // off the calendar rather than off any stored counter, so it follows the
+    // league's actual rhythm.
+    expect(matchdaysPlayed(state, addDays(firstSunday, 8))).toBe(1);
+    expect(matchdaysPlayed(state, addDays(firstSunday, 15))).toBe(2);
+    expect(nextMatchday(state, addDays(firstSunday, 15))).toBe(3);
   });
 
   it('knows when the season calendar has run out', () => {

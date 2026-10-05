@@ -93,9 +93,11 @@ describe('the store clock', () => {
     vi.unstubAllGlobals();
   });
 
-  it('runs the quiet days and stops on the day worth stopping on', () => {
+  it('runs the quiet days and stops on the day worth stopping on', async () => {
     const game = newCareer('store-continue');
-    useGameStore.getState().continueGame();
+    // Moving the clock is asynchronous: it stands between fixtures so the
+    // progress dialog can move. Awaiting it is how a caller knows it is done.
+    await useGameStore.getState().continueGame();
     const after = useGameStore.getState().game!;
     const notice = useGameStore.getState().notice ?? '';
     expect(after.date > game.date).toBe(true);
@@ -104,44 +106,44 @@ describe('the store clock', () => {
     expect(new Date(`${after.date}T00:00:00Z`).getUTCDay()).toBe(4);
   });
 
-  it('moves exactly one day at a time', () => {
+  it('moves exactly one day at a time', async () => {
     const game = newCareer('store-one-day');
-    useGameStore.getState().advanceDays(1);
+    await useGameStore.getState().advanceDays(1);
     expect(useGameStore.getState().game!.date).toBe(addDays(game.date, 1));
-    useGameStore.getState().advanceDays(3);
+    await useGameStore.getState().advanceDays(3);
     expect(useGameStore.getState().game!.date).toBe(addDays(game.date, 4));
   });
 
-  it('refuses to step past an unplayed match', () => {
+  it('refuses to step past an unplayed match', async () => {
     const game = newCareer('store-blocked');
     const fixture = nextFixtureFor(game, game.userClubId, game.date)!;
-    useGameStore.getState().jumpToDate(fixture.date);
+    await useGameStore.getState().jumpToDate(fixture.date);
     const atMatch = useGameStore.getState().game!;
     expect(atMatch.date).toBe(fixture.date);
 
     // Now standing on matchday with the game unplayed: neither control will
     // move the clock, because there is something to do first.
-    useGameStore.getState().advanceDays(1);
+    await useGameStore.getState().advanceDays(1);
     expect(useGameStore.getState().game!.date).toBe(fixture.date);
-    useGameStore.getState().continueGame();
+    await useGameStore.getState().continueGame();
     expect(useGameStore.getState().game!.date).toBe(fixture.date);
     expect(useGameStore.getState().notice ?? '').toMatch(/against|Home|Away/i);
   });
 
-  it('jumps to a date, simulating the days in between', () => {
+  it('jumps to a date, simulating the days in between', async () => {
     const game = newCareer('store-jump');
     const target = addDays(game.date, 5);
-    useGameStore.getState().jumpToDate(target);
+    await useGameStore.getState().jumpToDate(target);
     expect(useGameStore.getState().game!.date).toBe(target);
   });
 
-  it('refuses a date in the past, and one absurdly far away', () => {
+  it('refuses a date in the past, and one absurdly far away', async () => {
     const game = newCareer('store-jump-guard');
-    useGameStore.getState().jumpToDate(addDays(game.date, -2));
+    await useGameStore.getState().jumpToDate(addDays(game.date, -2));
     expect(useGameStore.getState().game!.date).toBe(game.date);
     expect(useGameStore.getState().error).toMatch(/already been/i);
 
-    useGameStore.getState().jumpToDate(addDays(game.date, 200));
+    await useGameStore.getState().jumpToDate(addDays(game.date, 200));
     expect(useGameStore.getState().game!.date).toBe(game.date);
     expect(useGameStore.getState().error).toMatch(/closer/i);
   });
@@ -154,19 +156,19 @@ describe('the store clock', () => {
  * the afternoon, so they are worth pinning down.
  */
 describe('the matchday', () => {
-  function inTheDressingRoom(seed: string) {
+  async function inTheDressingRoom(seed: string) {
     const game = newCareer(seed);
     const fixture = nextFixtureFor(game, game.userClubId, game.date)!;
-    gameStore().jumpToDate(fixture.date);
+    await gameStore().jumpToDate(fixture.date);
     gameStore().startUserMatch();
     return { fixture, session: gameStore().session! };
   }
 
   const gameStore = () => useGameStore.getState();
 
-  it('opens a match at the speed the manager asked for, not at 1x', () => {
+  it('opens a match at the speed the manager asked for, not at 1x', async () => {
     gameStore().setPreferences({ defaultMatchSpeed: 4 });
-    const { session } = inTheDressingRoom('matchday-speed');
+    const { session } = await inTheDressingRoom('matchday-speed');
     expect(session.speed).toBe(4);
     // The controls still change it once it is running.
     gameStore().setMatchSpeed(1);
@@ -174,8 +176,8 @@ describe('the matchday', () => {
     gameStore().setPreferences({ defaultMatchSpeed: 1 });
   });
 
-  it('opens in the dressing room rather than on the pitch', () => {
-    const { session } = inTheDressingRoom('matchday-pre');
+  it('opens in the dressing room rather than on the pitch', async () => {
+    const { session } = await inTheDressingRoom('matchday-pre');
     expect(session.phase).toBe('pre-match');
     expect(session.live.status).toBe('scheduled');
     expect(session.live.minute).toBe(0);
@@ -184,8 +186,8 @@ describe('the matchday', () => {
     expect(gameStore().game!.matches[session.matchId]!.played).toBe(false);
   });
 
-  it('shows the match through either renderer without touching it', () => {
-    inTheDressingRoom('matchday-renderer');
+  it('shows the match through either renderer without touching it', async () => {
+    await inTheDressingRoom('matchday-renderer');
     gameStore().kickOff();
     for (let i = 0; i < 5; i += 1) gameStore().tickMatch();
 
@@ -208,8 +210,8 @@ describe('the matchday', () => {
     expect(gameStore().preferences.renderer).toBe('2d');
   });
 
-  it('watches a finished match back from its own record', () => {
-    const { session } = inTheDressingRoom('matchday-replay');
+  it('watches a finished match back from its own record', async () => {
+    const { session } = await inTheDressingRoom('matchday-replay');
     const matchId = session.matchId;
     gameStore().kickOff();
     gameStore().simulateMatchToEnd();
@@ -226,16 +228,16 @@ describe('the matchday', () => {
     expect(gameStore().replay).toBeNull();
   });
 
-  it('will not replay a fixture with nothing in it', () => {
-    const { session } = inTheDressingRoom('matchday-replay-empty');
+  it('will not replay a fixture with nothing in it', async () => {
+    const { session } = await inTheDressingRoom('matchday-replay-empty');
     const before = gameStore().view;
     gameStore().openReplay(session.matchId);
     expect(gameStore().view).toBe(before);
     expect(gameStore().replay).toBeNull();
   });
 
-  it('stops the picture dead when the match is paused, and starts it again', () => {
-    inTheDressingRoom('matchday-picture-pause');
+  it('stops the picture dead when the match is paused, and starts it again', async () => {
+    await inTheDressingRoom('matchday-picture-pause');
     gameStore().kickOff();
     gameStore().tickMatch();
     const live = gameStore().session!.live;
@@ -254,13 +256,13 @@ describe('the matchday', () => {
     expect(currentLiveEngine()!.getState().clock).toBeGreaterThan(clock);
   });
 
-  it('watches the same football however much of it is shown', () => {
+  it('watches the same football however much of it is shown', async () => {
     // The split in one test: two identical careers, the same fixture, watched
     // under two viewing modes. The whole point is that the *presentation* changes
     // and the *football* does not — a goal in the full match is the same goal at
     // the same second in the key-moments one, because both are the engine's.
-    const watchToHalfTime = (mode: 'full' | 'key') => {
-      inTheDressingRoom('matchday-viewing');
+    const watchToHalfTime = async (mode: 'full' | 'key') => {
+      await inTheDressingRoom('matchday-viewing');
       gameStore().kickOff();
       gameStore().setViewingMode(mode);
       let frames = 0;
@@ -276,8 +278,8 @@ describe('the matchday', () => {
       };
     };
 
-    const full = watchToHalfTime('full');
-    const key = watchToHalfTime('key');
+    const full = await watchToHalfTime('full');
+    const key = await watchToHalfTime('key');
 
     // Both reached the interval — the engine sets `half` to 2 as the first half
     // ends — and the record is identical, however it was watched.
@@ -289,8 +291,8 @@ describe('the matchday', () => {
     expect(key.frames).toBeLessThan(full.frames);
   });
 
-  it('fast-forwards the presentation without skipping the record', () => {
-    inTheDressingRoom('matchday-skip');
+  it('fast-forwards the presentation without skipping the record', async () => {
+    await inTheDressingRoom('matchday-skip');
     gameStore().kickOff();
     gameStore().setViewingMode('key');
     // A few seconds of ordinary play first, so there is something to skip from.
@@ -309,13 +311,13 @@ describe('the matchday', () => {
     expect(gameStore().session!.live.footballSeconds).toBeCloseTo(after, 3);
   });
 
-  it('tells the screen when a line is said, not only when a minute is decided', () => {
+  it('tells the screen when a line is said, not only when a minute is decided', async () => {
     // This is the bug that made the commentary bar look broken. The pitch moves
     // the live match *in place*, so nothing in the store changed and React was
     // never told — the bar could only redraw when `tickMatch` decided a whole
     // minute, which at 1x is every six seconds. A pass would go on the pitch and
     // the bar would sit on its old line, describing a move seconds gone.
-    inTheDressingRoom('matchday-commentary-told');
+    await inTheDressingRoom('matchday-commentary-told');
     gameStore().kickOff();
     gameStore().tickMatch();
 
@@ -334,8 +336,8 @@ describe('the matchday', () => {
     expect(gameStore().session!.revision).toBeGreaterThan(revision);
   });
 
-  it('starts the clock only when the manager kicks off', () => {
-    inTheDressingRoom('matchday-kickoff');
+  it('starts the clock only when the manager kicks off', async () => {
+    await inTheDressingRoom('matchday-kickoff');
     gameStore().setWarmUp('intense');
     gameStore().setTeamTalk('motivational');
     gameStore().kickOff();
@@ -349,8 +351,8 @@ describe('the matchday', () => {
     expect(after.live.events.length).toBeGreaterThan(0);
   });
 
-  it('stops at half time and waits for the manager', () => {
-    inTheDressingRoom('matchday-half');
+  it('stops at half time and waits for the manager', async () => {
+    await inTheDressingRoom('matchday-half');
     gameStore().kickOff();
 
     let guard = 0;
@@ -371,8 +373,8 @@ describe('the matchday', () => {
     expect(gameStore().session!.paused).toBe(false);
   });
 
-  it('lets him say something at half time, and it lands as they go back out', () => {
-    inTheDressingRoom('matchday-halftime-talk');
+  it('lets him say something at half time, and it lands as they go back out', async () => {
+    await inTheDressingRoom('matchday-halftime-talk');
     gameStore().kickOff();
 
     let guard = 0;
@@ -397,8 +399,8 @@ describe('the matchday', () => {
     expect(onThePitch().reduce((sum, player) => sum + player.morale, 0)).not.toBe(before);
   });
 
-  it('gives him the last word at full time, and it lands on the whole squad', () => {
-    inTheDressingRoom('matchday-fulltime-talk');
+  it('gives him the last word at full time, and it lands on the whole squad', async () => {
+    await inTheDressingRoom('matchday-fulltime-talk');
     gameStore().kickOff();
     gameStore().simulateMatchToEnd();
     const done = gameStore().session!;
@@ -431,8 +433,8 @@ describe('the matchday', () => {
     }
   });
 
-  it('takes a full-time talk only once it is full time', () => {
-    inTheDressingRoom('matchday-fulltime-guard');
+  it('takes a full-time talk only once it is full time', async () => {
+    await inTheDressingRoom('matchday-fulltime-guard');
     gameStore().setFullTimeTalk('praise');
     expect(gameStore().session!.fullTimeTalk).toBeNull();
 
@@ -441,8 +443,8 @@ describe('the matchday', () => {
     expect(gameStore().session!.fullTimeTalk).toBeNull();
   });
 
-  it('runs to the final whistle and hands the week back', () => {
-    const { session } = inTheDressingRoom('matchday-full');
+  it('runs to the final whistle and hands the week back', async () => {
+    const { session } = await inTheDressingRoom('matchday-full');
     gameStore().kickOff();
     gameStore().simulateMatchToEnd();
 
@@ -456,8 +458,8 @@ describe('the matchday', () => {
     expect(gameStore().session).toBeNull();
   });
 
-  it('lets the XI be changed before kick-off without spending a substitution', () => {
-    const { session } = inTheDressingRoom('matchday-swap');
+  it('lets the XI be changed before kick-off without spending a substitution', async () => {
+    const { session } = await inTheDressingRoom('matchday-swap');
     const lineup = session.live.lineups[session.side];
     const substitute = lineup.bench[0]!;
     const starter = lineup.starting[0]!;

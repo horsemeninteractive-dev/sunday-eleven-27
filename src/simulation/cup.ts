@@ -1,10 +1,18 @@
-import type { Competition, CupState, FixtureList } from '@/domain/competition';
+import type { Competition, CupRound, CupState, FixtureList } from '@/domain/competition';
 import { isCup } from '@/domain/competition';
 import type { GameState } from '@/domain/game';
 import type { ClubId, CompetitionId, ISODate, MatchId } from '@/domain/ids';
 import type { Match } from '@/domain/match';
 import type { GameEvent } from '@/domain/news';
-import { addDays, CUP_KICKOFF, cupMatchdayFor, isChristmasBreak, toDate, type CupRoundSlot } from './calendar';
+import {
+  addDays,
+  canPlayOnWeekday,
+  CUP_KICKOFF,
+  cupMatchdayFor,
+  isChristmasBreak,
+  toDate,
+  type CupRoundSlot,
+} from './calendar';
 import { rearrangementDeadlineFor } from './postponement';
 import { isLeagueMatchday } from './timeline';
 import { createMatchRecord } from './matchday';
@@ -29,30 +37,171 @@ import { Rng, stream } from './rng';
  * competition id, so the same career always gets the same draw.
  */
 
+/**
+ * How many clubs enter the opening round of a cup's preliminary.
+ *
+ * Eight, so it is four ties, so four go through and four go down. That is the
+ * smallest prelim that leaves a whole number of winners to drop into a round
+ * below.
+ */
+export const PRELIMINARY_SIZE = 8;
+
+/** How many clubs the main cup's first-round losers send down to the Plate. */
+export const PLATE_PRELIMINARY_FROM_FIRST_ROUND = 4;
+
+/**
+ * The main cup's rounds for a field of `entranceCount` clubs.
+ *
+ * A pyramid of 36 does not fit a knockout without byes — 36 is not a power of
+ * two and pairing it blind produces a round of nine and then a round of five,
+ * which nobody would call a cup. So the bottom of the ladder plays a
+ * preliminary: eight clubs, four ties, four winners. Those four join the other
+ * twenty-eight on a bye to make a round of thirty-two, and it runs clean from
+ * there — 32, 16, 8, 4, 2 — which is 35 ties across the season and guarantees
+ * every club plays at least twice before it can be knocked out.
+ *
+ * The preliminary takes the *lowest-seeded* clubs, which is the usual way round
+ * it works: the bottom of the county earns its place rather than being handed
+ * one.
+ */
+export function mainCupPlan(entranceCount: number): CupRound[] {
+  if (entranceCount < 2) return [];
+  const rounds: CupRound[] = [];
+  let field = entranceCount;
+
+  // Only worth a preliminary if there is something for the winners to drop
+  // into: a field that already halves cleanly does not need one.
+  const preliminary = field >= PRELIMINARY_SIZE * 2 ? PRELIMINARY_SIZE : 0;
+  if (preliminary > 0) {
+    rounds.push({ round: 1, field, entrants: preliminary });
+    // Winners plus the clubs that sat this one out.
+    field = field - preliminary + preliminary / 2;
+  }
+
+  let round = rounds.length + 1;
+  while (field > 1) {
+    rounds.push({ round, field, entrants: field });
+    round += 1;
+    field = field <= 2 ? 1 : Math.ceil(field / 2);
+  }
+  return rounds;
+}
+
+/**
+ * The Plate's rounds, fed from the main cup's preliminary losers and its
+ * round-of-thirty-two losers.
+ *
+ * Twenty clubs are available: four who lost the preliminary and sixteen who
+ * lost the round of thirty-two. Eight of them play a Plate preliminary — the
+ * four preliminary losers, who have to be eliminated somewhere, plus four of
+ * the thirty-two losers — and the other twelve sit the round out and join the
+ * four winners in a round of sixteen. From there it is the same clean run as
+ * the main cup: 16, 8, 4, 2, for nineteen ties in the season.
+ */
+export function platePlan(mainPlan: readonly CupRound[]): CupRound[] {
+  const preliminary = mainPlan[0];
+  if (!preliminary) return [];
+  // With a preliminary the Plate is fed from two rounds — the preliminary's
+  // losers and the round of thirty-two's. Without one there is only the opening
+  // round to feed from, and reading round two as well would pull in clubs who
+  // went out of a competition they were never eligible for.
+  const hasPreliminary = preliminary.entrants < preliminary.field;
+  const firstRound = hasPreliminary ? mainPlan[1] : preliminary;
+  if (!firstRound) return [];
+
+  // Losers the main cup hands down: the preliminary's, plus every one of the
+  // round of thirty-two's. Which of them actually play the Plate's preliminary
+  // is `platePreliminaryLineup`'s business, not this function's — this only
+  // needs to know how many there are.
+  const prelimLosers = hasPreliminary ? preliminary.entrants / 2 : 0;
+  const available = prelimLosers + firstRound.entrants / 2;
+  const rounds: CupRound[] = [];
+
+  // The Plate's own preliminary, but only when there are more clubs than can
+  // sensibly play in it: eight entrants makes four ties, and the winners plus
+  // the byes have to come to a whole number of clubs for the round below.
+  const playIn = Math.min(PRELIMINARY_SIZE, available);
+  const nextField = available - playIn + playIn / 2;
+  if (playIn >= 4 && playIn < available && nextField === Math.ceil(nextField / 2) * 2) {
+    rounds.push({ round: 1, field: available, entrants: playIn });
+  }
+
+  let field = rounds.length > 0 ? nextField : available;
+  let round = rounds.length + 1;
+  while (field > 1) {
+    rounds.push({ round, field, entrants: field });
+    round += 1;
+    field = field <= 2 ? 1 : Math.ceil(field / 2);
+  }
+  return rounds;
+}
+
+/**
+ * Split the Plate's entrants into the ones who play its preliminary and the ones
+ * who get a bye into the round of sixteen.
+ *
+ * `required` are the clubs that have to be in the tie: the main cup's
+ * preliminary losers, who have already been knocked out once and cannot be left
+ * carrying the Plate's preliminary as a walkover. They fill the places first,
+ * and the rest come from `available` in the order given — which is the order
+ * the main cup reported them eliminated, so the split is derived from the draw
+ * rather than invented here.
+ *
+ * The byes are the point of the round: twelve clubs who lost the round of
+ * thirty-two join the four winners to make sixteen.
+ */
+export function platePreliminaryLineup(
+  available: readonly ClubId[],
+  required: readonly ClubId[],
+  entrants: number,
+): { playIn: ClubId[]; byes: ClubId[] } {
+  const playIn: ClubId[] = [];
+  const pool = new Set(available);
+  for (const clubId of required) {
+    if (playIn.length >= entrants || !pool.delete(clubId)) continue;
+    playIn.push(clubId);
+  }
+  for (const clubId of available) {
+    if (playIn.length >= entrants) break;
+    if (!pool.delete(clubId)) continue;
+    playIn.push(clubId);
+  }
+  return { playIn, byes: [...pool] };
+}
+
 /** How many rounds a whole-pyramid cup needs, and where each one lands. */
 export function cupRoundSlots(entranceCount: number, leagueMatchdays: number): CupRoundSlot[] {
-  const rounds = roundSizes(entranceCount);
+  const rounds = mainCupPlan(entranceCount);
   if (rounds.length === 0) return [];
 
   // Spread the rounds across the league season rather than bunching them at the
   // start, and keep every round inside the league calendar so a cup tie is
   // always settled inside the season that drew it.
-  const usable = Math.max(1, leagueMatchdays - 2);
   return rounds.map((_size, index) => ({
     round: index + 1,
-    beforeMatchday: Math.max(2, Math.round(((index + 1) * usable) / rounds.length)),
+    beforeMatchday: matchdayForCupRound(index, rounds.length, leagueMatchdays),
   }));
 }
 
-/** Knock a field of `n` down to one: the number of clubs left after each round. */
-function roundSizes(entranceCount: number): number[] {
-  let survivors = entranceCount;
-  const rounds: number[] = [];
-  while (survivors > 1) {
-    rounds.push(survivors);
-    survivors = survivors <= 2 ? 1 : Math.ceil(survivors / 2);
-  }
-  return rounds;
+/**
+ * Which league matchday a cup round is played in the week before.
+ *
+ * `index` is the round's position among *all* the season's cup rounds and
+ * `total` how many there are, so both competitions can be spread through the
+ * season together rather than one after the other — see `allCupRoundSlots`.
+ *
+ * The last round is pinned to the final matchday rather than falling where the
+ * arithmetic puts it, so the League Cup final is a spring Sunday rather than
+ * whenever the division of the season happens to land. The very first round
+ * stays early, because a cup that opens in March is not a cup.
+ */
+function matchdayForCupRound(index: number, total: number, leagueMatchdays: number): number {
+  const first = 2;
+  const last = leagueMatchdays;
+  if (index === 0) return first;
+  if (total <= 1) return last;
+  if (index === total - 1) return last;
+  return Math.max(first, Math.min(last, Math.round(((index + 1) * last) / (total + 1))));
 }
 
 /**
@@ -69,29 +218,26 @@ function roundSizes(entranceCount: number): number[] {
  * on the same night. Interleaved, they alternate down the season instead.
  *
  * The Plate's first round is second in the list, which is what it has to be: it
- * is fed from the League Cup's first-round losers, so it cannot be drawn before
- * that round has been played.
+ * is fed from the League Cup's preliminary and first-round losers, so it cannot
+ * be drawn before those rounds have been played.
  */
 export function allCupRoundSlots(leagueField: number, leagueMatchdays: number, consolation: boolean): CupRoundSlot[] {
-  const main = roundSizes(leagueField);
+  const main = mainCupPlan(leagueField);
   if (main.length === 0) return [];
-  // A consolation cup starts from the main cup's first-round losers: half the
-  // field, rounded up for the odd one out.
-  const plate = consolation ? roundSizes(Math.ceil(leagueField / 2)) : [];
+  const plate = consolation ? platePlan(main) : [];
 
   const all = [
-    ...main.map((_size, index) => ({ round: index + 1 })),
-    ...plate.map((_size, index) => ({ round: index + 1 })),
+    ...main.map((entry) => ({ round: entry.round })),
+    ...plate.map((entry) => ({ round: entry.round })),
   ];
 
   // Spread every round across the season, keeping them all inside the league
   // calendar so a cup tie is settled in the season that drew it. Distinct
   // matchdays mean distinct Wednesdays, which is what stops a club being asked
   // for two ties on one night.
-  const usable = Math.max(all.length, leagueMatchdays - 2);
   return all.map((slot, index) => ({
     ...slot,
-    beforeMatchday: Math.max(2, Math.min(leagueMatchdays, Math.round(((index + 1) * usable) / all.length))),
+    beforeMatchday: matchdayForCupRound(index, all.length, leagueMatchdays),
   }));
 }
 
@@ -191,6 +337,14 @@ export function drawCupRound(
     announce?: boolean;
     /** The consolation cup takes the losers of this round rather than a field. */
     consolation?: boolean;
+    /**
+     * Exactly which clubs play this round.
+     *
+     * Only needed where the choice is not "the bottom of the seed order": the
+     * Plate's preliminary is fed a specific list of clubs that have to be in it,
+     * and those cannot be picked out of a sorted field.
+     */
+    playIn?: readonly ClubId[];
   },
 ): CupDrawResult | null {
   const cup = competition.cup;
@@ -200,10 +354,25 @@ export function drawCupRound(
   const field = competition.clubIds.filter((clubId) => state.clubs[clubId]?.active);
   if (field.length < 2) return null;
 
+  // How many clubs this round actually puts into ties. A round planned with
+  // fewer entrants than clubs has byes: the rest of the field stays in
+  // `competition.clubIds`, and `readCupRound` brings them back out as survivors
+  // when the round finishes because they never lost.
+  const planned = cup.plan?.find((entry) => entry.round === round);
+  const entrants = planned?.entrants ?? field.length;
+  // A preliminary takes the bottom of the seed order, which is the point of it:
+  // the lowest-seeded clubs in the county have to win something to be here.
+  const drawn = context.playIn
+    ? field.filter((clubId) => context.playIn!.includes(clubId))
+    : entrants >= field.length ? field : field.slice(-entrants);
+  if (drawn.length < 2) return null;
+
   const rng = stream(state.seed, 'cup-draw', context.seasonId, competition.id, round);
-  const ties = pairUp(rng, field);
+  const ties = pairUp(rng, drawn);
   const matchday = cupMatchdayFor(round, context.leagueMatchdays, cup.matchdayOffset ?? 0);
-  const date = playDateFor(state, matchday, field);
+  // Only the clubs actually playing need the night free; a club on a bye is
+  // somewhere else and must not push the round off its Wednesday.
+  const date = playDateFor(state, matchday, drawn);
   if (!date) return null;
 
   const created: MatchId[] = [];
@@ -240,7 +409,7 @@ export function drawCupRound(
     events.push(createEvent(state, {
       type: 'cup-draw',
       importance: 2,
-      clubIds: field,
+      clubIds: drawn,
       data: {
         headline: `${competition.name} round ${round} draw`,
         body: drawSentence(state, competition, created, context.seasonLabel),
@@ -285,14 +454,21 @@ function matchDateFor(state: GameState, matchday: number): ISODate | null {
  *    scheduled for ever, because nothing plays matches that have already been.
  *
  *  - The slot can already be spoken for. A rearranged league fixture lands on a
- *    spare midweek, and if it lands on the same Wednesday a cup round wants, one
- *    club ends up booked to play twice. The round moves to the next midweek
+ *    spare Sunday, and if it lands on the same Sunday a cup round wants, one club
+ *    ends up booked to play twice. The round moves to the next free Sunday
  *    nobody in its field is already playing rather than double-booking anybody.
  */
 function playDateFor(state: GameState, matchday: number, clubIds: readonly ClubId[]): ISODate | null {
   const date = matchDateFor(state, matchday);
   if (!date || clubIds.length < 2) return date;
-  if (date > addDays(state.date, 2) && fieldIsFree(state, clubIds, date)) return date;
+  // The round's own slot is the right date whenever it is still to come. The
+  // guard used to demand three clear days, which a round drawn early in pre-season
+  // could never satisfy — the slot was weeks away, not imminent — so the round
+  // fell through to a search that settled for the next spare day instead, and a
+  // tie dated on a day the clock then stepped over is how a cup round failed to
+  // complete. A slot the club has since been given another game on is not taken
+  // either: the round moves rather than double-booking anybody.
+  if (date >= state.date && fieldIsFree(state, clubIds, date)) return date;
   return nextFreeDateForField(state, clubIds);
 }
 
@@ -313,21 +489,39 @@ function clubBusyOn(state: GameState, clubId: ClubId, date: ISODate): boolean {
 }
 
 /**
- * The next midweek on which every club in the field is free.
+ * The next free day on which every club in the field is available.
  *
- * A cup round is one night for the whole field, so unlike a single rearranged
+ * A cup round is one day for the whole field, so unlike a single rearranged
  * fixture there is no pairing to dodge the clash with — the date itself has to
- * move. Bounded by the same rearrangement deadline, so a round whose field is
- * scattered across a congested calendar is given up on rather than chased to the
- * end of the year.
+ * move. It looks for a Sunday, because that is when this league plays, and falls
+ * back to a Wednesday evening. Never a Thursday or a Saturday; see
+ * `NO_GAME_WEEKDAYS`.
+ *
+ * Bounded by the same rearrangement deadline, so a round whose field is scattered
+ * across a congested calendar is given up on rather than chased to the end of the
+ * year.
  */
 function nextFreeDateForField(state: GameState, clubIds: readonly ClubId[]): ISODate | null {
   const deadline = rearrangementDeadlineFor(state);
+  // Never before the season starts. A career opens in pre-season, weeks before the
+  // league's first Sunday, so a round drawn in late July would otherwise be moved
+  // to the first free Wednesday *from today* — a date before the competition it
+  // belongs to has even begun, and one that nothing will ever come round to play.
+  const seasonStart = state.season.calendar[0]?.date ?? state.season.startDate;
   let candidate = addDays(state.date, 3);
+  if (candidate < seasonStart) candidate = seasonStart;
   for (let day = 0; day < 30; day += 1) {
     if (candidate > deadline) return null;
     const weekday = toDate(candidate).getUTCDay();
-    if ((weekday === 3 || weekday === 6) && !isChristmasBreak(candidate) && fieldIsFree(state, clubIds, candidate)) {
+    // A round that has to move looks for a free Sunday first, the same as any
+    // other fixture, and falls back to a Wednesday evening. Never a Thursday
+    // (training) and never a Saturday (other football).
+    if (
+      (weekday === 0 || weekday === 3) &&
+      canPlayOnWeekday(weekday) &&
+      !isChristmasBreak(candidate) &&
+      fieldIsFree(state, clubIds, candidate)
+    ) {
       return candidate;
     }
     candidate = addDays(candidate, 1);
@@ -412,15 +606,38 @@ export function readCupRound(state: GameState, competition: Competition): CupRou
  * club would go out twice.
  */
 export function matchesForRound(state: GameState, competition: Competition, round: number): Match[] {
+  return tiesOnMatchday(state, competition, cupRoundMatchday(state, competition, round))
+    .filter((match) => !match.replacedByMatchId);
+}
+
+/**
+ * Every fixture booked for a matchday, including the ones that were called off.
+ *
+ * `matchesForRound` drops a tie that has been rearranged, because a postponed
+ * game and its replay are two records of one tie and reading both would give the
+ * round two winners for it. A fixture *list* is the opposite case: the game that
+ * was called off happened, it happened on that date, and a manager looking at
+ * his month wants to see it marked P-P next to the replay that replaced it.
+ */
+export function tiesOnMatchday(state: GameState, competition: Competition, matchday: number): Match[] {
   const list: FixtureList | undefined = state.fixtures?.[competition.id];
   if (!list) return [];
-  const matchday = cupRoundMatchday(state, competition, round);
-  const ids = Object.entries(list.matchdayOf)
+  return Object.entries(list.matchdayOf)
     .filter(([, entry]) => entry === matchday)
-    .map(([id]) => id);
-  return ids
-    .map((id) => state.matches[id])
-    .filter((match): match is Match => Boolean(match) && !match.replacedByMatchId);
+    .map(([id]) => state.matches[id])
+    .filter((match): match is Match => Boolean(match));
+}
+
+/**
+ * Whether a fixture was called off rather than played.
+ *
+ * A postponed fixture is not a cancelled one: it stays on the record on the date
+ * it was due, and a replacement is created for a later date. The screens show
+ * the first as P-P and the second as a fixture in its own right, because both are
+ * true and a manager planning his month needs to see both.
+ */
+export function isPostponed(match: Match): boolean {
+  return match.status === 'postponed' || match.status === 'abandoned';
 }
 
 /**
@@ -521,16 +738,30 @@ export function cupTieNews(state: GameState, match: Match): GameEvent[] {
   })];
 }
 
-/** A fresh cup state for a new season. */
-export function newCupState(consolationFor?: CompetitionId, matchdayOffset = 0): CupState {
+/** A fresh cup state for a new season, following the round plan it was built to. */
+export function newCupState(plan?: readonly CupRound[], consolationFor?: CompetitionId, matchdayOffset = 0): CupState {
   return {
     round: 1,
     winnerClubId: null,
     runnerUpClubId: null,
     complete: false,
     matchdayOffset,
+    ...(plan && plan.length > 0 ? { plan: plan.map((entry) => ({ ...entry })) } : {}),
     ...(consolationFor ? { consolationFor } : {}),
   };
+}
+
+/**
+ * The plan a cup is running to, or a plain knockout for a save made before
+ * rounds were planned.
+ *
+ * A competition with no plan is one built by an older version of the game, where
+ * every club played in every round. Reading it as "everybody plays" is exactly
+ * what that save was doing, so an in-progress career carries on rather than
+ * finding eight clubs mysteriously unaccounted for.
+ */
+export function planOf(competition: Competition): CupRound[] {
+  return competition.cup?.plan ?? [];
 }
 
 /** When a cup round's ties were drawn, for the archive and the UI. */
@@ -561,11 +792,57 @@ export function cupRoundOf(state: GameState, competition: Competition, match: Ma
   return match.matchday - (base + (cup.matchdayOffset ?? 0));
 }
 
+/**
+ * What a round of a cup is called.
+ *
+ * A round of eight is the quarter-finals unless it is the one at the bottom of
+ * the competition, where the same eight clubs are the preliminary — which is why
+ * this reads the plan rather than counting ties: four clubs left is the
+ * semi-finals in a main cup and the first round of a Plate drawn from four
+ * losers, and only the plan says which.
+ */
+export function cupRoundName(competition: Competition, round: number): string {
+  const plan = competition.cup?.plan ?? [];
+  const entry = plan.find((candidate) => candidate.round === round);
+  if (!entry) return `Round ${round}`;
+
+  // Fewer clubs in the ties than in the round means some were on a bye, so this
+  // is the round that decides who plays rather than who goes through.
+  const isPreliminary = entry.entrants < entry.field;
+  switch (entry.entrants) {
+    case 2:
+      return 'Final';
+    case 4:
+      return 'Semi-finals';
+    case 8:
+      return isPreliminary ? 'Preliminary Round' : 'Quarter-finals';
+    case 16:
+      return 'Last 16';
+    case 32:
+      return 'Round of 32';
+    case 64:
+      return 'Round of 64';
+    default:
+      return isPreliminary ? 'Preliminary Round' : `Round of ${entry.entrants}`;
+  }
+}
+
 /** One round of a cup, read back for the screen that shows the competition. */
 export interface CupRoundSummary {
   round: number;
+  /** What the round is called on the screens and in the news. */
+  name: string;
   date: ISODate | null;
+  /**
+   * Every tie booked for the round, including the ones that were called off.
+   *
+   * A postponed tie stays on the round it was drawn for, marked P-P, with its
+   * replay booked separately for a later date: the manager has to be able to see
+   * that a game did not happen *and* when it is being played instead.
+   */
   ties: Match[];
+  /** Ties that are still to be settled, postponements excluded. */
+  outstanding: Match[];
   /** True when every tie in the round has been settled. */
   complete: boolean;
 }
@@ -583,13 +860,19 @@ export function cupRoundSummaries(state: GameState, competition: Competition): C
   if (!cup) return [];
   const summaries: CupRoundSummary[] = [];
   for (let round = 1; round <= cup.round; round += 1) {
-    const ties = matchesForRound(state, competition, round);
+    const ties = tiesOnMatchday(state, competition, cupRoundMatchday(state, competition, round));
     if (ties.length === 0) break;
+    // A round is finished when nothing is left to play on it. A called-off tie is
+    // not outstanding *here* — its replay is a fixture in its own right — so it
+    // cannot hold the round open on its own.
+    const outstanding = ties.filter((tie) => isActiveFixture(tie));
     summaries.push({
       round,
+      name: cupRoundName(competition, round),
       date: roundDrawDate(state, competition, round),
-      ties,
-      complete: ties.every((tie) => !isActiveFixture(tie)),
+      ties: ties.sort((a, b) => a.homeClubId.localeCompare(b.homeClubId)),
+      outstanding,
+      complete: outstanding.length === 0,
     });
   }
   return summaries;

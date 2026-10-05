@@ -8,7 +8,7 @@ import {
   kickOffTimeFor,
   type CupRoundSlot,
 } from './calendar';
-import { allCupRoundSlots, cupRoundSlots, drawCupRound, newCupState, seedOrder } from './cup';
+import { allCupRoundSlots, cupRoundSlots, drawCupRound, mainCupPlan, newCupState, platePlan, seedOrder } from './cup';
 import { generateFixtures, matchdayCount } from './generation/fixtureGenerator';
 import { createMatchRecord } from './matchday';
 import {
@@ -141,6 +141,10 @@ export function buildSeasonStructure(options: BuildSeasonOptions): SeasonStructu
   // two games on one Wednesday.
   const cupSlots = config.leagueCup ? allCupRoundSlots(cupField, leagueMatchdays, config.consolationCup) : [];
   const plateOffset = config.leagueCup ? cupRoundSlots(cupField, leagueMatchdays).length : 0;
+  // How many clubs each round of each cup holds, fixed here so the draw, the
+  // round-advance and the screens all read one description of the tournament.
+  const mainPlan = config.leagueCup ? mainCupPlan(cupField) : [];
+  const plateRounds = config.leagueCup && config.consolationCup ? platePlan(mainPlan) : [];
   const calendar = buildSeasonCalendarWithCups(firstLeagueDate, leagueMatchdays, cupSlots);
 
   // --- The competitions -----------------------------------------------------
@@ -162,10 +166,10 @@ export function buildSeasonStructure(options: BuildSeasonOptions): SeasonStructu
       LEAGUE_CUP_NAME,
       seasonId,
       seedOrder(state, ladderClubs),
-      newCupState(),
+      newCupState(mainPlan),
     );
     if (config.consolationCup) {
-      competitions[PLATE_ID] = cupCompetition(PLATE_ID, PLATE_NAME, seasonId, [], newCupState(LEAGUE_CUP_ID, plateOffset));
+      competitions[PLATE_ID] = cupCompetition(PLATE_ID, PLATE_NAME, seasonId, [], newCupState(plateRounds, LEAGUE_CUP_ID, plateOffset));
     }
   }
 

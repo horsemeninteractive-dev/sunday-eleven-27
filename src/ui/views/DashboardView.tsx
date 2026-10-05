@@ -18,6 +18,7 @@ import {
 import { sessionForecast } from '@/simulation/training/plan';
 import { sessionRecordedFor } from '@/simulation/training/store';
 import { matchdaysPlayed } from '@/simulation/timeline';
+import { kitDecisionOutstanding } from '../kit';
 import { validateLineup } from '@/simulation/selection';
 import { moneyShort } from '../format';
 import { gameActions, useGame, useNextFixture } from '../hooks';
@@ -308,6 +309,20 @@ function concernsFor(game: GameState, matchday: number): Concern[] {
   const concerns: Concern[] = [];
   const breakdown = squadAvailability(game, club.id);
   const squad = squadOf(game, club.id);
+
+  // The shirts. A club picks its strip once, in pre-season, when the new ones
+  // turn up, and then does not think about it again for a year — so the prompt
+  // belongs here, in the weeks it matters, rather than as a permanent item in
+  // the sidebar that a manager learns to ignore.
+  if (kitDecisionOutstanding(game, club.id)) {
+    concerns.push({
+      id: 'kit',
+      tone: 'info',
+      title: 'New kit for the season',
+      detail: 'This summer’s shirts have arrived. Pick the one the club runs out in before the league starts.',
+      action: { label: 'Pick the kit', view: 'kit' },
+    });
+  }
 
   if (breakdown.unavailable.length > 0) {
     const names = breakdown.unavailable.slice(0, 3).map((player) => player.surname).join(', ');

@@ -1,3 +1,4 @@
+import type { CommunicationStore } from './communication';
 import type { Club } from './club';
 import type { Competition, FixtureList, MovementRecord, PyramidConfig } from './competition';
 import type { ScheduleState } from './events';
@@ -41,8 +42,14 @@ import type { StandingRow } from './club';
  *     8 saves are given a profile derived from the ability and age each player
  *     already had, so an old career does not suddenly discover a new talent in
  *     its established men.
+ * 10 — communication. Every conversation the manager has with players, staff,
+ *     the board, the league and anybody trying to join the club, with every
+ *     message in it, its intent, who has read it and what it expects to cause.
+ *     Version 9 saves have no conversations yet — there is nothing to invent,
+ *     because a career that had none should not wake up with any — so they are
+ *     given an empty inbox and the world carries on around them.
  */
-export const GAME_STATE_VERSION = 9;
+export const GAME_STATE_VERSION = 10;
 
 export type GamePhase = 'preseason' | 'season' | 'complete';
 
@@ -93,6 +100,13 @@ export interface GameState {
   recruitment: RecruitmentStore;
   /** Thursday nights: the week's plan, what happened, and what it has built. */
   training: TrainingStore;
+  /**
+   * Everything the manager has been told, and everything he has said back:
+   * conversations, messages, read state, and the intent each message was sent
+   * with. Held on the state like the other stores so a save carries the inbox
+   * with it.
+   */
+  communication: CommunicationStore;
   competitions: Record<CompetitionId, Competition>;
   /**
    * The shape of the ladder this career was generated with: divisions, clubs

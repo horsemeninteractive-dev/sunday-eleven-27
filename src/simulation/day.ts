@@ -1,3 +1,4 @@
+import type { Competition } from '@/domain/competition';
 import type { GameState } from '@/domain/game';
 import type { ClubId, ISODate, MatchId } from '@/domain/ids';
 import type { GameEvent, NewsItem } from '@/domain/news';
@@ -14,7 +15,16 @@ import { describeSessionQuality } from '@/domain/training';
 import { weeklyApproaches, type DiscoveryResult } from './recruitment/discovery';
 
 import { divisionOf, leagueClubIds, standingsFor, cupCompetitions } from './pyramid';
-import { allCupRoundSlots, cupTieNews, drawCupRound, isLeagueMatchday, readCupRound } from './cup';
+import {
+  allCupRoundSlots,
+  cupTieNews,
+  drawCupRound,
+  isLeagueMatchday,
+  loserOf,
+  matchesForRound,
+  platePreliminaryLineup,
+  readCupRound,
+} from './cup';
 import { prepareMatchday } from './matchday';
 import { simulateMatchHeadless } from './match/matchEngine';
 import { matchEnvironment } from './matchday';
@@ -25,6 +35,9 @@ import { stream } from './rng';
 import { everyFixtureSettled, finishSeason } from './season';
 import { snapshotStandings } from './gameSetup';
 import { eventsOn, markNotifiedThrough, nextFixtureFor, recursOn, recurringEvents } from './schedule';
+import { runDueFollowUps } from './communication/playerConversation';
+import { announceAvailabilityChange } from './communication/availabilityComms';
+import { announceOverdueSubs, paymentStandingFor } from './communication/paymentComms';
 import { matchdaysPlayed, nextMatchday, seasonCalendarExhausted } from './timeline';
 
 /**
@@ -86,11 +99,52 @@ export interface DayOptions {
   resolveUserMatch?: boolean;
 }
 
+/**
+ * A pause the day hands back to whoever asked for it.
+ *
+ * Playing out a matchday means running the same engine the manager watches,
+ * headless, five or six times over — several seconds of work in which the
+ * screen cannot repaint. A caller that can show a progress bar needs somewhere
+ * to stand between two fixtures, so the loop yields before each one and again
+ * once it has a result to report.
+ *
+ * `processDay` and `continueTime` are the drained form of these: same work, same
+ * order, same result, and nothing for the caller to do.
+ */
+export type DayStep =
+  | {
+      kind: 'fixture';
+      /** The day whose football is being played out. */
+      date: ISODate;
+      /** Fixtures finished so far on this day, and how many there are in all. */
+      done: number;
+      total: number;
+      home: string;
+      away: string;
+    }
+  | {
+      kind: 'result';
+      date: ISODate;
+      done: number;
+      total: number;
+      /** The match as it would be written in the results table. */
+      line: string;
+    };
+
 export function processDay(
   state: GameState,
   date: ISODate = state.date,
   options: DayOptions = {},
 ): DayOutcome {
+  return drain(processDaySteps(state, date, options));
+}
+
+/** The same day, paused at every fixture so a caller can show progress. */
+export function* processDaySteps(
+  state: GameState,
+  date: ISODate = state.date,
+  options: DayOptions = {},
+): Generator<DayStep, DayOutcome, void> {
   // For the length of this call, "today" is this date: everything that happens
   // is dated by the day that caused it.
   state.date = date;
@@ -111,7 +165,7 @@ export function processDay(
   events.push(...applyDailyLife(state, date));
   events.push(...applyTraining(state, date, notes));
 
-  const football = applyFixtures(state, date, options);
+  const football = yield* applyFixturesSteps(state, date, options);
   events.push(...football.events);
   notes.push(...football.notes);
   results.push(...football.results);
@@ -119,6 +173,13 @@ export function processDay(
   events.push(...advanceCups(state));
 
   events.push(...applyWorldDay(state, date));
+
+  // A player who said he would let the manager know has now had his chance to:
+  // anybody the calendar says is owed a chase is written to today, and the
+  // answer is read from the record as it stands now rather than from last
+  // week's roll. This is the only place follow-ups are triggered, so nothing
+  // else has to remember them.
+  runDueFollowUps(state, date);
 
   const nextDate = addDays(date, 1);
   events.push(...applyStandingsSnapshot(state, date, nextDate));
@@ -212,7 +273,21 @@ function applyDatedMoney(state: GameState, date: ISODate): GameEvent[] {
   // ones in the top division — otherwise the bottom of the pyramid would run on
   // nothing at all and would fold in a season.
   for (const clubId of leagueClubIds(state)) {
-    if (subsDue) applySubsAndSponsorship(state, clubId, date);
+    if (subsDue) {
+      applySubsAndSponsorship(state, clubId, date);
+      // The manager is written to *after* the book has settled, never before,
+      // and only about his own squad. The announcement fires on a threshold
+      // being crossed and carries a key, so a man who stays behind is not
+      // written to every Friday — which is the difference between a treasurer
+      // telling him once and a treasurer telling him every week.
+      if (clubId === state.userClubId) {
+        const squad = state.clubs[clubId]?.squadIds ?? [];
+        for (const playerId of squad) {
+          if (!paymentStandingFor(state, playerId)) continue;
+          announceOverdueSubs(state, playerId);
+        }
+      }
+    }
     if (costsDue) applyStandingCosts(state, clubId, date);
     if (clubId === state.userClubId && (state.clubs[clubId]?.finances.balance ?? 0) < 0) {
       events.push(
@@ -295,6 +370,7 @@ function applyDailyLife(state: GameState, date: ISODate): GameEvent[] {
       ) ?? null;
     const change = rollDailyLifeChange({ rng, player, date, matchDate: nextMatch?.date ?? null });
     if (!change) continue;
+    const statusBefore = player.availability.status;
 
     if (change.kind === 'loses') {
       player.availability = {
@@ -328,6 +404,21 @@ function applyDailyLife(state: GameState, date: ISODate): GameEvent[] {
         until: null,
         discoveredLate: false,
       };
+    }
+
+    // The roll has written the record. Only now does anybody get told, and only
+    // because something actually changed — a day that leaves a man where it
+    // found him says nothing, and only the manager's own squad is written to,
+    // because the rest of the county is simulated in silence. The announcement
+    // reads the record the roll just wrote; it never writes one.
+    if (player.clubId === clubId && statusBefore !== player.availability.status) {
+      if (change.kind !== 'clears') {
+        announceAvailabilityChange(state, player.id, {
+          kind: change.kind,
+          reason: change.reason,
+          note: change.note,
+        });
+      }
     }
 
     if (player.clubId !== clubId) continue;
@@ -401,7 +492,24 @@ interface FixtureOutcome {
  * games that are not the manager's are played out — the league does not wait
  * for him — while his own is left alone, because it is his.
  */
-function applyFixtures(state: GameState, date: ISODate, options: DayOptions): FixtureOutcome {
+/**
+ * Run a generator to its end and hand back what it returned.
+ *
+ * The stepping variants exist only so a caller can stand between two fixtures.
+ * Draining one is the same as never having stepped it, which is why every
+ * internal caller keeps using the plain synchronous function.
+ */
+function drain<T>(steps: Generator<DayStep, T, void>): T {
+  let next = steps.next();
+  while (!next.done) next = steps.next();
+  return next.value;
+}
+
+function* applyFixturesSteps(
+  state: GameState,
+  date: ISODate,
+  options: DayOptions,
+): Generator<DayStep, FixtureOutcome, void> {
   const outcome: FixtureOutcome = { events: [], notes: [], results: [], userMatchId: null };
   const todays = Object.values(state.matches).filter(
     (match) => match.date === date && isActiveFixture(match),
@@ -445,8 +553,16 @@ function applyFixtures(state: GameState, date: ISODate, options: DayOptions): Fi
 
   // --- The games themselves -------------------------------------------------
   let otherReports = 0;
+  // The manager's own game is never in this count: he plays it himself, or sends
+  // it to the bench, so it is not work the progress bar is waiting on.
+  const othersToPlay = playable.filter(
+    (match) => match.homeClubId !== state.userClubId && match.awayClubId !== state.userClubId,
+  );
+  let played = 0;
   for (const match of playable) {
     const involvesUser = match.homeClubId === state.userClubId || match.awayClubId === state.userClubId;
+    const home = state.clubs[match.homeClubId]?.identity.shortName ?? 'Home';
+    const away = state.clubs[match.awayClubId]?.identity.shortName ?? 'Away';
     if (involvesUser && !options.resolveUserMatch) {
       // Left where it is: the manager has to play it, or send it to the bench.
       continue;
@@ -475,14 +591,40 @@ function applyFixtures(state: GameState, date: ISODate, options: DayOptions): Fi
         });
       }
       if (involvesUser) state.lastMatchId = match.id;
+      if (!involvesUser) {
+        // A forfeit is decided without a ball being kicked, but the manager is
+        // still waiting on it, so the bar counts it like any other game.
+        played += 1;
+        yield {
+          kind: 'result',
+          date,
+          done: played,
+          total: othersToPlay.length,
+          line: match.result ? `${home} ${match.result.homeGoals}–${match.result.awayGoals} ${away}` : `${home} v ${away}`,
+        };
+      }
       continue;
     }
 
     // One engine decides every match, watched or not: an AI fixture is played
     // by the same MatchEngine the manager watches, headless. There is no second,
     // simplified simulation for the games he is not looking at.
+    //
+    // This is the moment the manager is waiting on — a second or more per game
+    // — so the loop stands here and says which match is being worked out.
+    if (!involvesUser) {
+      yield {
+        kind: 'fixture',
+        date,
+        done: played,
+        total: othersToPlay.length,
+        home,
+        away,
+      };
+    }
     const env = matchEnvironment(state, match, { autoManageAllBenches: true });
     simulateMatchHeadless(match, env);
+    played += 1;
     const consequences = applyMatchConsequences(state, match);
     outcome.events.push(...consequences.events);
     // A cup tie that went the wrong way for the big club is the story of a cup
@@ -523,6 +665,15 @@ function applyFixtures(state: GameState, date: ISODate, options: DayOptions): Fi
       });
     }
     if (involvesUser) state.lastMatchId = match.id;
+    if (!involvesUser) {
+      yield {
+        kind: 'result',
+        date,
+        done: played,
+        total: othersToPlay.length,
+        line: `${home} ${match.result?.homeGoals ?? 0}–${match.result?.awayGoals ?? 0} ${away}`,
+      };
+    }
   }
 
   const others = playable.length - (outcome.userMatchId ? 1 : 0);
@@ -743,23 +894,12 @@ function advanceCups(state: GameState): GameEvent[] {
     events.push(...outcome.events);
     if (outcome.decided) continue; // the winner has already been crowned
 
-    // The consolation competition takes this round's losers — but only from
-    // the round it hangs off, which is the opening round. Feeding it from every
-    // round would put clubs back in after they had gone out, and a Plate drawn
-    // from the semi-final losers is three clubs and a walkover.
-    if (cupState.round === 1) {
-      const plate = cupCompetitions(state).find((entry) => entry.cup?.consolationFor === cup.id);
-      if (plate) {
-        plate.clubIds = [...outcome.eliminated];
-        plate.cup = { ...(plate.cup ?? { round: 1, winnerClubId: null, runnerUpClubId: null, complete: false }), round: 1, complete: false, winnerClubId: null, runnerUpClubId: null };
-        const drawn = drawCupRound(state, plate, {
-          seasonId: state.season.id,
-          seasonLabel: state.season.label,
-          leagueMatchdays: leagueMatchdayCount(state),
-          announce: true,
-        });
-        events.push(...(drawn?.events ?? []));
-      }
+    // The Plate is fed from the two opening rounds of the main cup: the four who
+    // lose the preliminary and the sixteen who lose the round of thirty-two.
+    // Both have to have happened, so this waits for the round that is fed by the
+    // first of them and draws only once the second is known.
+    if (cupState.round === plateFeedRound(cup)) {
+      events.push(...feedPlate(state, cup));
     }
 
     // The next round is the winners, drawn into the calendar.
@@ -781,6 +921,68 @@ function advanceCups(state: GameState): GameEvent[] {
     events.push(...(drawn?.events ?? []));
   }
   return events;
+}
+
+/**
+ * The main-cup round whose losers complete the Plate's field.
+ *
+ * With a preliminary the Plate needs both it and the round of thirty-two, so it
+ * is fed when the second of them finishes. Without one, the opening round's
+ * losers are the whole field and it is fed when that finishes.
+ */
+function plateFeedRound(main: Competition): number {
+  const plan = main.cup?.plan ?? [];
+  return plan.length > 0 && plan[0]!.entrants < plan[0]!.field ? 2 : 1;
+}
+
+/**
+ * Draw the Plate's opening round from the main cup's losers.
+ *
+ * The Plate's own field is every club that lost the main cup's preliminary or
+ * its round of thirty-two — twenty of them. Eight of those play, the other
+ * twelve get a bye into the Plate's round of sixteen, and the four who lost the
+ * preliminary have to be among the eight: they are already out of the main cup,
+ * so leaving them to walk into the Plate's second round would hand a club a
+ * second bite without playing for it.
+ */
+function feedPlate(state: GameState, main: Competition): GameEvent[] {
+  const plate = cupCompetitions(state).find((entry) => entry.cup?.consolationFor === main.id);
+  if (!plate?.cup || plate.clubIds.length > 0) return [];
+
+  const mainPlan = main.cup?.plan ?? [];
+  const planned = plate.cup.plan?.[0];
+  const prelimLosers: ClubId[] = [];
+  if (mainPlan[0] && mainPlan[0].entrants < mainPlan[0].field) {
+    // The preliminary has finished by now — it is what fed this round.
+    prelimLosers.push(...losersOfRound(state, main, 1));
+  }
+  // `main.cup.round` is still the round being fed at: `advanceCups` advances it
+  // after this returns.
+  const available = [...prelimLosers, ...losersOfRound(state, main, main.cup!.round)];
+
+  const entrants = planned?.entrants ?? available.length;
+  const { playIn, byes } = platePreliminaryLineup(available, prelimLosers, entrants);
+
+  // The byes are real entrants: they sit this round out and are still in the
+  // competition, so they join the winners in the round of sixteen.
+  plate.clubIds = [...playIn, ...byes];
+  plate.cup = { ...plate.cup, round: 1, complete: false, winnerClubId: null, runnerUpClubId: null };
+
+  const drawn = drawCupRound(state, plate, {
+    seasonId: state.season.id,
+    seasonLabel: state.season.label,
+    leagueMatchdays: leagueMatchdayCount(state),
+    announce: true,
+    playIn,
+  });
+  return drawn?.events ?? [];
+}
+
+/** The clubs that went out of one round of a cup, read back off the ties. */
+function losersOfRound(state: GameState, competition: Competition, round: number): ClubId[] {
+  return matchesForRound(state, competition, round)
+    .filter((tie) => !isActiveFixture(tie))
+    .map(loserOf);
 }
 
 /** How many of this season's matchdays are league Sundays. */
@@ -855,6 +1057,21 @@ export interface ContinueOutcome {
  * all. Everything in between is simulated and reported in the digest.
  */
 export function continueTime(state: GameState, options: ContinueOptions = {}): ContinueOutcome {
+  return drain(continueTimeSteps(state, options));
+}
+
+/**
+ * The Continue button, paused at every fixture.
+ *
+ * The manager presses Continue after a match and the league plays on around him:
+ * one engine run per other club, each of them long enough to look like a freeze.
+ * This hands the caller a step before each of those games so it can show which
+ * one is being worked out, and the same `ContinueOutcome` at the end.
+ */
+export function* continueTimeSteps(
+  state: GameState,
+  options: ContinueOptions = {},
+): Generator<DayStep, ContinueOutcome, void> {
   const maxDays = options.maxDays ?? 21;
   const outcome: ContinueOutcome = {
     days: [],
@@ -918,7 +1135,7 @@ export function continueTime(state: GameState, options: ContinueOptions = {}): C
     // Never take the manager's own fixture out of his hands: an unplayed one is
     // a blocking event, and the check at the top of this loop would have
     // returned before we got here.
-    const day = processDay(state, today, { resolveUserMatch: false });
+    const day = yield* processDaySteps(state, today, { resolveUserMatch: false });
     outcome.days.push(today);
     outcome.news.push(...day.news);
     outcome.notes.push(...day.notes);

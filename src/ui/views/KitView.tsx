@@ -33,6 +33,11 @@ export function KitView() {
     <div className="stack">
       <PageHeader
         eyebrow="Club"
+        actions={
+          <Button variant="ghost" onClick={() => gameActions().setView('dashboard')}>
+            Back to the club
+          </Button>
+        }
         title="The kit"
         subtitle={`${kit.season} · ${kit.maker.name}${sponsor ? ` · ${sponsor.name}` : ' · no shirt sponsor'}`}
         meta={

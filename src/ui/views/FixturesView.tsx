@@ -2,9 +2,8 @@ import { useState } from 'react';
 import type { Competition } from '@/domain/competition';
 import type { GameState } from '@/domain/game';
 import type { Match } from '@/domain/match';
-import { formatDayMonth } from '@/simulation/calendar';
-import { cupRoundOf } from '@/simulation/cup';
-import { ordinal } from '@/simulation/news';
+import { formatDayMonth, formatKickOff } from '@/simulation/calendar';
+import { cupRoundName, cupRoundOf, isPostponed } from '@/simulation/cup';
 import { clubMatches, matchVenueLabel } from '@/simulation/queries';
 import { NextFixturePanel } from '../components/FixtureInfo';
 import { MatchReportModal } from '../components/MatchReportModal';
@@ -35,7 +34,10 @@ function fixtureKind(
     const round = cupRoundOf(state, competition, match);
     const name = competition.name.replace(/^.*Sunday League /, '');
     return {
-      label: round > 0 ? `${name} · ${ordinal(round)} round` : name,
+      // The competition's own name for the round, not "the 1st round": the same
+      // eight clubs are the quarter-finals in one round and the preliminary in
+      // another, and only the plan knows which.
+      label: round > 0 ? `${name} · ${cupRoundName(competition, round)}` : name,
       detail: 'midweek cup tie',
       tone: 'accent',
     };
@@ -93,7 +95,7 @@ export function FixturesView() {
             <span className="small muted">
               Next: {matchVenueLabel(nextFixture, club.id)} against{' '}
               {game.clubs[nextFixture.homeClubId === club.id ? nextFixture.awayClubId : nextFixture.homeClubId]!.identity.name}{' '}
-              · {formatDayMonth(nextFixture.date)}, {nextFixture.kickOff}
+              · {formatDayMonth(nextFixture.date)}, {formatKickOff(nextFixture.kickOff)}
             </span>
           ) : (
             <span className="small muted">Nothing left this season.</span>
@@ -174,12 +176,17 @@ function FixtureRow({
   const result = match.result;
   const ground = state.world.grounds[match.groundId];
   const kind = fixtureKind(state, match);
+  // A called-off fixture stays in the month it was due, marked P-P, with the
+  // replay listed separately on its new date: both are true, and a manager
+  // planning his month needs to see both.
+  const calledOff = isPostponed(match);
+  const replay = match.replacedByMatchId ? state.matches[match.replacedByMatchId] : undefined;
 
   const row = (
     <>
       <span className="fixture__when">
         <strong>{formatDayMonth(match.date)}</strong>
-        <span className="muted small">{match.kickOff}</span>
+        <span className="muted small">{formatKickOff(match.kickOff)}</span>
       </span>
       <span className="fixture__teams">
         <strong>
@@ -189,18 +196,27 @@ function FixtureRow({
         <span className="muted small">
           {venue} · {ground?.name}
           {isCurrent ? ' · next up' : ''}
+          {calledOff
+            ? replay
+              ? ` · postponed, replay ${formatDayMonth(replay.date)}`
+              : ' · postponed with no replay left in the season'
+            : ''}
         </span>
       </span>
       <span className="fixture__kind">
         <Pill tone={kind.tone}>{kind.label}</Pill>
       </span>
       <span className="fixture__score">
-        {result ? (
+        {calledOff ? (
+          <Pill tone="warn" title={match.postponementReason ?? undefined}>
+            P-P
+          </Pill>
+        ) : result ? (
           <Pill tone={outcomeTone(state, match)}>
             {result.homeGoals}–{result.awayGoals}
           </Pill>
         ) : (
-          <Pill tone={isCurrent ? 'accent' : 'muted'}>{match.kickOff}</Pill>
+          <Pill tone={isCurrent ? 'accent' : 'time'}>{formatKickOff(match.kickOff)}</Pill>
         )}
       </span>
     </>
@@ -219,7 +235,7 @@ function FixtureRow({
           {row}
         </button>
       ) : (
-        <div className={`fixture fixture--static${isCurrent ? ' fixture--current' : ''}`} aria-current={isCurrent ? 'true' : undefined}>
+        <div className={`fixture fixture--static${isCurrent ? ' fixture--current' : ''}${calledOff ? ' fixture--postponed' : ''}`} aria-current={isCurrent ? 'true' : undefined}>
           {row}
         </div>
       )}

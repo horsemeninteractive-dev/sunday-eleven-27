@@ -6,6 +6,7 @@ import { clubStyle } from './colour';
 import { AppShell } from './layout/AppShell';
 import { AppDialogs } from './dialogs/AppDialogs';
 import { UpdatePrompt } from './components/UpdatePrompt';
+import { ProcessingModal } from './components/ProcessingModal';
 // The one eager screen: it is the first thing painted, so it stays in the entry
 // chunk rather than waiting behind a fallback that would blank the page.
 import { StartView } from './views/StartView';
@@ -22,6 +23,7 @@ import {
   ManagerView,
   MatchView,
   NewsView,
+  InboxView,
   ProfileView,
   RecruitmentView,
   ReplayView,
@@ -119,6 +121,10 @@ export function App() {
           screen is still being fetched, and the bar saying so should not be one
           of the things still waiting. */}
       <UpdatePrompt />
+      {/* Also above everything, and not dismissible: while the league is being
+          played out there is nothing on the screen he could usefully be doing,
+          and a dialog he can close would let him press Continue twice. */}
+      <ProcessingModal />
     </>
   );
 }
@@ -149,6 +155,8 @@ function ViewRouter({ view }: { view: ViewId }) {
       return <WorldView />;
     case 'news':
       return <NewsView />;
+    case 'inbox':
+      return <InboxView />;
     case 'recruitment':
       return <RecruitmentView />;
     case 'training':

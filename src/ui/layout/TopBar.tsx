@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { GameState } from '@/domain/game';
 import type { Match } from '@/domain/match';
-import { formatDate, formatDayMonth } from '@/simulation/calendar';
+import { formatDate, formatDayMonth, formatKickOff } from '@/simulation/calendar';
 import { isPlayer, type Player } from '@/domain/person';
 import { matchVenueLabel } from '@/simulation/queries';
 import { nextFixtureFor as scheduleNextFixture } from '@/simulation/schedule';
@@ -74,7 +74,7 @@ function NextMatchBlock({ game, command }: { game: GameState; command: CommandSt
       </span>
       <span className="nextmatch__meta">
         <span>
-          <Glyph name="fixtures" /> {formatDayMonth(fixture.date)} · {fixture.kickOff}
+          <Glyph name="fixtures" /> {formatDayMonth(fixture.date)} · {formatKickOff(fixture.kickOff)}
         </span>
         <span>
           <Glyph name="league" /> <CompetitionLink>{fixture.competitionName}</CompetitionLink>

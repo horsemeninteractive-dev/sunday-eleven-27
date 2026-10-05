@@ -1,21 +1,24 @@
 import { useState } from 'react';
 import type { Competition } from '@/domain/competition';
 import type { GameState } from '@/domain/game';
-import type { ClubId, CompetitionId } from '@/domain/ids';
+import type { ClubId, CompetitionId, ISODate } from '@/domain/ids';
 import type { Match } from '@/domain/match';
-import { formatDayMonth } from '@/simulation/calendar';
+import { formatDayMonth, formatKickOff } from '@/simulation/calendar';
 import {
+  cupRoundName,
   cupRoundSummaries,
   isGiantKilling,
+  isPostponed,
   tieScoreLine,
   type CupRoundSummary,
 } from '@/simulation/cup';
 import { cupCompetitions } from '@/simulation/pyramid';
 import { userClub } from '@/simulation/queries';
-import { ordinal } from '@/simulation/news';
 import { gameActions, useGame } from '../hooks';
 import { Button, PageHeader, Pill } from '../components/primitives';
-import { ClubLink } from '../components/Links';
+import { FixtureRow } from '../components/FixtureRow';
+import { Statistics } from '../components/Statistics';
+import { competitionStats } from '@/simulation/tables';
 import { MetricTile, Section, StatusTile, TileGrid } from '../components/hierarchy';
 
 /**
@@ -49,6 +52,9 @@ export function CupView() {
   const ownTie = ownTieIn(rounds, club.id);
   const ownOutcome = ownTie ? outcomeFor(game, ownTie, club.id) : null;
   const champion = cup?.winnerClubId ? game.clubs[cup.winnerClubId] : undefined;
+  // Scoped to the clubs actually in this cup, so a player is only charted here
+  // for the ties he played in it.
+  const stats = competitionStats(game, shown.clubIds);
 
   return (
     <div className="stack">
@@ -87,7 +93,7 @@ export function CupView() {
         <TileGrid min={170}>
           <MetricTile
             label="Round"
-            value={inHand ? ordinal(inHand.round) : '—'}
+            value={inHand ? inHand.name : '—'}
             note={inHand ? (inHand.complete ? 'Settled' : `${inHand.ties.length} ties`) : 'Not drawn'}
             tone="default"
           />
@@ -104,7 +110,7 @@ export function CupView() {
               ownTie && ownOutcome
                 ? ownOutcome.note
                 : ownTie
-                  ? `${formatDayMonth(ownTie.date)} · ${ownTie.kickOff}`
+                  ? `${formatDayMonth(ownTie.date)} · ${formatKickOff(ownTie.kickOff)}`
                   : 'No tie in this competition'
             }
             tone={ownOutcome ? ownOutcome.tone : ownTie ? 'accent' : 'muted'}
@@ -134,18 +140,23 @@ export function CupView() {
           archive and waits behind a disclosure. */}
       {inHand && (
         <Section
-          title={`${ordinal(inHand.round)} round`}
+          title={inHand.name}
           action={
             <span className="small muted">
               {inHand.date ? formatDayMonth(inHand.date) : ''} · {inHand.ties.length} tie
               {inHand.ties.length === 1 ? '' : 's'}
               {inHand.complete ? ' · settled' : ''}
+              {replayDate(game, inHand) ? ` · waiting on a replay, moved to ${formatDayMonth(replayDate(game, inHand)!)}` : ''}
             </span>
           }
         >
           <TieList game={game} summary={inHand} />
         </Section>
       )}
+
+      <Section title="Statistics" action={<span className="small muted">{shown.name}</span>}>
+        <Statistics stats={stats} subtitle={shown.name} />
+      </Section>
 
       {archive.length > 0 && (
         <details className="more">
@@ -154,7 +165,7 @@ export function CupView() {
             {[...archive].reverse().map((summary) => (
               <Section
                 key={summary.round}
-                title={`${ordinal(summary.round)} round`}
+                title={summary.name}
                 action={
                   <span className="small muted">
                     {summary.date ? formatDayMonth(summary.date) : ''} · {summary.ties.length} tie
@@ -172,6 +183,19 @@ export function CupView() {
   );
 }
 
+/**
+ * The date a postponed tie in this round has been moved to.
+ *
+ * A round that is waiting on a replay says so, and says when: otherwise a round
+ * stuck on "4 ties" looks like the simulation has simply forgotten the fourth
+ * game rather than that it was moved to another night.
+ */
+function replayDate(game: GameState, summary: CupRoundSummary): ISODate | null {
+  if (summary.complete) return null;
+  const postponed = summary.ties.find((tie) => isPostponed(tie) && tie.replacedByMatchId);
+  return postponed?.replacedByMatchId ? (game.matches[postponed.replacedByMatchId]?.date ?? null) : null;
+}
+
 /** The bracket: every tie in one round, the manager's own marked. */
 function TieList({ game, summary }: { game: GameState; summary: CupRoundSummary }) {
   const club = userClub(game);
@@ -187,26 +211,18 @@ function TieList({ game, summary }: { game: GameState; summary: CupRoundSummary 
   return (
     <ul className="cup__ties">
       {summary.ties.map((tie) => (
-        <li
+        <FixtureRow
           key={tie.id}
-          className={`cup__tie${tie.homeClubId === club.id || tie.awayClubId === club.id ? ' cup__tie--mine' : ''}`}
+          state={game}
+          match={tie}
+          homeClubId={tie.homeClubId}
+          awayClubId={tie.awayClubId}
+          mine={tie.homeClubId === club.id || tie.awayClubId === club.id}
+          result={tie.played ? <Pill tone={tieTone(game, tie)}>{tieScoreLine(tie)}</Pill> : undefined}
+          note={isGiantKilling(game, tie) ? <span className="muted small">giant killing</span> : undefined}
         >
-          <span className="cup__tie-teams">
-            <ClubLink clubId={tie.homeClubId} />
-            <span className="muted small">v</span>
-            <ClubLink clubId={tie.awayClubId} />
-          </span>
-          <span className="cup__tie-result">
-            {tie.played ? (
-              <>
-                <Pill tone={tieTone(game, tie)}>{tieScoreLine(tie)}</Pill>
-                {isGiantKilling(game, tie) && <span className="muted small">giant killing</span>}
-              </>
-            ) : (
-              <Pill tone="muted">{tie.kickOff}</Pill>
-            )}
-          </span>
-        </li>
+          {tie.played ? null : <Pill tone="time">{formatKickOff(tie.kickOff)}</Pill>}
+        </FixtureRow>
       ))}
     </ul>
   );
@@ -220,8 +236,7 @@ function subtitleFor(game: GameState, competition: Competition): string {
     return `${game.season.label} · won by ${winner?.identity.name ?? 'a club'}`;
   }
   if (cup?.complete) return `${game.season.label} · complete`;
-  const round = cup?.round ?? 1;
-  return `${game.season.label} · ${ordinal(round)} round`;
+  return `${game.season.label} · ${cupRoundName(competition, cup?.round ?? 1)}`;
 }
 
 /** Who is still in the competition: every entrant who has not lost a tie. */

@@ -1,6 +1,10 @@
 import { DEFAULT_PYRAMID } from '@/domain/competition';
 import type { GameState, StandingSnapshot } from '@/domain/game';
 import { GAME_STATE_VERSION } from '@/domain/game';
+import { emptyAdminState } from '@/domain/admin';
+import { emptyGovernanceState } from '@/domain/governance';
+import { emptySponsorshipState } from '@/domain/sponsorship';
+import { seedInitialSponsorship } from './sponsorship';
 import { emptyCommunicationStore } from '@/domain/communication';
 import { emptyRecruitmentStore } from '@/domain/recruitment';
 import { emptyTrainingStore } from '@/domain/training';
@@ -25,8 +29,7 @@ import { generateUnattachedPlayers } from './generation/unattachedPlayers';
 import { relationshipStore } from './relationships';
 import { maybeNickname, occupation, personFirstName, personSurname } from './generation/names';
 import { createEvent, publishEvents } from './news';
-import { rollAvailability } from './availability';
-import { applyWeeklyFinances } from './finance';
+import { rollAvailability, rollWeeklyStaffAvailabilityForAll } from './availability';
 import { ensureTrainingState } from './training/store';
 import { abilityMean } from './queries';
 import { positionOf } from './league';
@@ -484,6 +487,7 @@ function fundFormation(
 ): void {
   const spend = squadCost(standard, size);
   club.finances.balance = 0;
+  club.finances.openingBalance = 0;
   club.finances.ledger = [];
   recordLedgerLine(club, date, 'Formation grant from the league and the committee.', 'other', grant);
   recordLedgerLine(club, date, `Brought in ${size} players to form the squad.`, 'signing', -spend);
@@ -688,6 +692,9 @@ export function startGameFromDraft(draft: WorldDraft, options: StartGameOptions)
     // The day he arrives is already in front of him: the clock should not stop
     // on it before it has moved at all.
     schedule: { ...emptyScheduleState(), notifiedThrough: seasonStart },
+    admin: emptyAdminState(),
+    governance: emptyGovernanceState(),
+    sponsorship: emptySponsorshipState(),
     season: {
       id: seasonId,
       label: seasonLabel,
@@ -734,6 +741,10 @@ export function startGameFromDraft(draft: WorldDraft, options: StartGameOptions)
   const calendar = structure.calendar;
   state.season.calendar = calendar;
   state.season.endDate = calendar[calendar.length - 1]!.date;
+  // Every club that was named after a business, and had a weekly figure on its
+  // books, starts the career with that business as its sponsor — a real
+  // agreement rather than a modifier, with the first instalment still to come.
+  seedInitialSponsorship(state);
   const competition = divisionOf(state, options.clubId);
 
   openSeasonRecords(state, seasonId, seasonLabel);
@@ -755,6 +766,7 @@ export function startGameFromDraft(draft: WorldDraft, options: StartGameOptions)
   }
 
   rollWeeklyAvailabilityForAll(state);
+  rollWeeklyStaffAvailabilityForAll(state);
   // Thursday nights: every club has a routine, and the manager inherits his.
   ensureTrainingState(state, seasonStart);
 
@@ -797,7 +809,13 @@ export function startGameFromDraft(draft: WorldDraft, options: StartGameOptions)
   // there is a squad to look at and something to play before the league starts.
   arrangePreSeason(state, options.clubId, firstPreSeasonSunday);
 
-  applyWeeklyFinances(state, options.clubId);
+  // No settlement happens here. A career begins on the day it begins, and money
+  // only moves when a real calendar event causes it: the first Wednesday pays
+  // the first week's costs, the first Friday brings the first sponsorship
+  // instalment due under the club's agreement, and the first Thursday's session
+  // pays for its own pitch. Seeding a whole week of transactions on the Monday
+  // the club is created was an artefact of the old weekly tick, not a thing that
+  // actually happened.
   prepareMatchday(state, 1);
   state.standingHistory.push(...snapshotStandings(state));
 

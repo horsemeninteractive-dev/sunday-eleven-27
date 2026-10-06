@@ -96,14 +96,16 @@ describe('a career begins in pre-season', () => {
     expect(squad.some((player) => player.fitness < 100)).toBe(true);
   });
 
-  it('runs the club week through the summer: training, subs and costs', () => {
+  it('runs the club week through the summer: training and costs', () => {
     const { state } = createTestGame('preseason-rhythm');
     const rules = recurringEvents(state);
     const firstMonday = state.date;
     expect(rules.every((rule) => rule.startsOn <= firstMonday)).toBe(true);
-    // The subs are collected and the pitch paid for in July, not just September.
-    const subs = rules.find((rule) => rule.id === 'rec_subs')!;
-    expect(recursOn(subs, addDays(firstMonday, 4))).toBe(true);
+    // The pitch is paid for in July, not just September. Player subs are no
+    // longer a weekly rule at all: they are raised per match.
+    const costs = rules.find((rule) => rule.id === 'rec_costs')!;
+    expect(recursOn(costs, addDays(firstMonday, 2))).toBe(true);
+    expect(rules.some((rule) => rule.id === 'rec_subs')).toBe(false);
 
     runDays(state, 14);
 
@@ -112,8 +114,9 @@ describe('a career begins in pre-season', () => {
     expect(sessions.length).toBeGreaterThanOrEqual(2);
     expect(sessions.every((session) => daysBetween(session.date, leagueOpener(state)) > 0)).toBe(true);
     const club = state.clubs[state.userClubId]!;
-    expect(club.finances.ledger.some((line) => line.category === 'subs')).toBe(true);
     expect(club.finances.ledger.some((line) => line.category === 'pitch-hire')).toBe(true);
+    // No squad-wide weekly subs line, ever.
+    expect(club.finances.ledger.some((line) => /^Player subs \(/.test(line.description))).toBe(false);
   });
 
   it('stops the clock on a friendly before the league begins', () => {

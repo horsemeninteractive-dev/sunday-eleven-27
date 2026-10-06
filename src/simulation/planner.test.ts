@@ -109,12 +109,12 @@ describe('what is on each day', () => {
 
   it('puts a recurring commitment on the date the rule says', () => {
     const { state } = createTestGame('planner-recurring');
-    const subs = recurringEvents(state).find((rule) => rule.id === 'rec_subs')!;
-    expect(subs.weekday).toBe(5);
-    const friday = addDays(state.date, (5 - 1 + 7) % 7);
-    expect(toDate(friday).getUTCDay()).toBe(5);
-    expect(recursOn(subs, friday)).toBe(true);
-    expect(recursOn(subs, addDays(friday, 1))).toBe(false);
+    const costs = recurringEvents(state).find((rule) => rule.id === 'rec_costs')!;
+    expect(costs.weekday).toBe(3);
+    const wednesday = addDays(state.date, (3 - 1 + 7) % 7);
+    expect(toDate(wednesday).getUTCDay()).toBe(3);
+    expect(recursOn(costs, wednesday)).toBe(true);
+    expect(recursOn(costs, addDays(wednesday, 1))).toBe(false);
   });
 
   it('shows something the manager scheduled himself', () => {

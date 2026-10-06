@@ -4,7 +4,7 @@ import type { GameState } from '@/domain/game';
 import { isPlayer, type Player } from '@/domain/person';
 import { defaultRoleFor } from '@/simulation/match/roles';
 import { getRelationship } from '@/simulation/relationships';
-import { collectPlayerSubs, applySubsAndSponsorship } from '@/simulation/finance';
+import { collectPlayerSubs } from '@/simulation/finance';
 import { addDays } from '@/simulation/calendar';
 import { deserialiseGame, serialiseGame } from '@/state/persistence';
 import { createTestGame, type TestGame } from '../testSupport';
@@ -98,38 +98,38 @@ function playerSideOf(state: GameState, playerId: string) {
 
 /* --------------------------------------------------------------------- */
 
-describe('the subs book is per-player now', () => {
-  it('books only the money that arrived', () => {
+describe('the subs book is per-player and per-match now', () => {
+  it('books only the money that arrives, and never the debt', () => {
     const game = createTestGame('subs-book');
     const before = balance(game.state);
-    // Every man pays: the club takes the whole book, exactly as before.
-    for (const player of squadOf(game)) {
-      player.attributes.behavioural.reliability = 20;
-      player.subs = { owed: 0, missedWeeks: 0, lastPaidOn: null };
-    }
-    const subscription = game.state.clubs[game.clubId]!.finances.subscriptionPerPlayer;
-    applySubsAndSponsorship(game.state, game.clubId, game.state.date);
-    expect(balance(game.state)).toBe(before + squadOf(game).length * subscription + game.state.clubs[game.clubId]!.finances.sponsorIncomePerWeek);
+    owing(game, 0, 3, 5);
+    // A man owing money is not income: the balance only ever holds money that
+    // actually arrived, so an uncollected book changes nothing.
+    expect(balance(game.state)).toBe(before);
   });
 
-  it('records a man who does not pay, and does not put the money in the account', () => {
-    const game = createTestGame('subs-missed');
-    const subscription = game.state.clubs[game.clubId]!.finances.subscriptionPerPlayer;
+  it('applies a part payment to the oldest liability first', () => {
+    const game = createTestGame('subs-part-payment');
+    const player = squadOf(game)[0]!;
+    player.subs = {
+      owed: 8,
+      missedWeeks: 2,
+      lastPaidOn: null,
+      liabilities: [
+        { id: 'm1:p', matchId: 'm1', date: '2026-09-06', category: 'starter', amount: 5, paid: 0, paidOn: null },
+        { id: 'm2:p', matchId: 'm2', date: '2026-09-13', category: 'substitute', amount: 3, paid: 0, paidOn: null },
+      ],
+    };
     const before = balance(game.state);
-    for (const player of squadOf(game)) player.attributes.behavioural.reliability = 20;
-    // Force the one man to miss it by making him unreliable and already behind.
-    const late = squadOf(game)[0]!;
-    late.attributes.behavioural.reliability = 1;
-    late.subs = { owed: 0, missedWeeks: 0, lastPaidOn: null };
 
-    applySubsAndSponsorship(game.state, game.clubId, game.state.date);
-    // Whatever happened to him, the account only ever holds money that arrived,
-    // so it cannot have gone up by more than the whole book plus the sponsor.
-    const sponsor = game.state.clubs[game.clubId]!.finances.sponsorIncomePerWeek;
-    expect(balance(game.state)).toBeLessThanOrEqual(before + squadOf(game).length * subscription + sponsor);
-    if (late.subs.missedWeeks > 0) {
-      expect(late.subs.owed).toBeGreaterThanOrEqual(subscription);
-    }
+    const taken = collectPlayerSubs(game.state, game.clubId, player.id, game.state.date, 5);
+
+    expect(taken).toBe(5);
+    expect(player.subs.owed).toBe(3);
+    expect(player.subs.missedWeeks).toBe(1);
+    expect(player.subs.liabilities![0]!.paidOn).toBe(game.state.date);
+    expect(player.subs.liabilities![1]!.paidOn).toBeNull();
+    expect(balance(game.state)).toBe(before + 5);
   });
 
   it('clears a debt only when money genuinely arrives', () => {

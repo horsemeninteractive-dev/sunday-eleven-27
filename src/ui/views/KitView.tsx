@@ -1,4 +1,5 @@
 import { KIT_COLLAR_LABEL, KIT_PATTERN_LABEL, type KitDesign } from '@/domain/kit';
+import { weeklySponsorshipIncome } from '@/simulation/sponsorship';
 import { clubKit, clubKitOptions, chosenKitOption, KIT_OPTION_COUNT, sponsorFor } from '../kit';
 import { KitSetRow } from '../components/Kit';
 import { Button, PageHeader, Pill } from '../components/primitives';
@@ -66,7 +67,7 @@ export function KitView() {
           <StatusTile
             label="Shirt sponsor"
             status={sponsor ? sponsor.name : 'None'}
-            note={`£${club.finances.sponsorIncomePerWeek} a week`}
+            note={sponsor ? `£${weeklySponsorshipIncome(game, club.id)} a week` : 'No deal'}
             tone={sponsor ? 'ok' : 'muted'}
           />
           <MetricTile label="Kit firm" value={kit.maker.name} note={`${kit.season} season`} />

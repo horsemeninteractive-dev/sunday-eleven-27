@@ -10,7 +10,343 @@ move (any save from an older build is migrated forward on load). `1.0.0` means
 it is finished. This file is also the changelog inside the game, reachable from
 the main menu.
 
-## [Unreleased]
+## [0.7.0] - 2026-10-06 — the people who run the club
+
+### A Club screen, and one answer to "what needs me"
+
+The **Club** area now opens with a **Club** screen that answers the three
+questions a manager actually has about the organisation he has joined: who runs
+this place, where does it stand, and what needs him. It reads the committee out
+of the staff records — a role, a name, whether they are around, one word for how
+good they are at that job, and only where there is one, the single thing they are
+currently carrying — and it lists the club's standing as four numbers pulled
+from the league, the squad, the ledger and the sponsorship agreement.
+
+**Home and Club now share one list of what matters,** so they cannot disagree
+about it. Every card is a door: it opens the thread that is already waiting, the
+conversation with the man responsible, or the screen where the fact is dealt
+with — scrolled to the relevant part and with focus handed to it, so a keyboard
+or screen-reader user is taken there too. Only `urgent` and `important` messages
+ever earn a card, and the list is capped, because a dashboard that shows
+everything shows nothing.
+
+The **Finances** screen gained **The outlook**: the warnings the treasurer is
+carrying and the next six weeks of known commitments side by side. The figures
+come from a read-only projection over the calendar's own recurring rules and the
+club's configured costs, sharing its arithmetic with the ledger itself, so what
+the club is told it will owe is what it is actually billed. **Staff** gained the
+same per-person issue line, so an office that is carrying something says so in
+one sentence rather than hiding it in a section of its own.
+
+No attributes were added to any screen. A manager still learns a physio is
+strong with ankles, not that his coaching is 12.
+
+### Events reach the manager through the person responsible
+
+**Communication is now the consequence layer over the rest of the club.** An
+event that happens in another system — a fixture the league has moved, a sub
+liability raised by a match, a club sliding into the red, a sponsor whose deal is
+running out, a physio who cannot come in — is noticed by whoever is responsible
+for it, and the manager hears about it from that person. Nobody new answers a
+question: the treasurer still reads the ledger, the secretary the desk, the
+chairman the committee. What is new is that they now speak up on their own when
+the systems they keep actually change.
+
+This is deliberately not a feed. A busy week can be silent, and a quiet one can
+bring one message that matters; the coach no longer texts the same sentence every
+Thursday, and "nothing out of the ordinary" is no longer news. Every announcement
+carries the key of the fact that caused it, and a save reloaded on the same day
+writes nothing — the keys live on the messages themselves, so there is no second
+index to keep in step.
+
+**Only significant moments become club history.** An overdraft, a serious word
+from the committee, a sponsor arriving or walking out are written into the club's
+permanent record beside its promotions; a knock, a doubt or a note about subs
+stays in the thread where it was said. The sponsor moments are recorded by the
+sponsorship system itself, where the deal actually changes, exactly as every
+other consequence in the game is.
+
+### The manager can talk to the people who run the club
+
+The **Communication system now reaches the club's own officers**. The treasurer,
+the secretary, the chairman, the assistant, the coach, the physio and the scout
+all have a thread, and what they say is read out of the system that already owns
+the fact — the manager can ask the treasurer how the books look and get the real
+balance, ask the secretary what the league has sent and get the actual letter,
+ask the chairman what he expects and get the committee's own view. It is the
+*same* inbox, the same threads and the same message shape as talking to a player;
+no separate screens, and no second messaging system.
+
+Nobody in this layer invents anything. Every answer is a reading of the ledger,
+the secretary's desk, the chairman's expectations, the physio's report or the
+sponsorship record, and a message only ever *acts* where the manager has
+explicitly invoked a domain action — asking the chairman to back the club runs
+the existing backing mechanism, and asking the treasurer about the bills settles
+the invoice through the ledger. A man saying he will pay still does not pay.
+
+Incoming messages are **event-driven and rare**: the treasurer raises a worry
+once a season, the chairman writes when a concern is real, the secretary passes
+on what actually needs the manager, and the staff speak when there is something
+to say. Each is keyed to the fact that caused it, so a reloaded save or a day
+visited twice writes nothing new. Messages now carry a **priority** —
+`urgent`, `important`, `normal` or `social` — and only the first two are allowed
+to push their way to the top of the inbox.
+
+### A sponsor is somebody, not a number
+
+Sponsorship is a **relationship** now, not the `sponsorIncomePerWeek` modifier it
+used to be. A deal is real: it names a business that already exists in the world
+— the same pub, builder or garage a club is named after — and records the club,
+the start and end dates, the instalment, its terms, a status, a reputation fit
+and the sponsor's goodwill toward the club. A business can back a club without
+the club carrying a sponsor at all, and a club that loses one can go without
+until it finds another.
+
+It runs through a lifecycle: a club looks for a sponsor, accepts an offer, the
+deal goes active and pays, comes up for renewal at the end of its term, and can
+lapse or be replaced. The manager can see all of it from the Club's finances —
+the current sponsor, the income, the renewal date and any single pressing issue
+— without a commercial dashboard.
+
+Every instalment is **one ledger line**, dated by the agreement and keyed to it,
+so a day is never paid twice and the books stay the only authority on money. The
+old weekly `rec_sponsor` calendar rule and the `applySponsorship` weekly charge
+are gone: the agreement decides when a payment is due. A payment can be missed,
+which dents the sponsor's goodwill and, if it keeps happening, ends the deal. The
+sponsor's goodwill moves through the existing relationship service between the
+manager and the chairman who own the decision, and nothing else.
+
+### Matchday subs, not a weekly squad tax
+
+Player subs are a **matchday liability** now. A man is charged for the match he
+actually played, from the Match Engine's own participation record — a starter
+pays the full starter rate, a substitute who came on pays the reduced rate, and
+an unused substitute, an unselected player or an unavailable one pays nothing.
+Squad membership on its own no longer creates a debt.
+
+Each match raises its own liability against the player who played it, so a man
+can owe from several games at once and the club can always say why: £5 from the
+Saturday cup tie, £3 from Sunday. Payment is applied to the oldest outstanding
+liability first, so a part payment settles one match and leaves the rest
+standing, and the history stays.
+
+The Friday squad-wide settlement is gone, along with the weekly subs line and
+the `rec_subs` calendar rule: the calendar can no longer generate player sub
+income on its own. Club finances carry configurable `starterSubAmount` and
+`substituteSubAmount` (£5 / £3 by default). Old saves migrate to the matchday
+rates and keep any balance they already had, without inventing participation
+they never recorded.
+
+### The club's books now add up
+
+Finance has been corrected so that every displayed figure is a real ledger
+line, dated by the calendar event that caused it, and no balance is calculated
+anywhere but in the ledger.
+
+- **Training is a real cost.** `trainingCostPerWeek` is charged on the night the
+  session is actually held — never by a UI projection, and never when the
+  session is cancelled or moved into a hall the club already paid for.
+- **Sponsorship has one schedule.** It is weekly, on the calendar's own Friday,
+  everywhere: the rule, the ledger and the UI. The stray monthly rule is gone.
+- **No settlement at kick-off of a career.** A new club no longer pays a whole
+  week of costs and takes a week of sponsorship on the Monday it is created;
+  money moves only when its calendar events actually fall due.
+- **The ledger is the balance.** `openingBalance + sum(ledger)` always equals
+  the stored balance, even after the oldest lines are folded away, and an old
+  save is given an opening balance that makes its existing book add up.
+
+### The committee is made of people
+
+The club has a **personnel system** now. Assistant, coach, physio, secretary,
+treasurer, scout and volunteer are real roles held by real people, not a list of
+words in the data. A staff member is an ordinary `Person` — his own name, age,
+day job, reputation and notes — carrying only the few attributes his role
+actually cares about, and his relationship with you runs through the same
+relationship system as everybody else's.
+
+Clubs are staffed *plausibly*, not professionally. A Sunday club might have a
+secretary and nothing else; another a player-manager with a volunteer coach; a
+bigger one a physio and a scout. One man can hold two roles — the chairman who
+keeps the books, the secretary who turns out at right back — and a player-manager
+is the same person on the pitch and in the dugout, never a duplicate record.
+
+The committee turns over with the seasons: a year on everybody's clock, a few men
+stepping down or retiring, and the posts they leave behind filled from the town —
+never leaving the club pointing at somebody who has gone. There is a new
+**Staff** screen under **Club** showing who is on the committee, what role they
+hold, how good they are in it, whether they are around, and how you get on.
+
+Board and governance are deliberately left as vocabulary for now: the people
+and the structure exist, their gameplay does not yet.
+
+### The committee now changes the football
+
+Staff are not just names on a screen any more. They feed the systems that were
+already running, and nothing they do re-implements one of them.
+
+- **The coach runs the session.** If a club has a coach who is around, he takes
+  Thursday night; the assistant covers when he cannot, and the manager does it
+  himself when there is nobody else. The session's quality — the number the whole
+  training system already turns on — moves with whoever ends up with the bibs.
+- **The assistant gives you a read.** Advice you can act on: knocks, fitness,
+  form, and where the squad is thin. A better assistant sees more of it. It is
+  advice, and it never acts on its own.
+- **The physio gets men back quicker.** His competence speeds up the *fitness* a
+  man regains, and he gives you an estimate of how long a knock will keep
+  somebody out — closer and more confident the better he is. He does not touch
+  the injury itself: the countdown stays the body's, so a ten-day injury is still
+  ten days wherever the man plays.
+- **The scout brings back names.** A scout goes and watches somebody and reports
+  through the same recruitment knowledge graph as every other source, landing on
+  the candidate list you already use. A better scout travels further, watches
+  more often, and comes back with a fuller, truer read.
+- **The committee has its own week.** Staff can be unavailable — a shift, a
+  holiday, a family do — on the same weekly roll that already runs for players.
+  Being a man down never removes the role or stops the club: it just makes the
+  week a little harder.
+
+Honest boundary: the injury clock is deliberately left alone, so a physio
+improves fitness and diagnosis rather than shortening an injury's length.
+
+### The treasurer keeps the book
+
+The committee had a treasurer on it and nothing for him to do. He has the job now,
+and it is deliberately small: money still moves only through Finance.
+
+- **The book has a name on it.** The club can say who is responsible for its
+  money — the appointed treasurer, or the manager when the club is too small to
+  have both, which is the ordinary Sunday case. A man who does both jobs is shown
+  as exactly that, and a club with nobody in the role still trades.
+- **Owed is not income, and it shows.** The finance screen keeps the money players
+  *owe* visibly apart from the money the club *has*: an outstanding total beside
+  the balance, per-man arrears with the match each goes back to, and the
+  treasurer's own worries — an overdrawn account, a thin one, arrears — put into
+  words rather than left buried in the ledger.
+- **Collecting is one press.** A man who owes can be taken in full or in part, and
+  the money is booked through the one door that turns a debt into income. The
+  amount is clamped to what he actually owes, a part payment settles his oldest
+  match first, and taking the same sub twice cannot book the same pound twice.
+- **The bills stay where they were.** Pitch hire, insurance, referees, league fees
+  and fines are still calculated and paid by Finance on their own dates. The
+  treasurer operates those costs; he does not duplicate a single one of them.
+
+### The secretary keeps the paperwork
+
+Every club has administration nobody watches: registrations, league deadlines,
+AGMs, cup entry forms, a suspension the county has confirmed, a fixture the
+league has moved. The secretary now handles it, and — more importantly — decides
+what is worth putting in front of the manager.
+
+- **An inbox, not a second rulebook.** Correspondence lives on the club's own
+desk, kept with the career. A fixture change is still read out of the fixture
+record and an AGM off the season's dates: the secretary writes the letter, and
+never a fixture, a result or a calendar entry.
+- **The noise is filtered.** A competent secretary files the routine bulletins
+himself and leaves only what the manager genuinely has to decide. A poor one lets
+it all pile up, which is exactly the extra work the role exists to prevent.
+- **Good men give you warning.** Competence buys lead time: a strong secretary
+puts the registration deadline, the league AGM and the club AGM in front of the
+manager days early, while a poor one — or a club with nobody in the post —
+delivers them on the day. An absent secretary receives nothing until he is back,
+and then the post arrives late.
+- **Deadlines bite, but never the save.** An item whose date passes untouched is
+marked missed and reported. Nothing a bad secretary does can move a fixture,
+change a table or touch the books: the worst he can cost is the manager's time.
+
+### The chairman takes a view
+
+The man in the chair has an opinion now, and it is built entirely from things
+the game already knows. No hidden approval percentage, no confidence meter, no
+second relationship system: the chairman is a real official with a real
+relationship to the manager, and governance is the small layer that lets him
+use it.
+
+- **Expectations are read off the club, not stored.** League position against
+  the club's own standing, staying solvent, a settled dressing room, enough
+  players, holding the club's reputation, a cup run where there is one. Change
+  the club and the expectations change with it; nothing drifts out of step.
+- **Standing is a handful of words.** *Behind you*, *content*, *concerned*, a
+  *warning*, *under pressure* — reviewed at the season boundary from the finish,
+  the books, the chairman's relationship with the manager and his own patience.
+  One bad result is never a referendum, and dismissal takes a sustained run below
+  expectation or years in the red.
+- **He reacts through the relationship he already has.** Praise and concern are
+  ordinary relationship events with the chairman as the actor, so the relationship
+  the manager and chairman share is the same one everybody else has.
+- **The AGM runs through the secretary's desk.** The governance record reads the
+  club AGM the secretary already holds, dated off the calendar's own last fixture,
+  rather than inventing a second meeting or a second calendar.
+- **Rare, bounded intervention.** A chairman deep in his own patience may put
+  money in to clear a debt — once a season, bounded by what is owed and the club's
+  scale, and only through the treasurer's ledger. There is no free money.
+- **History keeps only what matters.** A warning, formal pressure, a refusal, a
+  dismissal: the serious ones are written into the club's own history. A quiet
+  word stays a conversation.
+
+The manager sees all of it in the Staff screen's *The chairman* panel:
+who he is, what he expects, what is worrying him, and the matters of record.
+
+### Matchdays counted against the league
+
+The header no longer calls a twenty-two-matchday league "thirty-three
+matchdays". The season calendar counts the cup rounds as well as the league's
+Sundays, and every **matchday X of N** — the command bar, the Club screen and
+the overview — was reading the whole calendar, so the season looked half again
+as long as it is. They all count the league's matchdays now.
+
+The game's own wording about the cups has been put right as well: a round is
+played on the free Sunday of the off-week, not midweek. Only a rearranged tie
+moves to an evening in the week.
+
+### The weeks left, in weeks
+
+The weeks remaining on the books is a count of calendar weeks now, not of
+matchdays. A manager's net is a weekly figure — pitch hire, insurance and the
+hall come round every seven days, and a weekly sponsor pays on the same beat —
+so the number he multiplies it by has to be weeks. The league's twenty-two
+Sundays sit inside a season of more than thirty weeks, and counting them left
+the budget short by every week between fixtures.
+
+### Messages stays in reach
+
+Messages is pinned to the foot of the sidebar on a desktop, below the sections
+that scroll. It used to sit high in the list, which was fine until the list grew
+long enough to scroll: the one destination that can be waiting on the manager
+without his knowing would then be the one that had scrolled out of reach. The
+badge rides with it, so the count is visible from wherever he is on the page.
+
+### No badge on the thread he is reading
+
+Writing to a player with his thread already open left the reply unread, so the
+conversation on screen carried a count the manager could only clear by opening
+the thread he was already in — which opening it again cannot do. A thread the
+manager is reading is read now: writing in it leaves no badge, and neither does
+a reply that lands in it while he sits there, which is how a promised answer
+turns up days after he asked for it.
+
+### Where the book is heading
+
+The weeks left are no longer just a number: the money tile on the overview and a
+new **Heading for** figure on the Finances screen carry the balance forward at
+the club's weekly rate, to the end of the season. It is a run rate and it is
+labelled as one — a cup run, the subs still to be collected and the equipment
+kitty are all outside it, because none of them is money the club is due on a
+schedule.
+
+### A sponsor can pay by the month
+
+A business now brings its own cadence to a sponsorship. A builder, a garage or a
+plumber runs on invoices and pays on the 28th; a pub, a café or a butcher pays on
+the Friday, as before. The club takes what it is offered — it cannot ask a trade
+to start paying weekly — and every prospect on the club screen now says which it
+would be before the manager approaches it.
+
+A monthly deal is the same money over a year as a weekly one, in twelve
+instalments instead of fifty-two, and the instalment it agrees lands through the
+ordinary payment path: the same ledger line, on the agreed payday, once and only
+once. The club's weekly figures — the money tiles, the Finances screen and the
+kit — now average a monthly instalment to a week, so a monthly sponsor no longer
+looks four times richer one day a month and absent the rest.
 
 ## [0.6.0] - 2026-10-05 — two cups that finish, and a season that lasts the year
 

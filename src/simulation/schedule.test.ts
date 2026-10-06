@@ -106,20 +106,25 @@ describe('recurring commitments', () => {
     expect(training.weekday).toBe(4);
     expect(training.title).toBe('Training');
 
-    const subs = rules.find((rule) => rule.id === 'rec_subs')!;
-    const friday = addDays(state.date, ((5 - dayOfWeek(state.date)) + 7) % 7);
-    expect(recursOn(subs, friday)).toBe(true);
-    expect(recursOn(subs, addDays(friday, 3))).toBe(false);
+    // Player subs are a matchday liability now, and sponsorship is owned by the
+    // club's own agreements: neither has a calendar rule any more.
+    expect(rules.some((rule) => rule.id === 'rec_subs')).toBe(false);
+    expect(rules.some((rule) => rule.id === 'rec_sponsor')).toBe(false);
+
+    const costs = rules.find((rule) => rule.id === 'rec_costs')!;
+    const wednesday = addDays(state.date, ((3 - dayOfWeek(state.date)) + 7) % 7);
+    expect(recursOn(costs, wednesday)).toBe(true);
+    expect(recursOn(costs, addDays(wednesday, 3))).toBe(false);
   });
 
-  it('fires a monthly commitment on the day of the month, not every week', () => {
-    const { state } = createTestGame('schedule-monthly');
-    const sponsor = recurringEvents(state).find((rule) => rule.id === 'rec_sponsor')!;
-    expect(sponsor.frequency).toBe('monthly');
-    expect(recursOn(sponsor, '2026-10-01')).toBe(true);
-    expect(recursOn(sponsor, '2026-10-08')).toBe(false);
-    // Before the rule starts there is no payment at all.
-    expect(recursOn(sponsor, addDays(state.season.startDate, -1))).toBe(false);
+  it('leaves sponsorship to the club’s agreements, not to the calendar', () => {
+    const { state } = createTestGame('schedule-sponsor');
+    // There is no weekly or monthly sponsorship rule any more. The agreement is
+    // the single authority for when an instalment is due, so the calendar has
+    // nothing to say about it and nothing to disagree with.
+    expect(recurringEvents(state).some((rule) => rule.id === 'rec_sponsor')).toBe(false);
+    expect(recurringEvents(state).some((rule) => rule.kind === 'sponsor')).toBe(false);
+    expect(recurringEvents(state).some((rule) => rule.frequency === 'monthly')).toBe(false);
   });
 
   it('does not stop the clock twice for the same day', () => {

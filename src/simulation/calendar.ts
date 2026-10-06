@@ -200,16 +200,16 @@ export function buildSeasonCalendar(startDate: ISODate, matchdays: number): Seas
 /**
  * The season's calendar with cup rounds in it.
  *
- * One calendar, not two. A league Sunday and a midweek cup tie are both
+ * One calendar, not two. A league Sunday and a cup tie are both
  * *matchdays* — they both prepare a matchday, both roll the week's
  * availability, and both are settled before the season can close — so they are
  * numbered in one sequence rather than running as two parallel timelines that
  * have to be kept in step. League matchdays take 1..N, and each cup round takes
  * the next number after them.
  *
- * A cup round sits on the Wednesday of the week before a league matchday, which
- * is where a county league actually plays them: midweek evening under the
- * lights, and never on a Sunday a club is already playing.
+ * A cup round sits on the Sunday of the week before a league matchday — the
+ * free Sunday of the off-week, with the league playing fortnightly — so it
+ * never lands on a Sunday a club is already playing.
  */
 export interface CupRoundSlot {
   /** 1-based round number, used for the matchday number of its ties. */

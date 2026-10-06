@@ -43,7 +43,8 @@ import { AVAILABILITY_REASON_LABEL, isPlayer, type AvailabilityReason } from '@/
 import type { LifeChangeKind } from '@/simulation/availability';
 import { stream } from '@/simulation/rng';
 import { playerResponseOptions, sendPlayerMessage, type FollowUp } from './playerConversation';
-import { appendMessage, findConversation, lastMessageOf, messagesOf } from './store';
+import { deliveryContext, deliveryKey, hasDelivered } from './dedup';
+import { appendMessage, findConversation, lastMessageOf } from './store';
 import { threadWith } from './system';
 
 /* ------------------------------------------------------------------------ *
@@ -256,8 +257,8 @@ const SAYING: Record<AvailabilityReason, { doubtful: string[]; out: string[] }> 
  * it is written; that is the manager being told twice about two things, which
  * is correct.
  */
-function deliveryKey(playerId: PersonId, kind: AnnouncementKind, date: ISODate): string {
-  return `availability:${playerId}:${kind}:${date}`;
+function announcementKey(playerId: PersonId, kind: AnnouncementKind, date: ISODate): string {
+  return deliveryKey('availability', playerId, kind, date);
 }
 
 /**
@@ -294,12 +295,11 @@ export function announceAvailabilityChange(
   // that makes a manager stop reading.
   if (kind === 'clears') return null;
 
-  const key = deliveryKey(playerId, kind, state.date);
+  const key = announcementKey(playerId, kind, state.date);
 
-  const existing = findConversation(state, [playerId], { type: 'player' });
-  if (existing && messagesOf(state, existing.id).some((message) => message.context.deliveryKey === key)) {
-    return null;
-  }
+  // Once per event, across every thread. The scan itself lives in `dedup.ts`, so
+  // a player's knock and the club's own announcements obey one rule.
+  if (hasDelivered(state, key)) return null;
 
   const out = kind !== 'doubts';
   const pool = SAYING[reason][out ? 'out' : 'doubtful'];
@@ -315,8 +315,8 @@ export function announceAvailabilityChange(
     // Flat data, so a later stage — or a test — can read what this message was
     // about without parsing the prose or knowing anything about this file.
     context: {
+      ...deliveryContext(key),
       announced: 'yes',
-      deliveryKey: key,
       availability: person.availability.status,
       reason,
       certain: out ? 'yes' : 'no',

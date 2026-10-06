@@ -66,6 +66,38 @@ export const CONVERSATION_TYPE_LABEL: Record<ConversationType, string> = {
 export type MessageDirection = 'outbound' | 'inbound';
 
 /**
+ * How much of the manager's attention a message deserves.
+ *
+ * Deliberately separate from the calendar's own priorities: a calendar event
+ * stops the clock, while a message arrives in the inbox and waits. Most
+ * messages are `normal` — a word from the physio, a note from the secretary —
+ * and only the few that genuinely matter are allowed to rise above that. The
+ * point of the scale is that `important` and `urgent` mean something: if
+ * everything were important, nothing would be.
+ */
+export type MessagePriority = 'urgent' | 'important' | 'normal' | 'social';
+
+export const MESSAGE_PRIORITY_LABEL: Record<MessagePriority, string> = {
+  urgent: 'Urgent',
+  important: 'Important',
+  normal: 'Normal',
+  social: 'Social',
+};
+
+/** Numeric rank, higher is louder, so the inbox can order by it. */
+export const MESSAGE_PRIORITY_RANK: Record<MessagePriority, number> = {
+  urgent: 3,
+  important: 2,
+  normal: 1,
+  social: 0,
+};
+
+/** True when a priority is one of the two that are allowed to demand attention. */
+export function demandsAttention(priority: MessagePriority | undefined): boolean {
+  return priority === 'urgent' || priority === 'important';
+}
+
+/**
  * What kind of message this is. Deliberately about *shape*, not about feeling:
  * the sentiment lives in the relationship record and the response that follows,
  * not in the message's type.
@@ -131,7 +163,47 @@ export type CommunicationIntent =
   /** Money, said politely: "can you sort your subs this week?" */
   | 'ASK_PAYMENT'
   /** Money, said as a question about his circumstances rather than his debt. */
-  | 'DISCUSS_PAYMENT';
+  | 'DISCUSS_PAYMENT'
+  // ------------------------------------------------------------------------
+  // The people who run the club.
+  //
+  // These intents exist because the manager has a *club*, not only a squad:
+  // somebody keeps the book, somebody keeps the paperwork, somebody owns the
+  // place and somebody coaches the lads. Each one is a question a manager would
+  // actually put to that person, and each is answered from the system that
+  // already owns the truth — the ledger, the secretary's desk, the chairman's
+  // expectations, the staff's own reading of the squad.
+  // ------------------------------------------------------------------------
+  /** Treasurer: how the books stand. */
+  | 'ASK_FINANCES'
+  /** Treasurer: who is still behind on their subs. */
+  | 'ASK_ARREARS'
+  /** Treasurer: whether the club's bills have actually been paid. */
+  | 'ASK_BILLS'
+  /** Treasurer: whether the club can afford something. */
+  | 'ASK_AFFORD'
+  /** Treasurer: what a matchday actually brought in. */
+  | 'ASK_TAKINGS'
+  /** Secretary: what the league has sent. */
+  | 'ASK_LEAGUE_NEWS'
+  /** Secretary: whether the county FA has replied. */
+  | 'ASK_FA'
+  /** Secretary: when the AGM is, and what is on it. */
+  | 'ASK_AGM'
+  /** Secretary: whether a fixture is confirmed or moved. */
+  | 'ASK_FIXTURE_STATUS'
+  /** Chairman: what he expects of the season. */
+  | 'ASK_EXPECTATIONS'
+  /** Chairman: whether he will back the manager — the one that acts. */
+  | 'ASK_SUPPORT'
+  /** Chairman: the manager explaining a decision he made. */
+  | 'EXPLAIN_DECISION'
+  /** Chairman: a general word about the club. */
+  | 'DISCUSS_CLUB'
+  /** Chairman: the money, from the committee's side. */
+  | 'DISCUSS_FINANCES'
+  /** Sponsor, relayed through the chairman: the sponsorship itself. */
+  | 'ASK_SPONSOR';
 
 export const COMMUNICATION_INTENTS: CommunicationIntent[] = [
   'ASK_AVAILABILITY',
@@ -151,6 +223,22 @@ export const COMMUNICATION_INTENTS: CommunicationIntent[] = [
   'ASK_UPDATE',
   'ASK_PAYMENT',
   'DISCUSS_PAYMENT',
+  // The people who run the club.
+  'ASK_FINANCES',
+  'ASK_ARREARS',
+  'ASK_BILLS',
+  'ASK_AFFORD',
+  'ASK_TAKINGS',
+  'ASK_LEAGUE_NEWS',
+  'ASK_FA',
+  'ASK_AGM',
+  'ASK_FIXTURE_STATUS',
+  'ASK_EXPECTATIONS',
+  'ASK_SUPPORT',
+  'EXPLAIN_DECISION',
+  'DISCUSS_CLUB',
+  'DISCUSS_FINANCES',
+  'ASK_SPONSOR',
 ];
 
 /** How an intent reads in a title bar, for lists and headers. */
@@ -172,7 +260,48 @@ export const COMMUNICATION_INTENT_LABEL: Record<CommunicationIntent, string> = {
   ASK_UPDATE: 'Ask for an update',
   ASK_PAYMENT: 'Ask him to sort his subs',
   DISCUSS_PAYMENT: 'Ask how he is getting on',
+  ASK_FINANCES: 'Ask how the books look',
+  ASK_ARREARS: 'Ask who still owes subs',
+  ASK_BILLS: 'Ask whether the bills are paid',
+  ASK_AFFORD: 'Ask whether we can afford it',
+  ASK_TAKINGS: 'Ask what Sunday took',
+  ASK_LEAGUE_NEWS: 'Ask what the league has sent',
+  ASK_FA: 'Ask about the county FA',
+  ASK_AGM: 'Ask about the AGM',
+  ASK_FIXTURE_STATUS: 'Ask about the fixture',
+  ASK_EXPECTATIONS: 'Ask what he expects',
+  ASK_SUPPORT: 'Ask him to back you',
+  EXPLAIN_DECISION: 'Explain your decision',
+  DISCUSS_CLUB: 'Talk about the club',
+  DISCUSS_FINANCES: 'Talk about the money',
+  ASK_SPONSOR: 'Ask about the sponsorship',
 };
+
+/**
+ * Intents that only make sense to the people who run the club.
+ *
+ * Split out for the same reason `PLAYER_ONLY_INTENTS` is: the manager does not
+ * ask his left back whether the bills are paid, and he does not ask the
+ * treasurer what he expects from the season. The vocabulary is one list; who it
+ * belongs to is answered here, so a thread offers only what can be asked.
+ */
+export const OFFICER_INTENTS: CommunicationIntent[] = [
+  'ASK_FINANCES',
+  'ASK_ARREARS',
+  'ASK_BILLS',
+  'ASK_AFFORD',
+  'ASK_TAKINGS',
+  'ASK_LEAGUE_NEWS',
+  'ASK_FA',
+  'ASK_AGM',
+  'ASK_FIXTURE_STATUS',
+  'ASK_EXPECTATIONS',
+  'ASK_SUPPORT',
+  'EXPLAIN_DECISION',
+  'DISCUSS_CLUB',
+  'DISCUSS_FINANCES',
+  'ASK_SPONSOR',
+];
 
 /**
  * Intents that are about a player's money.
@@ -288,6 +417,12 @@ export interface Message {
   type: MessageType;
   context: Record<string, string | number>;
   subject: ConversationSubject | null;
+  /**
+   * How loudly this message should present itself. Absent on messages written
+   * before the field existed, and on the many that are simply ordinary, so a
+   * reader treats a missing priority as `normal`.
+   */
+  priority?: MessagePriority;
   /** Intents this message offers, if it is a message awaiting an answer. */
   responseOptions: ResponseOption[];
   /** What this message expects to cause. Never null, so every message is uniform. */

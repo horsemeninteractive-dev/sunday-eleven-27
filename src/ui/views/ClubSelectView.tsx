@@ -201,7 +201,7 @@ export function ClubSelectView() {
                   />
                   <Fact
                     label="Finances"
-                    value={`${moneyShort(selectedClub.finances.balance)} · subs £${selectedClub.finances.subscriptionPerPlayer}/week · sponsorship £${selectedClub.finances.sponsorIncomePerWeek}/week`}
+                    value={`${moneyShort(selectedClub.finances.balance)} · subs £${selectedClub.finances.starterSubAmount ?? 5}/£${selectedClub.finances.substituteSubAmount ?? 3} per game · sponsorship up to £${selectedClub.finances.sponsorIncomePerWeek}/week`}
                   />
                   <Fact
                     label="Rivalries"

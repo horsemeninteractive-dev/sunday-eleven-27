@@ -74,28 +74,115 @@ export interface AvailabilityState {
 }
 
 /**
+ * How a player took part in a match, as far as the subs book is concerned.
+ *
+ * The Match Engine is authoritative for this: a starter is one the engine
+ * recorded as starting, a substitute is one it recorded as coming on. A man on
+ * the bench who was never used is not named here at all, because he owes
+ * nothing for a game he did not play.
+ */
+export type PlayerSubParticipation = 'starter' | 'substitute';
+
+/**
+ * A liability's kind: a real match participation, or a balance carried over
+ * from a save written before subs were per-match (`carried`). The carried kind
+ * exists only so an old, already-recorded balance is preserved rather than
+ * quietly dropped when the next match is settled — it is never charged for a
+ * match, because no match is fabricated to explain it.
+ */
+export type PlayerSubCategory = PlayerSubParticipation | 'carried';
+
+/**
+ * One match's subs charge against one player.
+ *
+ * Subs are a matchday liability, not a weekly squad tax. Each match a man
+ * played creates his own liability, and they are never merged: the club has to
+ * be able to answer "why does this player owe £8?" with "£5 from the cup tie and
+ * £3 from Sunday". A liability keeps its amount, whatever has been paid against
+ * it, and the date it was settled.
+ *
+ * `id` is derived from the match and the player (`<matchId>:<playerId>`) so that
+ * settling the same completed match twice cannot double-charge anybody.
+ */
+export interface PlayerSubLiability {
+  id: string;
+  /** The completed match that generated this liability. */
+  matchId: string;
+  /** The date of that match — the day the charge was incurred. */
+  date: ISODate;
+  category: PlayerSubCategory;
+  /** What the match cost him. Never changes; `paid` records what has come in. */
+  amount: number;
+  /** How much of `amount` has actually arrived. Never more than `amount`. */
+  paid: number;
+  /** The date the liability was settled in full, or null while it is short. */
+  paidOn: ISODate | null;
+}
+
+/** A real payment, recorded when money actually changes hands. */
+export interface PlayerSubPayment {
+  id: string;
+  date: ISODate;
+  amount: number;
+}
+
+/**
  * What a player owes the club.
  *
  * The club's money has always been authoritative and stays that way: the ledger
  * says what arrived, the balance says what is in the account, and neither is
  * touched by anything anybody says. This record is the one thing the ledger
- * could not say — *whose* money did not arrive — and it is written only by the
- * finance system, on the day it settles the subs book.
+ * could not say — *whose* money did not arrive.
+ *
+ * `owed` and `missedWeeks` are summaries kept for the conversation layer, which
+ * has always read them. They are derived from `liabilities` whenever the book
+ * moves, and the liabilities themselves are the truth: a man's debt is the sum
+ * of the matches he played and has not squared up.
  *
  * A promise is deliberately not a field. Promises live on the conversation that
  * made them, because a promise is a thing a man said, not a thing that happened.
  */
 export interface PlayerSubs {
-  /** What he owes the club right now, in pounds. Cleared only by a real payment. */
+  /** Outstanding across every unpaid match liability, in pounds. */
   owed: number;
-  /** Consecutive weeks the subs book has gone unpaid by him. 0 when level. */
+  /** How many match liabilities are still short. 0 when level. */
   missedWeeks: number;
   /** When the money last actually arrived. */
   lastPaidOn: ISODate | null;
+  /** Every match liability ever raised, oldest first. */
+  liabilities?: PlayerSubLiability[];
+  /** Every real payment, oldest first. */
+  payments?: PlayerSubPayment[];
 }
 
 export function emptyPlayerSubs(): PlayerSubs {
-  return { owed: 0, missedWeeks: 0, lastPaidOn: null };
+  return { owed: 0, missedWeeks: 0, lastPaidOn: null, liabilities: [], payments: [] };
+}
+
+/** How much of one liability is still outstanding. */
+export function outstandingOnLiability(liability: PlayerSubLiability): number {
+  return Math.round((liability.amount - liability.paid) * 100) / 100;
+}
+
+/**
+ * Re-derive the summaries from the liabilities.
+ *
+ * Called after the book moves, so `owed` and `missedWeeks` can never drift from
+ * the liabilities the conversation layer is told about.
+ */
+export function refreshSubSummary(subs: PlayerSubs): void {
+  const liabilities = subs.liabilities ?? [];
+  let owed = 0;
+  let outstanding = 0;
+  for (const liability of liabilities) {
+    const due = outstandingOnLiability(liability);
+    if (due > 0) {
+      owed += due;
+      outstanding += 1;
+    }
+  }
+  subs.owed = Math.round(owed * 100) / 100;
+  subs.missedWeeks = outstanding;
 }
 
 export interface InjuryState {
@@ -221,8 +308,31 @@ export interface Player extends PersonBase {
   subs: PlayerSubs;
 }
 
-export type OfficialRole = 'manager' | 'assistant' | 'coach' | 'chairman' | 'secretary' | 'treasurer' | 'volunteer' | 'referee';
+export type OfficialRole =
+  | 'manager'
+  | 'assistant'
+  | 'coach'
+  | 'physio'
+  | 'chairman'
+  | 'secretary'
+  | 'treasurer'
+  | 'scout'
+  | 'volunteer'
+  | 'referee';
 
+/**
+ * What a member of staff is good at.
+ *
+ * These are deliberately few and role-facing. A manager is judged on coaching,
+ * man-management, motivation and tactical knowledge; a physio on whether he can
+ * actually fix a hamstring; a treasurer on whether the books add up. There is no
+ * attempt to give staff the full player attribute set — only the qualities the
+ * game has a reason to look at.
+ *
+ * The later-role attributes are optional so that officials generated before the
+ * staff system existed (managers, chairmen, referees) still load, and are read
+ * through {@link officialAttribute} which supplies a sensible middle value.
+ */
 export interface OfficialAttributes {
   coaching: number;
   manManagement: number;
@@ -230,9 +340,32 @@ export interface OfficialAttributes {
   tacticalKnowledge: number;
   recruitmentEye: number;
   organisation: number;
+  /** 1-20: does he turn up and do it, week after week. */
+  reliability?: number;
+  /** 1-20: physio — diagnosing and treating injuries. */
+  medical?: number;
+  /** 1-20: treasurer — money sense. */
+  financial?: number;
+  /** 1-20: assistant/scout — reading a game and a player. */
+  judgement?: number;
+  /** 1-20: coach — bringing a player on. */
+  development?: number;
   /** Referees only; 1-20. */
   strictness?: number;
   consistency?: number;
+}
+
+/**
+ * Whether a member of staff is around this week.
+ *
+ * Staff are volunteers with day jobs: a scout works Saturdays, a physio has a
+ * shift pattern, a secretary goes on holiday. Availability is deliberately
+ * small — a status and a note — because it exists to explain why somebody is or
+ * is not around, not to model a second fitness system.
+ */
+export interface StaffAvailability {
+  status: 'available' | 'unavailable';
+  note: string | null;
 }
 
 export interface Official extends PersonBase {
@@ -243,6 +376,8 @@ export interface Official extends PersonBase {
   /** Managers can be under pressure; chairmen have patience. */
   patience: number;
   notes: string[];
+  /** Absent for staff generated before the club personnel system existed. */
+  availability?: StaffAvailability;
 }
 
 export type Person = Player | Official;

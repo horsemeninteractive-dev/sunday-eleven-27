@@ -318,9 +318,16 @@ export function coloursOf(club: Club): { primary: string; secondary: string } {
  * the manager set — so a save always shows the strip the club would have had.
  */
 
-/** The business behind the club's name, where there is one. */
+/**
+ * The club's shirt sponsor: the business it has actually agreed a deal with,
+ * falling back to the business behind its name for a club that has none. The
+ * agreement is the authority; `sponsorIds` is only the name source.
+ */
 export function sponsorFor(game: GameState, club: Club): KitSponsor | null {
-  const businessId = club.sponsorIds[0];
+  const deal = (game.sponsorship?.deals ?? [])
+    .filter((candidate) => candidate.clubId === club.id && candidate.status === 'active')
+    .at(-1);
+  const businessId = deal?.sponsorId ?? club.sponsorIds[0];
   return sponsorFromBusiness(businessId ? game.world.businesses[businessId] : null);
 }
 

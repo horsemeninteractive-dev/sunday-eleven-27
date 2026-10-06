@@ -848,6 +848,20 @@ function checkReferences(state: GameState, snapshot: SoakSnapshot): SoakViolatio
       const id = club[field];
       if (id && !state.people[id]) push('club-official-exists', `${field} ${id} is missing`, club.id);
     }
+    // The committee: every slot the club claims must name somebody who is still
+    // in the world.
+    const staffIds = [
+      club.staff?.assistantId,
+      club.staff?.physioId,
+      club.staff?.secretaryId,
+      club.staff?.treasurerId,
+      ...(club.staff?.coachIds ?? []),
+      ...(club.staff?.scoutIds ?? []),
+      ...(club.staff?.volunteerIds ?? []),
+    ];
+    for (const id of staffIds) {
+      if (id && !state.people[id]) push('club-staff-exists', `staff ${id} is missing`, club.id);
+    }
     if (!state.world.grounds[club.groundId]) push('club-ground-exists', `ground ${club.groundId} is missing`, club.id);
   }
 

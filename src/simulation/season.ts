@@ -19,8 +19,6 @@ import {
   standingsFor,
   tierPrizeMoney,
   tierOf,
-  TIER_EXPECTATIONS,
-  tierFactor,
 } from './pyramid';
 import { generatePlayer, resetPlayerIdCounter } from './generation/playerGenerator';
 import { linkNewTeammate } from './generation/relationshipGenerator';
@@ -31,10 +29,14 @@ import { pruneTrainingHistory, trainingStore } from './training/store';
 import { pruneCandidates } from './recruitment/store';
 import { createEvent } from './news';
 import { firstSundayOfSeptember, rollWeeklyAvailabilityForAll, snapshotStandings } from './gameSetup';
+import { rollWeeklyStaffAvailabilityForAll } from './availability';
 import { emptyScheduleState } from './schedule';
 import { weekStartOf } from './timeline';
 import { applyRelationshipEvent, relationshipStore, relationshipViewsFor } from './relationships';
 import { runManagerMarket } from './managers';
+import { runStaffLifecycle } from './staff';
+import { runGovernance } from './governance';
+import { renewSponsorship } from './sponsorship';
 import { reviewClubFinances } from './clubLifecycle';
 import { defaultTactics } from '@/domain/tactics';
 import type { Competition } from '@/domain/competition';
@@ -587,29 +589,21 @@ export function startNextSeason(state: GameState): GameEvent[] {
     club.tactics = clubId === state.userClubId ? defaultTactics('4-4-2') : club.tactics;
     const rng = stream(state.seed, 'finance', seasonId, clubId);
     applyAnnualCosts(state, clubId, rng);
-
-    // Sponsors review their deal each summer, and what they are judging is the
-    // division the club is now in as much as the season it has just had. A club
-    // that has gone up is bidding for a bigger deal; one that has come down is
-    // being asked to accept less — which is how a relegation turns into a
-    // squeeze rather than just a line in the archive.
-    const tier = tierOf(state, clubId);
-    const sponsorFactor = tierFactor(TIER_EXPECTATIONS.sponsor, tier);
-    const previousRecord = club.history.seasons.find((entry) => entry.seasonId === previousSeason.id);
-    const finish = previousRecord?.finalPosition ?? null;
-    const divisionSize = leagueCompetitions(state).find((entry) => entry.tier === tier)?.clubIds.length ?? 12;
-    const struggling = finish !== null && finish > divisionSize - 3;
-    if (club.finances.sponsorIncomePerWeek <= 0) {
-      if (rng.chance(0.5)) club.finances.sponsorIncomePerWeek = rng.int(10, 40);
-    } else if (struggling && rng.chance(0.35)) {
-      club.finances.sponsorIncomePerWeek = 0;
-    } else {
-      club.finances.sponsorIncomePerWeek = Math.max(
-        5,
-        Math.round(club.finances.sponsorIncomePerWeek * rng.float(0.85, 1.2) * sponsorFactor),
-      );
-    }
   }
+
+  // Sponsors review their agreements each summer. What they are judging is the
+  // division the club is now in as much as the season it has just had: a club
+  // that has gone up is worth a bigger deal, one that has come down is asked to
+  // accept less, and a poor season can cost a club its backer altogether. The
+  // sponsorship service owns all of that; this is where it is invoked.
+  const sponsorshipReview = renewSponsorship(state, {
+    seasonId,
+    seasonLabel,
+    seasonStart,
+    previousSeasonId: previousSeason.id,
+    previousSeasonLabel: previousSeason.label,
+  });
+  events.push(...sponsorshipReview.events);
 
   // The managers' market turns once a season, now that every club's record for
   // the season just finished has been archived and its money settled. The
@@ -626,7 +620,26 @@ export function startNextSeason(state: GameState): GameEvent[] {
   });
   events.push(...market.events);
 
+  // The committee turns over too: a year older, a few men stepping down, and the
+  // posts they leave filled from the town. Kept apart from the managers' market
+  // because it ages and replaces a different set of posts.
+  const staffLifecycle = runStaffLifecycle(state, { seasonId, seasonLabel, seasonStart });
+  events.push(...staffLifecycle.events);
+
+  // The committee takes its view once a season, on the season that has actually
+  // been played and the books as they actually stand. The player's own manager
+  // is held out of the managers' market, so this is where his job is judged.
+  const governance = runGovernance(state, {
+    seasonId,
+    seasonLabel,
+    seasonStart,
+    previousSeasonId: previousSeason.id,
+    previousSeasonLabel: previousSeason.label,
+  });
+  events.push(...governance.events);
+
   rollWeeklyAvailabilityForAll(state);
+  rollWeeklyStaffAvailabilityForAll(state);
   prepareMatchday(state, 1);
   state.standingHistory.push(...snapshotStandings(state));
 

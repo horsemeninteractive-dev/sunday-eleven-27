@@ -33,6 +33,7 @@ export function AppShell({ game, view, children }: { game: GameState; view: View
   const profile = useGameStore((state) => state.profile);
   const negotiationId = useGameStore((state) => state.negotiationId);
   const dialog = useGameStore((state) => state.dialog);
+  const focus = useGameStore((state) => state.focus);
   const [moreOpen, setMoreOpen] = useState(false);
   const mainRef = useRef<HTMLElement | null>(null);
   const command = useCommandState();
@@ -49,6 +50,29 @@ export function AppShell({ game, view, children }: { game: GameState; view: View
     // not scroll in this shell — the content column does.
     mainRef.current?.scrollTo({ top: 0, behavior: 'auto' });
   }, []);
+
+  /**
+   * A card that said "the treasurer is worried about the money" should land on
+   * the treasurer's own words, not at the top of a screen to be searched. The
+   * anchor is applied once per arrival, after the screen has painted, and the
+   * target is given focus as well as being scrolled to, so a keyboard or screen
+   * reader user is taken there too rather than left at the top of the page.
+   *
+   * Nothing happens if the screen has no such anchor, so a view is free to be
+   * re-arranged without every caller having to be updated.
+   */
+  useEffect(() => {
+    if (!focus) return;
+    const handle = window.setTimeout(() => {
+      const node = document.getElementById(focus);
+      if (!node) return;
+      const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+      node.scrollIntoView({ block: 'start', behavior: reduced ? 'auto' : 'smooth' });
+      if (!node.hasAttribute('tabindex')) node.setAttribute('tabindex', '-1');
+      node.focus({ preventScroll: true });
+    }, 0);
+    return () => window.clearTimeout(handle);
+  }, [view, focus]);
 
   // Escape closes whatever is on top, innermost first.
   useEffect(() => {

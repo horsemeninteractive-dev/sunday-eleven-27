@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Match } from '@/domain/match';
 import { addDays } from '@/simulation/calendar';
-import { nextMatchday } from '@/simulation/timeline';
+import { leagueMatchdayCount, nextMatchday } from '@/simulation/timeline';
 import { ensureClubTrained } from '@/simulation/training/session';
 import { createTestGame } from '@/simulation/testSupport';
 import { markNotifiedThrough } from '@/simulation/schedule';
@@ -56,6 +56,17 @@ describe('command state', () => {
     expect(command.action.label).toMatch(/^Continue to /);
     expect(command.progress.matchday).toBe(1);
     expect(command.continueHint).toBe('In 3 days');
+  });
+
+  it('measures the matchday against the league, not the whole calendar', () => {
+    const { state } = createTestGame('command-denominator');
+    const command = commandStateFor(state, null);
+
+    // The calendar carries the cup rounds as well as the league's Sundays, so
+    // its length is bigger than the league. "Matchday 1 of 33" on a 22-matchday
+    // season is the conflation this guards against.
+    expect(command.progress.of).toBe(leagueMatchdayCount(state));
+    expect(command.progress.of).toBeLessThan(state.season.calendar.length);
   });
 
   it('asks for the session on the day it falls, without running it for him', () => {

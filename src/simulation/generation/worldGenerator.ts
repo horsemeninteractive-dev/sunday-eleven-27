@@ -19,6 +19,7 @@ import {
   riverName,
 } from './names';
 import { generateSquad } from './playerGenerator';
+import { generateClubStaff } from '../staff';
 
 export interface GenerateWorldOptions {
   seed: string;
@@ -399,9 +400,18 @@ function pickFreeNickname(rng: Rng, used: Set<string>): string {
 }
 
 export function buildFinances(rng: Rng, town: Town, reputation: number): ClubFinances {
+  const balance = rng.gaussianInt(town.kind === 'town' ? 1400 : 650, 450, -250, 4000);
   return {
-    balance: rng.gaussianInt(town.kind === 'town' ? 1400 : 650, 450, -250, 4000),
+    balance,
+    // A generated club starts the world in the black with no history: its
+    // opening balance is the whole of its balance.
+    openingBalance: balance,
     subscriptionPerPlayer: rng.int(3, 6),
+    // Matchday subs: a starter pays a little more than a man who only came on.
+    // These are the realistic grassroots defaults, and they are the club's to
+    // change — nothing else in the game reads a squad-wide weekly figure.
+    starterSubAmount: 5,
+    substituteSubAmount: 3,
     sponsorIncomePerWeek: reputation > 55 ? rng.int(30, 85) : rng.int(12, 45),
     weeklyGroundCost: rng.int(18, 62),
     // Village sides often train on the same pitch they play on for nothing;
@@ -605,6 +615,23 @@ export function generateWorld(options: GenerateWorldOptions): GeneratedWorld {
       } as Official;
     }
 
+    // The rest of the committee. A Sunday club gets a plausible, partial backroom
+    // — a secretary, maybe a coach, often nobody else — drawn from the club's
+    // own stream so it never disturbs the football generated around it.
+    const staff = generateClubStaff({
+      seed: options.seed,
+      clubId,
+      townId: town.id,
+      reputation,
+      structure,
+      seasonStart: options.seasonStart,
+      squad,
+      people,
+      managerId: candidate ? candidate.id : manager.id,
+      chairmanId: chairman.id,
+      assistantId: candidate ? manager.id : null,
+    });
+
     const club: Club = {
       id: clubId,
       identity,
@@ -615,6 +642,7 @@ export function generateWorld(options: GenerateWorldOptions): GeneratedWorld {
       squadIds,
       chairmanId: chairman.id,
       managerId: candidate ? candidate.id : manager.id,
+      staff,
       sponsorIds: business ? [business.id] : [],
       finances: buildFinances(rng, town, reputation),
       history: emptyHistory(rng, identity.foundedYear),

@@ -2,6 +2,7 @@ import type { GameState } from '@/domain/game';
 import type { ViewId } from '@/state/gameStore';
 import { formatDate } from '@/simulation/calendar';
 import { currentMatchday, formOf, leaguePosition } from '@/simulation/queries';
+import { leagueMatchdayCount } from '@/simulation/timeline';
 import type { CommandState } from '../commandState';
 import { runCommand } from '../commandActions';
 import { clubStyle } from '../colour';
@@ -39,6 +40,7 @@ function ClubIdentity({ game, onNavigate }: { game: GameState; onNavigate: (view
 function ProgressMeta({ game }: { game: GameState }) {
   const club = game.clubs[game.userClubId]!;
   const position = leaguePosition(game, club.id);
+  const matchdays = leagueMatchdayCount(game);
   return (
     <dl className="topbar__meta">
       <div className="topbar__fact">
@@ -48,8 +50,7 @@ function ProgressMeta({ game }: { game: GameState }) {
       <div className="topbar__fact">
         <dt>{game.season.label}</dt>
         <dd>
-          Matchday {Math.min(currentMatchday(game), Math.max(game.season.calendar.length, 1))} of{' '}
-          {game.season.calendar.length}
+          Matchday {Math.min(currentMatchday(game), matchdays)} of {matchdays}
         </dd>
       </div>
       <div className="topbar__fact">

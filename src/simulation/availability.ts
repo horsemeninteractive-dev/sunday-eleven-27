@@ -1,7 +1,8 @@
+import type { GameState } from '@/domain/game';
 import type { ISODate } from '@/domain/ids';
-import type { AvailabilityReason, AvailabilityState, Player } from '@/domain/person';
+import { isOfficial, type AvailabilityReason, type AvailabilityState, type Official, type Player, type StaffAvailability } from '@/domain/person';
 import { addDays, monthOf } from './calendar';
-import { Rng } from './rng';
+import { Rng, stream } from './rng';
 
 /**
  * Availability is the heart of grassroots management: being registered does
@@ -151,8 +152,13 @@ export function rollAvailability(input: AvailabilityInput): AvailabilityState {
  * days, morale 5%. Nothing about the underlying model changed — only how finely
  * it is stepped.
  */
-export function recoverPlayer(player: Player, days: number): void {
-  const fitnessGain = Math.min(100, player.fitness + days * 3.2);
+export function recoverPlayer(player: Player, days: number, physioSupport = 0): void {
+  // A physio at the club gets a man back to full fitness a little quicker, but
+  // the injury itself is the body's business: `physioSupport` (0-1) scales only
+  // the fitness regained, never the `daysOut` countdown below. "A ten-day injury
+  // is ten days" stays true whichever club the man plays for.
+  const support = Math.max(0, Math.min(1, physioSupport));
+  const fitnessGain = Math.min(100, player.fitness + days * 3.2 * (1 + support * 0.6));
   player.fitness = Math.round(fitnessGain * 10) / 10;
 
   if (player.injury) {
@@ -177,10 +183,16 @@ export interface DailyRecovery {
   daysOut: number | null;
 }
 
-export function recoverPlayerDaily(player: Player): DailyRecovery {
+export function recoverPlayerDaily(
+  player: Player,
+  options: { physioSupport?: number } = {},
+): DailyRecovery {
   const hadInjury = Boolean(player.injury);
   const before = player.injury?.daysOut ?? null;
-  recoverPlayer(player, 1);
+  const support = Math.max(0, Math.min(1, options.physioSupport ?? 0));
+  // One day of the same recovery, physio or no physio. The injury state — the
+  // countdown and the day it clears — is exactly what the body decided.
+  recoverPlayer(player, 1, support);
   const returned = hadInjury && player.injury === null;
   if (returned) {
     player.availability = { status: 'available', reason: null, note: null, until: null, discoveredLate: false };
@@ -281,4 +293,60 @@ export function availabilitySummary(state: AvailabilityState): string {
   if (state.status === 'available') return 'Available';
   if (state.status === 'doubtful') return `Doubtful — ${state.note ?? 'unclear'}`;
   return `Unavailable — ${state.note ?? 'no reason given'}`;
+}
+/* ------------------------------------------------------------------------ *
+ * Staff availability
+ * ------------------------------------------------------------------------ */
+
+/**
+ * Whether a member of staff is around this week.
+ *
+ * The same life that gets in the way of a player gets in the way of the physio,
+ * the secretary and the scout: shifts, holidays, a family do, a bad chest. It is
+ * the same shape of model as a player's — a status and a note — because it
+ * exists to explain why somebody is not there, not to model a second fitness
+ * system. Reliability, the role's own attribute, is what makes one volunteer a
+ * fixture and another a man you can never pin down.
+ */
+export function rollStaffAvailability(rng: Rng, official: Official, date: ISODate): StaffAvailability {
+  const reliability = (official.attributes.reliability ?? 11) / 20;
+  // A man whose day job already eats Sundays is likelier to be missing.
+  const workBase = SUNDAY_MORNING_UNFRIENDLY_JOBS.includes(official.occupation) ? 0.05 : 0.015;
+  const workChance = workBase * (1.3 - reliability * 0.5);
+  const holidayChance = 0.014 * monthHolidayWeight(monthOf(date));
+  const familyChance = 0.02;
+  const illnessChance = official.age > 60 ? 0.03 : 0.015;
+  const personalChance = 0.014;
+
+  const roll = rng.next();
+  let cursor = workChance;
+  if (roll < cursor) return { status: 'unavailable', note: 'Working this week' };
+  cursor += holidayChance;
+  if (roll < cursor) return { status: 'unavailable', note: 'Away on holiday' };
+  cursor += familyChance;
+  if (roll < cursor) return { status: 'unavailable', note: 'Family commitment' };
+  cursor += illnessChance;
+  if (roll < cursor) return { status: 'unavailable', note: 'Under the weather' };
+  cursor += personalChance;
+  if (roll < cursor) return { status: 'unavailable', note: 'Something on at home' };
+  return { status: 'available', note: null };
+}
+
+/**
+ * Roll the committee's availability for the week, on the same Monday the
+ * players' list goes up. Only serving club staff (and the chairman) are rolled:
+ * the manager is the manager, and a referee is not the club's business.
+ *
+ * Absence never removes a role from the club — the roster is unchanged, so the
+ * club keeps working, just a man short, until he is back.
+ */
+export function rollWeeklyStaffAvailabilityForAll(state: GameState): void {
+  for (const person of Object.values(state.people)) {
+    if (!isOfficial(person)) continue;
+    const official: Official = person;
+    if (official.role === 'manager' || official.role === 'referee') continue;
+    if (official.clubId === null) continue;
+    const rng = stream(state.seed, 'staff-availability', state.date, official.id);
+    official.availability = rollStaffAvailability(rng, official, state.date);
+  }
 }

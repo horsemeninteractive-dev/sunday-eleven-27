@@ -2,7 +2,6 @@ import type { ReactNode } from 'react';
 import type { GameState } from '@/domain/game';
 import type { Match } from '@/domain/match';
 import { isPlayer } from '@/domain/person';
-import type { ViewId } from '@/state/gameStore';
 import { formatDate, formatShortDate } from '@/simulation/calendar';
 import {
   currentMatchday,
@@ -17,12 +16,14 @@ import {
 } from '@/simulation/queries';
 import { sessionForecast } from '@/simulation/training/plan';
 import { sessionRecordedFor } from '@/simulation/training/store';
-import { matchdaysPlayed } from '@/simulation/timeline';
-import { kitDecisionOutstanding } from '../kit';
+import { leagueMatchdayCount } from '@/simulation/timeline';
+import { seasonOutlook } from '@/simulation/treasurer';
+import { ordinal } from '@/simulation/news';
 import { validateLineup } from '@/simulation/selection';
+import { HOME_MATTER_LIMIT, clubMatters } from '../clubMatters';
 import { moneyShort } from '../format';
 import { gameActions, useGame, useNextFixture } from '../hooks';
-import { runCommand, useCommandState } from '../commandActions';
+import { openMatter, runCommand, useCommandState } from '../commandActions';
 import { isScreenIntent } from '../commandState';
 import { Button, FormPips, PageHeader, Pill } from '../components/primitives';
 import { ClubLink, CompetitionLink } from '../components/Links';
@@ -50,15 +51,23 @@ export function DashboardView() {
   const row = table.find((entry) => entry.clubId === club.id);
   const breakdown = squadAvailability(game, club.id);
   const squad = squadOf(game, club.id);
-  const matchday = Math.min(currentMatchday(game), Math.max(game.season.calendar.length, 1));
-  const concerns = concernsFor(game, matchday);
+  const matchdays = leagueMatchdayCount(game);
+  const matchday = Math.min(currentMatchday(game), matchdays);
+  // What needs the manager, worked out by the one model the Club screen uses as
+  // well. Home shows the first few and offers the rest, so the two screens can
+  // never disagree about what matters.
+  const matters = clubMatters(game, HOME_MATTER_LIMIT);
+  const moreMatters = clubMatters(game, 0).length > matters.length;
   const results = recentMatches(game, club.id, 4);
   const forecast = sessionForecast(game, club.id);
   const trainingDone = sessionRecordedFor(game, club.id, matchday);
-  const weeklyIn = club.squadIds.length * club.finances.subscriptionPerPlayer + club.finances.sponsorIncomePerWeek;
-  const weeklyOut = club.finances.weeklyGroundCost + club.finances.insurancePerWeek + club.finances.trainingCostPerWeek;
-  const net = weeklyIn - weeklyOut;
-  const weeksLeft = game.season.calendar.length - matchdaysPlayed(game);
+  // The week and how many of them are left, read together: subs are a matchday
+  // liability now, so the recurring income is the sponsor's agreement, and the
+  // weeks are calendar weeks because the costs come round whether or not anybody
+  // plays. Read through the treasurer's own outlook so the tile here and the
+  // Finances screen can never disagree about where the money is going.
+  const outlook = seasonOutlook(game, club.id);
+  const net = outlook.weeklyNet;
 
   const opponentId = next ? matchOpponent(next, club.id) : null;
   const opponent = opponentId ? game.clubs[opponentId] : null;
@@ -75,7 +84,7 @@ export function DashboardView() {
           <>
             <span className="small muted">{formatDate(game.date)}</span>
             <span className="small muted">
-              {game.season.label} · matchday {matchday} of {Math.max(game.season.calendar.length, 1)}
+              {game.season.label} · matchday {matchday} of {matchdays}
             </span>
             <FormPips form={formOf(game, club.id)} />
           </>
@@ -170,29 +179,39 @@ export function DashboardView() {
         />
         <MetricTile
           label="League"
-          value={position ? `${position}${suffix(position)}` : '—'}
+          value={position ? ordinal(position) : '—'}
           note={row ? `${row.points} pts from ${row.played} played` : 'Not started'}
           tone="default"
         />
         <MetricTile
           label="Finances"
           value={moneyShort(club.finances.balance)}
-          note={`${net >= 0 ? '+' : ''}${moneyShort(net)} a week · ${weeksLeft} left`}
-          tone={club.finances.balance < 0 ? 'bad' : club.finances.balance < 120 ? 'warn' : 'ok'}
+          note={`${net >= 0 ? '+' : ''}${moneyShort(net)} a week · heading for ${moneyShort(outlook.projected)}`}
+          tone={club.finances.balance < 0 ? 'bad' : outlook.projected < 120 ? 'warn' : 'ok'}
         />
       </TileGrid>
 
-      {concerns.length > 0 && (
-        <Section title="Worth dealing with">
+      {matters.length > 0 && (
+        <Section
+          title="Worth dealing with"
+          action={
+            moreMatters ? (
+              <Button variant="ghost" size="sm" onClick={() => gameActions().setView('club')}>
+                More at the club
+              </Button>
+            ) : undefined
+          }
+        >
           <TileGrid min={230}>
-            {concerns.map((concern) => (
+            {matters.map((matter) => (
               <ActionTile
-                key={concern.id}
-                label={concern.tone === 'bad' ? 'Action needed' : concern.tone === 'warn' ? 'Worth a look' : 'For information'}
-                title={concern.title}
-                meta={concern.detail}
-                tone={concern.tone === 'info' ? 'default' : concern.tone}
-                onClick={concern.action ? () => gameActions().setView(concern.action!.view) : undefined}
+                key={matter.id}
+                label={matter.label}
+                title={matter.title}
+                meta={matter.detail}
+                tone={matter.tone}
+                onClick={matter.destination ? () => openMatter(matter.destination) : undefined}
+                disabled={!matter.destination}
               />
             ))}
           </TileGrid>
@@ -292,127 +311,3 @@ function selectionErrors(game: GameState, match: Match, clubId: string): string[
     .map((problem) => problem.message);
 }
 
-interface Concern {
-  id: string;
-  tone: 'bad' | 'warn' | 'info';
-  title: string;
-  detail: string;
-  action?: { label: string; view: ViewId };
-}
-
-/**
- * What is genuinely worth a decision. If nothing is wrong, the section does not
- * appear: an empty "no concerns" card is worse than no card.
- */
-function concernsFor(game: GameState, matchday: number): Concern[] {
-  const club = game.clubs[game.userClubId]!;
-  const concerns: Concern[] = [];
-  const breakdown = squadAvailability(game, club.id);
-  const squad = squadOf(game, club.id);
-
-  // The shirts. A club picks its strip once, in pre-season, when the new ones
-  // turn up, and then does not think about it again for a year — so the prompt
-  // belongs here, in the weeks it matters, rather than as a permanent item in
-  // the sidebar that a manager learns to ignore.
-  if (kitDecisionOutstanding(game, club.id)) {
-    concerns.push({
-      id: 'kit',
-      tone: 'info',
-      title: 'New kit for the season',
-      detail: 'This summer’s shirts have arrived. Pick the one the club runs out in before the league starts.',
-      action: { label: 'Pick the kit', view: 'kit' },
-    });
-  }
-
-  if (breakdown.unavailable.length > 0) {
-    const names = breakdown.unavailable.slice(0, 3).map((player) => player.surname).join(', ');
-    concerns.push({
-      id: 'unavailable',
-      tone: breakdown.unavailable.length > 3 ? 'warn' : 'info',
-      title:
-        breakdown.unavailable.length === 1
-          ? `${breakdown.unavailable[0]!.firstName} ${breakdown.unavailable[0]!.surname} is out`
-          : `${breakdown.unavailable.length} players unavailable`,
-      detail: `${names}${breakdown.unavailable.length > 3 ? ` and ${breakdown.unavailable.length - 3} more` : ''}`,
-      action: { label: 'Squad', view: 'squad' },
-    });
-  }
-
-  const match = Object.values(game.matches).find(
-    (candidate) =>
-      candidate.matchday === matchday &&
-      !candidate.played &&
-      (candidate.homeClubId === club.id || candidate.awayClubId === club.id),
-  );
-  if (match) {
-    const lineup = match.homeClubId === club.id ? match.lineups.home : match.lineups.away;
-    if (lineup.starting.some((slot) => !slot.playerId)) {
-      concerns.push({
-        id: 'selection',
-        tone: 'bad',
-        title: 'The team is not picked',
-        detail: 'Pick the XI before the referee calls time.',
-        action: { label: 'Pick the team', view: 'team' },
-      });
-    }
-  }
-
-  if (!sessionRecordedFor(game, club.id, matchday)) {
-    const forecast = sessionForecast(game, club.id);
-    if (forecast.attendance.attending.length < 11) {
-      concerns.push({
-        id: 'attendance',
-        tone: 'warn',
-        title: `Only ${forecast.attendance.attending.length} expected at training`,
-        detail: 'Work, kids and bad knees. The session will be thin.',
-        action: { label: 'Training', view: 'training' },
-      });
-    }
-  }
-
-  if (club.finances.balance < 0) {
-    concerns.push({
-      id: 'balance',
-      tone: 'bad',
-      title: 'The club is in the red',
-      detail: `${moneyShort(club.finances.balance)} in the account. Referees still want paying.`,
-      action: { label: 'Finances', view: 'finances' },
-    });
-  } else if (club.finances.balance < 120) {
-    concerns.push({
-      id: 'balance-low',
-      tone: 'warn',
-      title: 'Money is tight',
-      detail: `${moneyShort(club.finances.balance)} left.`,
-      action: { label: 'Finances', view: 'finances' },
-    });
-  }
-
-  const unhappy = squad.filter((player) => player.morale < 35);
-  if (unhappy.length > 0) {
-    concerns.push({
-      id: 'morale',
-      tone: 'warn',
-      title: unhappy.length === 1 ? `${unhappy[0]!.surname} is not happy` : `${unhappy.length} players are not happy`,
-      detail: 'Morale decides who turns up and how they play.',
-      action: { label: 'Squad', view: 'squad' },
-    });
-  }
-
-  return concerns.slice(0, 4);
-}
-
-function suffix(position: number): string {
-  const remainder = position % 100;
-  if (remainder >= 11 && remainder <= 13) return 'th';
-  switch (position % 10) {
-    case 1:
-      return 'st';
-    case 2:
-      return 'nd';
-    case 3:
-      return 'rd';
-    default:
-      return 'th';
-  }
-}

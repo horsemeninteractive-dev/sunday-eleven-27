@@ -92,7 +92,8 @@ export type DiscoverySource =
   | 'five-a-side'
   | 'open-session'
   | 'approach'
-  | 'contact';
+  | 'contact'
+  | 'scout';
 
 export const DISCOVERY_SOURCE_LABEL: Record<DiscoverySource, string> = {
   recommendation: 'Recommended by a player',
@@ -100,6 +101,7 @@ export const DISCOVERY_SOURCE_LABEL: Record<DiscoverySource, string> = {
   'open-session': 'Turned up to an open session',
   approach: 'Approached the club',
   contact: 'Through a local contact',
+  scout: 'The scout’s report',
 };
 
 /** Whether the person who put the name forward was encouraging or warning. */

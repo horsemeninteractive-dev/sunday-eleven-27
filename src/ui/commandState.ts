@@ -8,6 +8,7 @@ import { currentScore } from '@/simulation/match/matchEngine';
 import { currentAttention, type ContinueStop } from '@/simulation/day';
 import { currentMatchday, matchOpponent, matchVenueLabel, squadAvailability } from '@/simulation/queries';
 import { nextFixtureFor, nextStop } from '@/simulation/schedule';
+import { leagueMatchdayCount } from '@/simulation/timeline';
 import { validateLineup } from '@/simulation/selection';
 import type { MatchSession } from '@/state/gameStore';
 import type { ViewId } from '@/state/gameStore';
@@ -99,12 +100,12 @@ export interface CommandState {
 export function commandStateFor(game: GameState, session: MatchSession | null): CommandState {
   const club = game.clubs[game.userClubId]!;
   const today = game.date;
-  const calendarLength = Math.max(game.season.calendar.length, 1);
-  const matchday = Math.min(currentMatchday(game), calendarLength);
+  const matchdays = leagueMatchdayCount(game);
+  const matchday = Math.min(currentMatchday(game), matchdays);
   const fixture = nextFixtureFor(game, club.id, today);
   const progress = {
     matchday,
-    of: calendarLength,
+    of: matchdays,
     label: game.season.label,
     date: today,
     daysAway: fixture ? daysBetween(today, fixture.date) : null,

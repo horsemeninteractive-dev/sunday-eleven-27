@@ -41,6 +41,14 @@ const PATHS: Record<NavIcon, string[]> = {
   messages: ['M3.6 5.4h16.8v11.2H9.4l-4.4 3.4v-3.4H3.6z'],
   finances: ['M2.8 7h18.4v10H2.8z', 'M12 14.4a2.4 2.4 0 1 0 0-4.8 2.4 2.4 0 0 0 0 4.8', 'M6 9.4v5.2', 'M18 9.4v5.2'],
   history: ['M3.4 12a8.6 8.6 0 1 0 2.9-6.4', 'M3.2 4.4v4.6h4.6', 'M12 8.2v4.2l3 1.8'],
+  // A shield with a band across it: the club itself as an institution — the
+  // crest, the committee, the books and the ground — rather than any one of the
+  // things inside it. Deliberately not a building, because Home is already a
+  // house and the two would be read as the same destination.
+  club: ['M12 3.6 5.4 6v6.2c0 4 2.7 7.2 6.6 8.4 3.9-1.2 6.6-4.4 6.6-8.4V6z', 'M8.6 12.4h6.8'],
+  // A clipboard with a couple of lines: the paperwork side of a club, and the
+  // same grid and stroke as everything else.
+  staff: ['M8 4.4h8v2.6H8z', 'M6.4 5.4h11.2v14.8H6.4z', 'M9.2 11.4h5.6', 'M9.2 14.8h3.8'],
   kit: [
     'M9 4.2 5 5.8 3.6 9.9l2.7 1.2v9.2h11.4v-9.2l2.7-1.2-1.4-4.1-4-1.6',
     'M9.2 4.6c.6 1.1 1.5 1.7 2.8 1.7s2.2-.6 2.8-1.7',

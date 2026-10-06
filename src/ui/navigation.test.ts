@@ -4,12 +4,17 @@ import { NAV_SECTIONS, navSectionFor, NAV_LEAVES } from './navigation';
 /**
  * The shape of the sidebar.
  *
- * The order is not decoration. Messages sits high because it is the one thing
- * that can be waiting on the manager without his knowing; Recruitment sits
- * inside Team because finding a player is part of building a side; Media sits
- * inside Club because the news is mostly about his club. Every one of those is
- * easy to undo by accident while adding the next screen, so they are written
- * down here rather than left to whoever moves the array next.
+ * The order is not decoration. Recruitment sits inside Team because finding a
+ * player is part of building a side; Media sits inside Club because the news is
+ * mostly about his club. Every one of those is easy to undo by accident while
+ * adding the next screen, so they are written down here rather than left to
+ * whoever moves the array next.
+ *
+ * Messages is the exception to the array being the order: it is marked as
+ * pinned, so the desktop sidebar draws it at the foot of the panel rather than
+ * in the list, where a scrolled sidebar could hide the one thing that was
+ * waiting on the manager. The array stays in reading order because the phone's
+ * More sheet is built from it, and a short sheet needs no pinning.
  */
 describe('the sidebar reads top to bottom', () => {
   const shape = NAV_SECTIONS.map((section) => ({
@@ -33,7 +38,7 @@ describe('the sidebar reads top to bottom', () => {
         direct: false,
         children: ['Schedule', 'League Table', 'Cups'],
       },
-      { label: 'Club', direct: false, children: ['Finances', 'Media', 'History'] },
+      { label: 'Club', direct: false, children: ['Club', 'Staff', 'Finances', 'Media', 'History'] },
       { label: 'World', direct: true, children: ['The local game'] },
     ]);
   });
@@ -50,6 +55,18 @@ describe('the sidebar reads top to bottom', () => {
     expect(navSectionFor('news')?.id).toBe('club');
   });
 
+  it('opens the club section with the club overview, because it is the question the others answer', () => {
+    const club = NAV_SECTIONS.find((section) => section.id === 'club')!;
+    expect(club.leaves[0]!.id).toBe('club');
+    expect(club.leaves[0]!.label).toBe('Club');
+    // Everything the overview sends the manager on to is still in the same
+    // section, so a card pointing at Staff or Finances lands somewhere the
+    // sidebar already says he is.
+    for (const id of ['staff', 'finances', 'news', 'history'] as const) {
+      expect(navSectionFor(id)?.id).toBe('club');
+    }
+  });
+
   it('puts the schedule before the table, because the next game comes first', () => {
     const competitions = NAV_SECTIONS.find((section) => section.id === 'competitions')!;
     expect(competitions.leaves.map((leaf) => leaf.id)).toEqual(['fixtures', 'league', 'cup']);
@@ -64,6 +81,17 @@ describe('the sidebar reads top to bottom', () => {
     expect(inbox.leaves[0]!.id).toBe('inbox');
   });
 
+  it('pins messages to the foot of the sidebar, outside the part that scrolls', () => {
+    // The one destination that can be waiting on the manager without his
+    // knowing must not be the one that has scrolled out of reach — and it is
+    // the only one pinned, because the foot is a place for that, not a second
+    // list to keep in step with the first.
+    const pinned = NAV_SECTIONS.filter((section) => section.pinned === true);
+    expect(pinned.map((section) => section.id)).toEqual(['inbox']);
+    expect(pinned[0]!.direct).toBe(true);
+    expect(pinned[0]!.leaves).toHaveLength(1);
+  });
+
   it('still reaches every destination exactly once', () => {
     // Sections were merged, so a screen could have been left in two of them, or
     // dropped on the way: the More sheet on a phone is built from this list.
@@ -71,6 +99,7 @@ describe('the sidebar reads top to bottom', () => {
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids.sort()).toEqual(
       [
+        'club',
         'cup',
         'dashboard',
         'finances',
@@ -82,6 +111,7 @@ describe('the sidebar reads top to bottom', () => {
         'news',
         'recruitment',
         'squad',
+        'staff',
         'tactics',
         'team',
         'training',

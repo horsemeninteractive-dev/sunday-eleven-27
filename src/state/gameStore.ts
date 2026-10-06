@@ -4,7 +4,7 @@ import type { ClubId, ISODate, MatchId, PersonId, PlayerId } from '@/domain/ids'
 import { isCompetitiveMatch, type Match } from '@/domain/match';
 import { settleShortSides } from '@/simulation/forfeit';
 import type { GameEvent } from '@/domain/news';
-import { isPlayer } from '@/domain/person';
+import { isPlayer, personDisplayName } from '@/domain/person';
 import type { Tactics } from '@/domain/tactics';
 import {
   DEFAULT_PREFERENCES,
@@ -43,6 +43,10 @@ import {
 } from '@/simulation/match/preparation';
 import { applyMatchConsequences, matchReportEvent } from '@/simulation/consequences';
 import { applyMatchdayFinances } from '@/simulation/finance';
+import { collectSubs as collectClubSubs } from '@/simulation/treasurer';
+import { resolveAdminEvent } from '@/simulation/secretary';
+import { requestChairmanBacking } from '@/simulation/governance';
+import { activeDealForClub, seekSponsor as seekClubSponsor } from '@/simulation/sponsorship';
 import { ensureUserXi, matchEnvironment } from '@/simulation/matchday';
 import { publishEvents } from '@/simulation/news';
 import { ensureClubTrained } from '@/simulation/training/session';
@@ -63,6 +67,7 @@ import {
   processDaySteps,
   callLateWithdrawals,
   readyForToday,
+  settleSubsFor,
   type DayStep,
 } from '@/simulation/day';
 import { startNextSeason } from '@/simulation/season';
@@ -79,10 +84,12 @@ import { inviteToTrial as inviteCandidate, runTrialSession as runSession } from 
 import type { CommunicationIntent } from '@/domain/communication';
 import { markConversationRead } from '@/simulation/communication/store';
 import { openPlayerThread, sendPlayerMessage } from '@/simulation/communication/playerConversation';
+import { officeRoleOf, openOfficerThread, sendOrganisationMessage } from '@/simulation/communication/organisationComms';
 import { sendFromManager, threadWith } from '@/simulation/communication/system';
 // The kit planner is pure decisions about colours — no React, no rendering — so
 // the action that changes the club's kit can name the kit it just changed to.
 import { clubKit, KIT_OPTION_COUNT } from '@/ui/kit';
+import { money } from '@/ui/format';
 import { defaultRoleFor } from '@/simulation/match/roles';
 import {
   approachCandidate as askCandidate,
@@ -130,6 +137,7 @@ export type ViewId =
   | 'cup'
   | 'finances'
   | 'history'
+  | 'club'
   | 'kit'
   | 'world'
   | 'news'
@@ -137,6 +145,7 @@ export type ViewId =
   | 'recruitment'
   | 'training'
   | 'inbox'
+  | 'staff'
   | 'match';
 
 /** Something the manager can pull up over the top of the current screen. */
@@ -271,6 +280,14 @@ export interface GameStore {
   negotiationId: PersonId | null;
   /** Which conversation the inbox is showing. Null means the list. */
   openConversationId: string | null;
+  /**
+   * A part of the current screen to reveal, set by whoever navigated here.
+   *
+   * It is the whole of the deep-link mechanism: a card names a section id, the
+   * shell scrolls to it once the screen has painted, and nothing else has to
+   * know that it happened.
+   */
+  focus: string | null;
   /** Which of the game's own dialogs is open, if any. */
   dialog: DialogId | null;
   /**
@@ -290,7 +307,15 @@ export interface GameStore {
   preferences: Preferences;
 
   // Navigation and selection are presentation-only state.
-  setView: (view: ViewId) => void;
+  /**
+   * Go to a screen, optionally to a named part of it.
+   *
+   * The anchor is the `id` of a section on the destination screen. It exists so
+   * a card saying "the treasurer is worried about the money" can land on the
+   * treasurer's own words rather than at the top of a screen the manager then
+   * has to search. A view that has no such id simply ignores it.
+   */
+  setView: (view: ViewId, focus?: string | null) => void;
   /**
    * Watch a finished match back from its own record. Does nothing for a fixture
    * with no events to replay.
@@ -394,6 +419,28 @@ export interface GameStore {
   toggleTrainingBlock: (block: TrainingBlockId) => void;
   setTrainingFallbackVenue: (value: boolean) => void;
   resetTrainingPlan: () => void;
+
+  // The treasurer: turning a sub a player owes into money the club actually has.
+  /**
+   * Record a matchday sub payment. The debt is clamped to what he owes, so this
+   * can never book more than the man's real balance — and a second press on an
+   * already-settled debt does nothing.
+   */
+  collectSubs: (playerId: PersonId, amount?: number) => void;
+
+  // Club administration: the secretary's desk.
+  /** Close an administrative item the secretary has put in front of the manager. */
+  resolveAdmin: (id: string) => void;
+
+  /** Ask the chairman to help the club out of the red. Rare, and once a season. */
+  requestBacking: () => void;
+
+  /**
+   * Look for a sponsor among the local businesses. Does nothing when the club is
+   * already sponsored; otherwise it knocks on the doors the town offers, and
+   * the club may still come away with nobody.
+   */
+  seekSponsor: () => void;
 
   /** Choose which of this season's kit designs the club runs out in. */
   chooseKit: (option: number) => void;
@@ -638,8 +685,31 @@ async function runWithProgress<T>(
     const remaining = MINIMUM_PROCESSING_MS - (Date.now() - shownAt);
     if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
   }
-  if (store.getState().game === startedFrom) commit(next.value);
+  if (store.getState().game === startedFrom) {
+    // Time passing can put a message in a conversation the manager is sitting
+    // in — a reply he was promised, arriving on the day it was due.
+    markOpenThreadRead(state, store.getState().openConversationId);
+    commit(next.value);
+  }
   store.setState({ processing: null, advancing: false });
+}
+
+/**
+ * A thread the manager is reading is read.
+ *
+ * Opening a thread clears its count, but opening it is not the only way the
+ * count moves: his own message and the answer it draws are appended to the very
+ * thread he is looking at, and a promised reply can land on a later day while he
+ * is still sitting in it. The count would then sit on the conversation in front
+ * of him, and the only thing the manager can do about it is open the thread he is
+ * already in — which is the one thing opening it again cannot fix.
+ *
+ * So everything that can put a message into a conversation ends through here:
+ * whatever is in the open thread has been seen. A thread that is not open is
+ * left alone, badge and all.
+ */
+function markOpenThreadRead(state: GameState, openConversationId: string | null): void {
+  if (openConversationId) markConversationRead(state, openConversationId);
 }
 
 /**
@@ -689,14 +759,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
   profile: null,
   negotiationId: null,
   openConversationId: null,
+  focus: null,
   dialog: null,
   processing: null,
   advancing: false,
   preferences: loadPreferences(),
 
-  setView: (view) =>
+  setView: (view, focus = null) =>
     set({
       view,
+      focus,
       replay: null,
       profile: null,
       negotiationId: null,
@@ -780,7 +852,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
     // A thread he has to write first, or a man who has never written to him
     // is not a conversation: it is a contact. Either way the manager is taken
     // to it, and an empty one says so rather than looking like a broken screen.
-    const conversation = threadWith(state, personId);
+    // Somebody who runs the club gets their own kind of thread — the chairman a
+    // board thread, the treasurer and secretary a club one, the football staff a
+    // staff one — so the inbox shows the office and offers the questions that
+    // person can answer.
+    const officerThreadId = officeRoleOf(state, personId) ? openOfficerThread(state, personId) : null;
+    if (officerThreadId) markConversationRead(state, officerThreadId);
+    const conversation = officerThreadId ? state.communication!.conversations[officerThreadId]! : threadWith(state, personId);
     set({
       game: state,
       view: 'inbox',
@@ -804,11 +882,23 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (targetId && conversation.type === 'player' && state.people[targetId]?.kind === 'player') {
       const sent = sendPlayerMessage(state, targetId, intent);
       if (!sent) return;
+      markOpenThreadRead(state, get().openConversationId);
       set({
         game: state,
         error: null,
         notice: sent.followUp ? `${state.people[targetId]!.firstName} will let you know.` : null,
       });
+      return;
+    }
+    // Somebody who runs the club answers from the system they own — the ledger,
+    // the secretary's desk, the chairman's expectations, the physio's report —
+    // so their thread goes through the organisation bridge rather than the
+    // generic path.
+    if (targetId && officeRoleOf(state, targetId)) {
+      const sent = sendOrganisationMessage(state, targetId, intent);
+      if (!sent) return;
+      markOpenThreadRead(state, get().openConversationId);
+      set({ game: state, error: null });
       return;
     }
     const person = targetId ? state.people[targetId] : undefined;
@@ -821,6 +911,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         : { topic: conversation.title },
     });
     if (!result.message) return;
+    markOpenThreadRead(state, get().openConversationId);
     set({ game: state, error: null });
   },
 
@@ -852,8 +943,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (!conversationId) return;
     const sent = sendPlayerMessage(state, personId, intent);
     if (!sent) return;
-    // The reply has arrived and nobody has read it — the manager is not looking
-    // at this thread, or he would not be asking.
+    // The reply has arrived unread — unless the manager happens to be sitting in
+    // this thread already, in which case the answer is in front of him and a
+    // badge would be asking him to open the thread he is reading.
+    markOpenThreadRead(state, get().openConversationId);
     set({
       game: state,
       error: null,
@@ -1097,8 +1190,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
     // week is already in their legs and in their heads when the whistle goes.
     // A friendly is not a league week, so it does not consume the week's session.
     //
-    // Only once that Thursday has actually been and gone, though. A midweek cup
-    // tie falls *before* the week's session, and running it here would bank the
+    // Only once that Thursday has actually been and gone, though. A cup tie
+    // falls *before* the week's session, and running it here would bank the
     // session — and mark the Thursday as trained — before the evening it is
     // supposed to happen.
     if (isCompetitiveMatch(state, match) && sessionDateFor(state, matchday) <= state.date) {
@@ -1320,6 +1413,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     syncEnginePossession(working, instant);
     const events = [...applyMatchConsequences(state, working).events, matchReportEvent(state, working)];
     applyMatchdayFinances(state, working);
+    settleSubsFor(state, working);
     state.lastMatchId = working.id;
     state.pendingMatchId = null;
     publishEvents(state, events);
@@ -1640,6 +1734,75 @@ export const useGameStore = create<GameStore>((set, get) => ({
       plan.fallbackVenue = false;
     }),
 
+  resolveAdmin: (id) => {
+    const game = get().game;
+    if (!game) return;
+    const state = clone(game);
+    const managerId = state.clubs[state.userClubId]?.managerId ?? null;
+    const event = resolveAdminEvent(state, id, state.date, managerId);
+    if (!event) return;
+    set({ game: state, error: null, notice: `Filed: ${event.title}.` });
+  },
+
+  requestBacking: () => {
+    const game = get().game;
+    if (!game) return;
+    const state = clone(game);
+    const result = requestChairmanBacking(state, state.userClubId);
+    const notice =
+      result.reason === 'granted'
+        ? `The chairman has put ${money(result.amount)} into the club.`
+        : result.reason === 'no-need'
+          ? 'The club is not in the red — there is nothing to ask for.'
+          : result.reason === 'already-asked'
+            ? 'You have already been to the chairman this season.'
+            : result.reason === 'no-chairman'
+              ? 'There is nobody in the chair to ask.'
+              : 'The chairman turned you down.';
+    set({ game: state, error: null, notice });
+  },
+
+  seekSponsor: () => {
+    const game = get().game;
+    if (!game) return;
+    const state = clone(game);
+    if (activeDealForClub(state, state.userClubId)) {
+      set({ notice: 'The club already has a sponsor.' });
+      return;
+    }
+    const result = seekClubSponsor(state, state.userClubId);
+    const notice =
+      result.outcome === 'accepted' && result.deal
+        ? `${result.businessName} agree to sponsor the club — ${money(result.deal.instalment)} ${
+            result.deal.terms.frequency === 'weekly' ? 'a week' : 'a month'
+          }.`
+        : result.outcome === 'no-business'
+          ? 'There is nobody local left to ask.'
+          : 'Nobody local would take it on this time.';
+    set({ game: state, error: null, notice });
+  },
+
+  collectSubs: (playerId, amount) => {
+    const game = get().game;
+    if (!game) return;
+    const state = clone(game);
+    const result = collectClubSubs(state, state.userClubId, playerId, state.date, amount);
+    if (result.collected <= 0) {
+      set({ notice: 'There is nothing to collect from him.' });
+      return;
+    }
+    const person = state.people[playerId];
+    const name = person ? personDisplayName(person) : 'the player';
+    set({
+      game: state,
+      error: null,
+      notice:
+        result.owedAfter > 0
+          ? `Took ${money(result.collected)} in subs from ${name}. ${money(result.owedAfter)} still owed.`
+          : `Took ${money(result.collected)} in subs from ${name}. He is up to date.`,
+    });
+  },
+
   chooseKit: (option) => {
     const game = get().game;
     if (!game) return;
@@ -1821,6 +1984,7 @@ function commitFinishedMatch(
   const committed = state.matches[live.id]!;
   const events = [...applyMatchConsequences(state, committed).events, matchReportEvent(state, committed)];
   applyMatchdayFinances(state, committed);
+  settleSubsFor(state, committed);
   state.lastMatchId = committed.id;
   state.pendingMatchId = null;
   publishEvents(state, events);

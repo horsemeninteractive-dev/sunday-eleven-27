@@ -17,6 +17,7 @@ import { nextFixtureFor } from '../schedule';
 import { rollMatchConditions } from '../matchday';
 import { stream } from '../rng';
 import { fiveASideVenueFor } from '../recruitment/discovery';
+import { staffIsAvailable } from '../staff';
 import { clubCohesionValue, clubSystemFamiliarity } from './cohesion';
 import { lastSessionFor, trainingStore, weeksSince } from './store';
 import { isLeagueMatchday, nextMatchday, weekStartOf } from '../timeline';
@@ -151,12 +152,12 @@ export function sessionDateFor(state: GameState, matchday: number): ISODate {
  * waiting — so the club's week runs from the day the manager takes charge, not
  * from the first fixture.
  *
- * Only *league* matchdays have a Thursday. The calendar also carries midweek cup
- * ties, which are numbered after the league's matchdays but dated on a
- * Wednesday; taking a session three days before one of those lands it on a
- * Sunday, giving a club two sessions in a week — one on the Thursday and one on
- * matchday morning. The cup tie is prepared for by the week's Thursday session,
- * the same one that builds towards the Sunday.
+ * Only *league* matchdays have a Thursday. The calendar also carries cup ties,
+ * which are numbered after the league's matchdays but dated on the free Sunday
+ * of the off-week; giving each a session of its own would land one on a Thursday
+ * in the off-week and put a second session in the same fortnight. A cup tie is
+ * covered by the league week it sits inside, the same Thursday session that
+ * builds towards the Sunday.
  */
 export function sessionDatesFor(state: GameState): ISODate[] {
   const dates = state.season.calendar
@@ -386,9 +387,14 @@ export function sessionForecast(state: GameState, clubId: ClubId): SessionForeca
 }
 
 /**
- * Who runs the session. The manager normally takes it; if he is not around, an
- * assistant or a senior player does, and the quality of the evening drops with
- * whoever ends up with the bibs.
+ * Who runs the session.
+ *
+ * The coach whose job it is takes it if he is around; if he is not, the
+ * assistant does; if neither is, the manager does it himself. A club with no
+ * coach at all is normal at this level and is not a problem — the session still
+ * happens, and the quality of the evening drops with whoever ends up with the
+ * bibs. Being unavailable (a shift, a holiday) simply takes a man out of the
+ * running, exactly as it takes a player out of the squad.
  */
 export function sessionCoachFor(
   state: GameState,
@@ -396,13 +402,17 @@ export function sessionCoachFor(
 ): { personId: PersonId | null; name: string; role: string; quality: number } {
   const club = state.clubs[clubId];
   if (!club) return { personId: null, name: 'Nobody', role: 'no coach', quality: 0.3 };
-  const officials = Object.values(state.people).filter(
-    (person): person is Official => person.kind === 'official' && person.clubId === clubId,
-  );
   const manager = club.managerId ? state.people[club.managerId] : undefined;
-  const assistant = officials.find((person) => person.role === 'assistant');
-  const coach = officials.find((person) => person.role === 'coach');
-  const staff = (manager && manager.kind === 'official' ? manager : undefined) ?? assistant ?? coach;
+  const roster = club.staff;
+  const availableOfficial = (id: PersonId | null | undefined): Official | null => {
+    const person = id ? state.people[id] : undefined;
+    return person && person.kind === 'official' && staffIsAvailable(person) ? person : null;
+  };
+  const coach = availableOfficial(roster?.coachIds?.[0]);
+  const assistant = availableOfficial(roster?.assistantId);
+  const managerOfficial =
+    manager && manager.kind === 'official' && staffIsAvailable(manager) ? manager : null;
+  const staff = coach ?? assistant ?? managerOfficial;
   if (staff) {
     // Defensive about the attributes: an official created by an older save, or
     // by a future staff system, may not carry every field yet.

@@ -15,6 +15,7 @@ import {
   type RelationshipStore,
 } from '@/domain/relationship';
 import { Rng, stream } from '../rng';
+import { staffMembers } from '../staff';
 
 /**
  * Initial social network generation.
@@ -227,6 +228,51 @@ function linkManagerAndPlayers(
         friendship: clamp(30 + sociabilityOf(player) + rng.gaussian(0, 10), 5, 88),
         loyalty: clamp(30 + player.attributes.behavioural.loyalty * 2.1 + rng.gaussian(0, 8), 8, 94),
         tension: awkward ? rng.int(30, 58) : rng.int(0, 16),
+      },
+      date,
+    });
+  }
+}
+
+/**
+ * The committee: every member of staff knows the manager (or the chairman) they
+ * work under. Uses the one relationship service, the same as everybody else.
+ */
+function linkStaff(
+  store: RelationshipStore,
+  seed: string,
+  club: Club,
+  people: Record<PersonId, Person>,
+  date: ISODate,
+): void {
+  const manager = managerOf(people, club);
+  const chairman = chairmanOf(people, club);
+  for (const member of staffMembers(club)) {
+    if (member.role === 'manager' || member.role === 'chairman') continue;
+    const person = people[member.personId];
+    if (!person) continue;
+    const anchorId = manager?.id ?? chairman?.id;
+    if (!anchorId || anchorId === person.id) continue;
+    const rng = stream(seed, 'relationships', club.id, 'staff', member.personId);
+    link(store, {
+      aId: anchorId,
+      bId: person.id,
+      origin: 'club-committee',
+      context: `Both at ${club.identity.shortName}`,
+      provenance: 'known',
+      aToB: {
+        trust: clamp(44 + rng.gaussian(0, 10), 12, 94),
+        respect: clamp(46 + rng.gaussian(0, 11), 12, 92),
+        friendship: clamp(42 + rng.gaussian(0, 12), 10, 90),
+        tension: rng.int(0, 14),
+        loyalty: clamp(48 + rng.gaussian(0, 10), 14, 92),
+      },
+      bToA: {
+        trust: clamp(42 + rng.gaussian(0, 11), 12, 92),
+        respect: clamp(44 + rng.gaussian(0, 11), 12, 90),
+        friendship: clamp(40 + rng.gaussian(0, 12), 10, 88),
+        tension: rng.int(0, 16),
+        loyalty: clamp(46 + rng.gaussian(0, 10), 14, 90),
       },
       date,
     });
@@ -480,6 +526,7 @@ export function generateInitialRelationships(options: GenerateRelationshipsOptio
 
     linkManagerAndPlayers(store, options.seed, club, squad, options.people, options.date);
     linkChairman(store, options.seed, club, squad, options.people, options.date, townLabels.get(club.townId) ?? 'the village');
+    linkStaff(store, options.seed, club, options.people, options.date);
   }
 
   linkAcrossClubs(store, options.seed, clubs, squadByClub, options.people, options.date, townLabels);

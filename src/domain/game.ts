@@ -1,4 +1,6 @@
+import type { AdminState } from './admin';
 import type { CommunicationStore } from './communication';
+import type { GovernanceState } from './governance';
 import type { Club } from './club';
 import type { Competition, FixtureList, MovementRecord, PyramidConfig } from './competition';
 import type { ScheduleState } from './events';
@@ -9,6 +11,7 @@ import type { NewsItem } from './news';
 import type { Person } from './person';
 import type { RecruitmentStore } from './recruitment';
 import type { RelationshipStore } from './relationship';
+import type { SponsorshipState } from './sponsorship';
 import type { TrainingStore } from './training';
 import type { SeasonState, World } from './world';
 import type { StandingRow } from './club';
@@ -48,8 +51,24 @@ import type { StandingRow } from './club';
  *     Version 9 saves have no conversations yet — there is nothing to invent,
  *     because a career that had none should not wake up with any — so they are
  *     given an empty inbox and the world carries on around them.
+ * 11 — matchday subs. Subs stopped being a weekly squad tax and became a
+ *     per-match liability raised from the engine's participation record.
+ * 12 — the club personnel system: assistant, coach, physio, secretary,
+ *     treasurer, scout and volunteer as real people with roles and a roster.
+ * 13 — the secretary's desk. Club administration — registrations, deadlines,
+ *     AGMs, fixture correspondence, disciplinary notices — is received, kept
+ *     and closed here. Version 12 saves are given an empty desk, because a
+ *     career that had no paperwork should not wake up to a pile of it.
+ * 14 — club governance: the chairman's expectations, concerns and standing, and
+ *     the notable decisions the committee has taken. Version 13 saves are given
+ *     a comfortable committee that has taken no view yet.
+ * 15 — sponsorship. A club's sponsor is a real local business with an actual
+ *     agreement — a start, a term, an instalment and a payday — rather than a
+ *     weekly financial modifier. Version 14 saves are given an empty deal log,
+ *     because an agreement that was never signed should not be invented, and
+ *     the clubs that already had a backing business will sign one in play.
  */
-export const GAME_STATE_VERSION = 10;
+export const GAME_STATE_VERSION = 15;
 
 export type GamePhase = 'preseason' | 'season' | 'complete';
 
@@ -89,6 +108,15 @@ export interface GameState {
    * here, because they already have a home.
    */
   schedule: ScheduleState;
+  /**
+   * The secretary's desk: administrative events received, outstanding and
+   * closed. Informational only — no fixture or competition fact lives here.
+   */
+  admin: AdminState;
+  /** The committee's view of the manager: expectations, concerns and standing. */
+  governance: GovernanceState;
+  /** The club's sponsorship agreements: who backs it, for how much, and until when. */
+  sponsorship: SponsorshipState;
   phase: GamePhase;
   season: SeasonState;
   world: World;

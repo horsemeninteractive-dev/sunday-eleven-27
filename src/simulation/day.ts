@@ -5,21 +5,23 @@ import type { GameEvent, NewsItem } from '@/domain/news';
 import type { Match } from '@/domain/match';
 import { isPlayer, type Player } from '@/domain/person';
 import { addDays } from './calendar';
-import { recoverPlayerDaily, rollDailyLifeChange } from './availability';
+import { recoverPlayerDaily, rollDailyLifeChange, rollWeeklyStaffAvailabilityForAll } from './availability';
 import { applyMatchConsequences, matchReportEvent } from './consequences';
-import { applyMatchdayFinances, applyStandingCosts, applySubsAndSponsorship } from './finance';
+import { applyMatchdayFinances, applyStandingCosts, settleMatchdaySubs } from './finance';
+import { runSponsorship } from './sponsorship';
 import { createEvent, publishEvents } from './news';
 import { sessionDatesFor, sessionKeyFor } from './training/plan';
 import { ensureTrainingConducted } from './training/session';
 import { describeSessionQuality } from '@/domain/training';
 import { weeklyApproaches, type DiscoveryResult } from './recruitment/discovery';
+import { physioSupport, weeklyScoutReports } from './staffOps';
+import { runSecretary } from './secretary';
 
 import { divisionOf, leagueClubIds, standingsFor, cupCompetitions } from './pyramid';
 import {
   allCupRoundSlots,
   cupTieNews,
   drawCupRound,
-  isLeagueMatchday,
   loserOf,
   matchesForRound,
   platePreliminaryLineup,
@@ -38,7 +40,8 @@ import { eventsOn, markNotifiedThrough, nextFixtureFor, recursOn, recurringEvent
 import { runDueFollowUps } from './communication/playerConversation';
 import { announceAvailabilityChange } from './communication/availabilityComms';
 import { announceOverdueSubs, paymentStandingFor } from './communication/paymentComms';
-import { matchdaysPlayed, nextMatchday, seasonCalendarExhausted } from './timeline';
+import { runOrganisationComms } from './communication/organisationComms';
+import { leagueMatchdayCount, matchdaysPlayed, nextMatchday, seasonCalendarExhausted } from './timeline';
 
 /**
  * A day in the life of a Sunday league club.
@@ -174,6 +177,18 @@ export function* processDaySteps(
 
   events.push(...applyWorldDay(state, date));
 
+  // The secretary's day: log the club's correspondence, and mark anything whose
+  // deadline has gone by. Informational only — it never moves a fixture or a
+  // result, so it can run here whatever else the day does.
+  events.push(...runSecretary(state, date).events);
+
+  // The people who run the club, writing to the manager about the day just
+  // simulated — the treasurer about the money, the secretary about the post, the
+  // chairman about the committee, the staff about the football, and the sponsor
+  // through the man who signed them. Event-driven, deduplicated, and silent on a
+  // day that changed nothing.
+  runOrganisationComms(state, date);
+
   // A player who said he would let the manager know has now had his chance to:
   // anybody the calendar says is owed a chase is written to today, and the
   // answer is read from the record as it stands now rather than from last
@@ -257,43 +272,41 @@ function applyAvailabilityRoll(state: GameState, date: ISODate): GameEvent[] {
   // The model itself lives in gameSetup; this only decides *when* it runs. The
   // roll is keyed on the date, so asking twice for the same Monday is safe.
   rollWeeklyAvailabilityForAll(state);
+  // The committee's week turns on the same Monday: a physio's shift, a scout's
+  // holiday. Absence is a fact about this week, not a change to the roster.
+  rollWeeklyStaffAvailabilityForAll(state);
   return [];
 }
 
-/** Friday's subs book, Wednesday's standing costs, dated by the event. */
+/**
+ * The club's recurring money: standing costs on a Wednesday, and each
+ * sponsor's instalment on the payday its own agreement sets.
+ *
+ * Sponsorship is deliberately not a calendar rule. The agreement is the single
+ * authority for when a payment is due, so the day asks every deal whether today
+ * is a payday rather than a rule deciding for all of them.
+ *
+ * Player subs are deliberately not here. They are a matchday liability now —
+ * raised from the completed match and collected when a man pays — so the
+ * calendar can no longer generate player sub income on its own. Training's own
+ * cost is dated by the session itself, not by a weekday rule.
+ */
 function applyDatedMoney(state: GameState, date: ISODate): GameEvent[] {
   const events: GameEvent[] = [];
-  const rules = recurringEvents(state);
-  const subsDue = rules.some((rule) => rule.id === 'rec_subs' && recursOn(rule, date));
-  const costsDue = rules.some((rule) => rule.id === 'rec_costs' && recursOn(rule, date));
-  if (!subsDue && !costsDue) return events;
+  // The sponsor's money, on the agreement's own terms, for every club in the
+  // county — otherwise the bottom of the pyramid would run on nothing at all.
+  events.push(...runSponsorship(state, date));
 
+  const costsDue = recurringEvents(state).some((rule) => rule.id === 'rec_costs' && recursOn(rule, date));
+  if (!costsDue) return events;
 
-  // Every club in the county collects its subs and pays its costs, not only the
-  // ones in the top division — otherwise the bottom of the pyramid would run on
-  // nothing at all and would fold in a season.
   for (const clubId of leagueClubIds(state)) {
-    if (subsDue) {
-      applySubsAndSponsorship(state, clubId, date);
-      // The manager is written to *after* the book has settled, never before,
-      // and only about his own squad. The announcement fires on a threshold
-      // being crossed and carries a key, so a man who stays behind is not
-      // written to every Friday — which is the difference between a treasurer
-      // telling him once and a treasurer telling him every week.
-      if (clubId === state.userClubId) {
-        const squad = state.clubs[clubId]?.squadIds ?? [];
-        for (const playerId of squad) {
-          if (!paymentStandingFor(state, playerId)) continue;
-          announceOverdueSubs(state, playerId);
-        }
-      }
-    }
-    if (costsDue) applyStandingCosts(state, clubId, date);
+    applyStandingCosts(state, clubId, date);
     if (clubId === state.userClubId && (state.clubs[clubId]?.finances.balance ?? 0) < 0) {
       events.push(
         createEvent(state, {
           type: 'finances-warning',
-          importance: costsDue ? 3 : 2,
+          importance: 3,
           clubIds: [clubId],
           data: {
             club: state.clubs[clubId]?.identity.shortName ?? 'the club',
@@ -306,6 +319,24 @@ function applyDatedMoney(state: GameState, date: ISODate): GameEvent[] {
   return events;
 }
 
+/**
+ * A match has just been settled: raise the subs liabilities and tell the manager
+ * about any of his own men who have fallen behind.
+ *
+ * The threshold announcement is deliberately kept here, where the book moves,
+ * rather than on a fixed weekday — a treasurer writes to a man when he becomes
+ * owed, not every Friday regardless.
+ */
+export function settleSubsFor(state: GameState, match: Match): void {
+  settleMatchdaySubs(state, match);
+  if (match.homeClubId !== state.userClubId && match.awayClubId !== state.userClubId) return;
+  const squad = state.clubs[state.userClubId]?.squadIds ?? [];
+  for (const playerId of squad) {
+    if (!paymentStandingFor(state, playerId)) continue;
+    announceOverdueSubs(state, playerId);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // 3. Bodies
 // ---------------------------------------------------------------------------
@@ -314,11 +345,17 @@ function applyRecovery(state: GameState): { events: GameEvent[]; notes: string[]
   const events: GameEvent[] = [];
   const notes: string[] = [];
 
+  // The physio helps his own club's players back, so work his effect out once
+  // per club rather than once per player. Zero when there is no physio.
+  const physioByClub = new Map<ClubId, number>();
+  for (const clubId of Object.keys(state.clubs)) physioByClub.set(clubId, physioSupport(state, clubId));
+
   for (const person of Object.values(state.people)) {
     if (!isPlayer(person)) continue;
     const player = person;
     const before = player.injury?.description ?? null;
-    const recovery = recoverPlayerDaily(player);
+    const support = player.clubId ? physioByClub.get(player.clubId) ?? 0 : 0;
+    const recovery = recoverPlayerDaily(player, { physioSupport: support });
     if (recovery.returned && player.clubId === state.userClubId) {
       events.push(
         createEvent(state, {
@@ -631,6 +668,7 @@ function* applyFixturesSteps(
     // round, so it is written before the round is read back and advanced.
     outcome.events.push(...cupTieNews(state, match));
     applyMatchdayFinances(state, match);
+    settleSubsFor(state, match);
 
     if (involvesUser) {
       outcome.events.push(matchReportEvent(state, match, 3));
@@ -792,6 +830,8 @@ function applyWorldDay(state: GameState, date: ISODate): GameEvent[] {
   if (approachDay) {
     const result: DiscoveryResult = weeklyApproaches(state);
     events.push(...result.events);
+    // And the scout, if the club has one, brings back a name.
+    events.push(...weeklyScoutReports(state).events);
   }
 
   if (!rng.chance(0.09)) return events;
@@ -983,11 +1023,6 @@ function losersOfRound(state: GameState, competition: Competition, round: number
   return matchesForRound(state, competition, round)
     .filter((tie) => !isActiveFixture(tie))
     .map(loserOf);
-}
-
-/** How many of this season's matchdays are league Sundays. */
-function leagueMatchdayCount(state: GameState): number {
-  return Math.max(1, state.season.calendar.filter((entry) => isLeagueMatchday(state, entry.matchday)).length);
 }
 
 /** How many clubs the League Cup starts with. */

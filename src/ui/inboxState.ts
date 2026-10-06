@@ -3,15 +3,18 @@ import type {
   Conversation,
   ConversationType,
   Message,
+  MessagePriority,
   ResponseOption,
 } from '@/domain/communication';
-import { MANAGER_PERSON_ID } from '@/domain/communication';
+import { demandsAttention, MANAGER_PERSON_ID } from '@/domain/communication';
 import type { GameState } from '@/domain/game';
 import type { ISODate, PersonId } from '@/domain/ids';
 import { personDisplayName } from '@/domain/person';
 import { daysBetween, DAY_NAMES, dayOfWeek } from '@/simulation/calendar';
 import { availabilityStanding } from '@/simulation/communication/availabilityComms';
+import { officeRoleOf, officerResponseOptions } from '@/simulation/communication/organisationComms';
 import { PAYMENT_STANDING_LABEL, paymentSummaryFor } from '@/simulation/communication/paymentComms';
+import { playerResponseOptions } from '@/simulation/communication/playerConversation';
 import { conversationOf, conversationsInOrder, lastMessageOf, totalUnread } from '@/simulation/communication/store';
 
 /**
@@ -151,8 +154,12 @@ export interface InboxRow {
   whenTitle: string;
   unread: number;
   active: boolean;
+  /** How loudly the last thing said wants to be read. */
+  priority: MessagePriority;
+  /** True when the priority is one of the two allowed to demand attention. */
+  attention: boolean;
   /** Everyone in it, for a screen reader and for the header. */
-  people: string[];
+  people: string[],
   /**
    * Where a player stands, when the row is about one player and the club has
    * not settled it.
@@ -194,8 +201,17 @@ export function inboxRows(game: GameState): InboxRow[] {
   const rows = conversationsInOrder(game).map((conversation) => toRow(game, conversation, today));
   return rows.sort((a, b) => {
     if ((a.unread > 0) !== (b.unread > 0)) return a.unread > 0 ? -1 : 1;
+    // Among the unread, a genuine problem sits above an ordinary note — which is
+    // the whole reason priorities exist: the manager's eye lands on what matters
+    // first, and the rest waits its turn.
+    if (a.attention !== b.attention) return a.attention ? -1 : 1;
     return b.sortKey - a.sortKey;
   });
+}
+
+/** How many threads are carrying something that wants attention. */
+export function inboxAttention(game: GameState): number {
+  return inboxRows(game).filter((row) => row.unread > 0 && row.attention).length;
 }
 
 /**
@@ -237,6 +253,8 @@ function toRow(game: GameState, conversation: Conversation, today: ISODate): Inb
     whenTitle: fullDate(last?.timestamp ?? conversation.lastActivity),
     unread: conversation.unreadCount,
     active: conversation.active,
+    priority: last?.priority ?? 'normal',
+    attention: demandsAttention(last?.priority),
     people: conversation.participantIds.filter((id) => id !== MANAGER_PERSON_ID).map((id) => personName(game, id)),
     standing: standingFor(game, conversation),
     sortKey: timeKey(last?.timestamp ?? conversation.lastActivity, conversation.messages.length, conversation.id),
@@ -399,7 +417,33 @@ export const MANAGER_ACTIONS: ManagerAction[] = [
   { intent: 'GENERAL_CHECK_IN', label: 'Check in', detail: 'Ask how he is', group: 'say', icon: 'tell' },
 ];
 
-const ACTIONS_BY_INTENT = new Map(MANAGER_ACTIONS.map((action) => [action.intent, action]));
+/**
+ * The questions that only make sense to the people who run the club.
+ *
+ * Kept beside the player actions so the same `ManagerAction` vocabulary can
+ * describe them, but not merged into the generic list: these are offered only
+ * where the person can actually answer them — a treasurer thread, not a left
+ * back's.
+ */
+export const OFFICER_ACTIONS: ManagerAction[] = [
+  { intent: 'ASK_FINANCES', label: 'How are we doing?', detail: 'Ask about the state of the books', group: 'ask', icon: 'ask' },
+  { intent: 'ASK_ARREARS', label: 'Who still owes?', detail: 'Ask who is behind on their subs', group: 'ask', icon: 'pay' },
+  { intent: 'ASK_BILLS', label: 'Are the bills paid?', detail: 'Ask whether the club’s costs are settled', group: 'ask', icon: 'pay' },
+  { intent: 'ASK_AFFORD', label: 'Can we afford it?', detail: 'Ask whether the club has the money', group: 'ask', icon: 'ask' },
+  { intent: 'ASK_TAKINGS', label: 'What did Sunday take?', detail: 'Ask what the last match brought in', group: 'ask', icon: 'pay' },
+  { intent: 'ASK_LEAGUE_NEWS', label: 'News from the league?', detail: 'Ask what the league has sent', group: 'ask', icon: 'ask' },
+  { intent: 'ASK_FA', label: 'Heard from the county?', detail: 'Ask about county FA correspondence', group: 'ask', icon: 'ask' },
+  { intent: 'ASK_AGM', label: 'When is the AGM?', detail: 'Ask about the meeting', group: 'ask', icon: 'ask' },
+  { intent: 'ASK_FIXTURE_STATUS', label: 'Is Sunday confirmed?', detail: 'Ask about the next fixture', group: 'ask', icon: 'ask' },
+  { intent: 'ASK_EXPECTATIONS', label: 'What are you expecting?', detail: 'Ask what the club wants this season', group: 'ask', icon: 'ask' },
+  { intent: 'ASK_SUPPORT', label: 'Will you back me?', detail: 'Ask the chairman to help the club', group: 'say', icon: 'tell' },
+  { intent: 'EXPLAIN_DECISION', label: 'Let me explain', detail: 'Explain a decision you have made', group: 'say', icon: 'tell' },
+  { intent: 'DISCUSS_CLUB', label: 'How do you see it?', detail: 'A word about the club', group: 'ask', icon: 'ask' },
+  { intent: 'DISCUSS_FINANCES', label: 'About the money?', detail: 'Talk to the chairman about the club’s finances', group: 'ask', icon: 'pay' },
+  { intent: 'ASK_SPONSOR', label: 'What about the sponsor?', detail: 'Ask about the sponsorship', group: 'ask', icon: 'ask' },
+];
+
+const ACTIONS_BY_INTENT = new Map([...MANAGER_ACTIONS, ...OFFICER_ACTIONS].map((action) => [action.intent, action]));
 
 export function actionFor(intent: CommunicationIntent): ManagerAction | undefined {
   return ACTIONS_BY_INTENT.get(intent);
@@ -419,6 +463,22 @@ export function actionFor(intent: CommunicationIntent): ManagerAction | undefine
  * live ones in; that is what lets a thread opened from a player's profile offer
  * "How is the knock?" to a man with a hamstring and not to everybody else.
  */
+/**
+ * The options a thread offers live, worked out from who is in it.
+ *
+ * A player thread reads the player's own record; a thread with somebody who runs
+ * the club reads their office. Everything else falls back to whatever the last
+ * message suggested. This is what lets the same inbox offer a treasurer the money
+ * questions, a coach the football ones, and neither of them the other's.
+ */
+export function liveThreadOptions(game: GameState, conversation: Conversation): ResponseOption[] {
+  const other = conversation.participantIds.find((id) => id !== MANAGER_PERSON_ID);
+  if (!other) return [];
+  if (conversation.type === 'player') return playerResponseOptions(game, other);
+  if (officeRoleOf(game, other)) return officerResponseOptions(game, other);
+  return [];
+}
+
 export function threadActions(conversation: Conversation, liveOptions: ResponseOption[] = []): ManagerAction[] {
   const suggested = new Set<CommunicationIntent>();
   const offered = liveOptions.length > 0 ? liveOptions : responseOptionsFor(conversation);

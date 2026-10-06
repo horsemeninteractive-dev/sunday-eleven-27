@@ -12,6 +12,7 @@ import { ProcessingModal } from './components/ProcessingModal';
 import { StartView } from './views/StartView';
 import {
   ClubSelectView,
+  ClubView,
   CreateClubView,
   CupView,
   DashboardView,
@@ -28,6 +29,7 @@ import {
   RecruitmentView,
   ReplayView,
   SquadView,
+  StaffView,
   TacticsView,
   TeamSelectionView,
   TrainingView,
@@ -157,6 +159,10 @@ function ViewRouter({ view }: { view: ViewId }) {
       return <NewsView />;
     case 'inbox':
       return <InboxView />;
+    case 'club':
+      return <ClubView />;
+    case 'staff':
+      return <StaffView />;
     case 'recruitment':
       return <RecruitmentView />;
     case 'training':

@@ -26,6 +26,8 @@ export type NavIcon =
   | 'messages'
   | 'finances'
   | 'history'
+  | 'club'
+  | 'staff'
   | 'kit'
   | 'world'
   | 'match'
@@ -57,6 +59,15 @@ export interface NavSection {
   leaves: NavLeaf[];
   /** A section that is really one screen: drawn as a row, not a group. */
   direct?: boolean;
+  /**
+   * Drawn at the foot of the desktop sidebar, outside its scrolling list.
+   *
+   * A pinned destination is one the manager must be able to reach whatever he
+   * has scrolled to — the sidebar is a list, and a list that scrolls can hide
+   * the thing that was waiting on him. Mobile ignores this: the sheet is short
+   * enough to show the lot.
+   */
+  pinned?: boolean;
 }
 
 export const NAV_SECTIONS: NavSection[] = [
@@ -84,9 +95,11 @@ export const NAV_SECTIONS: NavSection[] = [
     // the manager opens when he wants to write to somebody or read what he has
     // been sent, and it carries its own badge — the number is the point of it.
     //
-    // It sits high up because it is the one thing that can be waiting on him
-    // without his knowing: above the sections he goes to when he means to.
+    // And it is pinned to the foot of the desktop sidebar rather than left in
+    // the list: it is the one thing that can be waiting on him without his
+    // knowing, so it must not be the one that has scrolled out of reach.
     direct: true,
+    pinned: true,
     leaves: [
       {
         id: 'inbox',
@@ -139,7 +152,13 @@ export const NAV_SECTIONS: NavSection[] = [
     //
     // Media lives here rather than beside the club: what the local game says
     // about this club, its players and its money is the club's own news.
+    //
+    // Club comes first because it is the question the other four answer: who
+    // runs this place, how is it doing, and what needs me. A manager who is not
+    // sure where to look starts here and is sent on.
     leaves: [
+      { id: 'club', label: 'Club', icon: 'club', hint: 'Who runs it, where it stands, what needs you' },
+      { id: 'staff', label: 'Staff', icon: 'staff', hint: 'Who runs the club off the pitch' },
       { id: 'finances', label: 'Finances', icon: 'finances', hint: 'The treasurer’s book' },
       { id: 'news', label: 'Media', short: 'News', icon: 'news', hint: 'Everything the local game has to say' },
       { id: 'history', label: 'History', icon: 'history', hint: 'Honours, records and past seasons' },
@@ -183,6 +202,8 @@ export const VIEW_LABEL: Record<ViewId, string> = {
   news: 'News',
   inbox: 'Messages',
   finances: 'Finances',
+  club: 'Club',
+  staff: 'Staff',
   kit: 'The kit',
   history: 'History',
   world: 'The local game',

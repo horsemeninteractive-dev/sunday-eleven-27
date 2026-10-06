@@ -279,6 +279,18 @@ export type RelationshipEventType =
   | 'shared-success'
   | 'manager-praise'
   | 'manager-criticism'
+  | 'chairman-praise'
+  | 'chairman-concern'
+  /** A sponsor was signed, kept or brought in through the manager's doing. */
+  | 'sponsor-secured'
+  /** The club lost a sponsor: bad news the committee shares with the manager. */
+  | 'sponsor-lost'
+  /**
+   * The manager going to one of the club's own officers — the treasurer, the
+   * secretary, a coach — about how the place is run. A small, professional
+   * warmth, and the only relationship effect ordinary club business has.
+   */
+  | 'club-officer-word'
   | 'dropped'
   | 'teammate-argument'
   | 'teammate-support'
@@ -323,6 +335,56 @@ const EFFECTS: Record<RelationshipEventType, RelationshipEffect> = {
     headline: (actor, other) => `${other} reads the riot act to ${actor}`,
     importance: 2,
     tone: 'negative',
+  },
+  'chairman-praise': {
+    aToB: { respect: 2, trust: 2.5, tension: -2, loyalty: 1 },
+    bToA: { respect: 2, trust: 1.5, tension: -1.5 },
+    phrase: (actor, other) => `${actor} told ${other} the club is behind him`,
+    headline: (actor, other) => `${actor} backs ${other}`,
+    importance: 1,
+    tone: 'positive',
+    origin: 'club-committee',
+    context: 'Chairman and manager',
+  },
+  'chairman-concern': {
+    aToB: { trust: -2.5, tension: 3, respect: -1 },
+    bToA: { trust: -1.5, tension: 2 },
+    phrase: (actor, other) => `${actor} made his concerns about the club clear to ${other}`,
+    headline: (actor) => `${actor} has concerns`,
+    importance: 2,
+    tone: 'negative',
+    origin: 'club-committee',
+    context: 'Chairman and manager',
+  },
+  'club-officer-word': {
+    aToB: { trust: 1.5, respect: 1.2, tension: -0.5 },
+    bToA: { trust: 1.2, respect: 1, tension: -0.5 },
+    phrase: (actor, other) => `${actor} and ${other} had a word about the running of the club`,
+    headline: (actor, other) => `${actor} catches up with ${other}`,
+    importance: 1,
+    tone: 'positive',
+    origin: 'club-committee',
+    context: 'The club off the pitch',
+  },
+  'sponsor-secured': {
+    aToB: { respect: 2, trust: 1.5, tension: -1, loyalty: 1 },
+    bToA: { trust: 1.5, respect: 1.5, tension: -1 },
+    phrase: (actor, other) => `${actor} and ${other} brought a sponsor in for the club`,
+    headline: (actor, other) => `${actor} and ${other} land a sponsor`,
+    importance: 1,
+    tone: 'positive',
+    origin: 'club-sponsor',
+    context: 'Backing the club',
+  },
+  'sponsor-lost': {
+    aToB: { trust: -1.5, tension: 2.5, loyalty: -1 },
+    bToA: { trust: -1.5, tension: 2 },
+    phrase: (actor, other) => `${actor} took the loss of the club's sponsor badly with ${other}`,
+    headline: (actor) => `${actor} unhappy at the sponsor going`,
+    importance: 2,
+    tone: 'negative',
+    origin: 'club-sponsor',
+    context: 'Backing the club',
   },
   dropped: {
     aToB: { trust: -2.5, tension: 3.5, loyalty: -1.5, friendship: -0.5 },

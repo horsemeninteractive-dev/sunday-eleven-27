@@ -31,6 +31,8 @@ export type RelationshipOrigin =
   | 'former-manager'
   | 'manager-manager'
   | 'club-committee'
+  /** The people who brought a sponsor to the club. */
+  | 'club-sponsor'
   | 'local-football'
   | 'rival-club'
   | 'recommendation';
@@ -47,6 +49,7 @@ export const RELATIONSHIP_ORIGIN_LABEL: Record<RelationshipOrigin, string> = {
   'former-manager': 'Former manager',
   'manager-manager': 'Fellow manager',
   'club-committee': 'Club committee',
+  'club-sponsor': 'Club sponsorship',
   'local-football': 'Local football',
   'rival-club': 'Rival club',
   recommendation: 'Put his name forward',

@@ -14,7 +14,7 @@ import { Button, PageHeader, Panel, Pill } from '../components/primitives';
  * What a fixture is for.
  *
  * A club's season is no longer one list of Sundays. It is twenty-two league
- * games, eleven midweek cup ties — each of which is a round of something — and
+ * games, eleven cup ties — each of which is a round of something — and
  * whatever friendlies somebody arranged in July. A schedule that only said
  * "MD 27" was asking the manager to work out all of that themselves, and the
  * matchday numbers are worse than useless on a cup tie because the two
@@ -38,7 +38,7 @@ function fixtureKind(
       // eight clubs are the quarter-finals in one round and the preliminary in
       // another, and only the plan knows which.
       label: round > 0 ? `${name} · ${cupRoundName(competition, round)}` : name,
-      detail: 'midweek cup tie',
+      detail: 'cup tie',
       tone: 'accent',
     };
   }
@@ -72,7 +72,7 @@ export function FixturesView() {
   if (!game) return null;
   const club = game.clubs[game.userClubId]!;
   // By date, not by matchday. League matchdays are 1..22 and a cup round is
-  // numbered above all of them, so a midweek tie in September sorted on its
+  // numbered above all of them, so a cup tie in September sorted on its
   // matchday lands in November's month and at the end of the list. The list is
   // a season diary: it runs in the order the days do.
   const matches = clubMatches(game, club.id).sort(

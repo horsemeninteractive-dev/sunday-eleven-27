@@ -24,6 +24,7 @@ import {
   threadMessages,
   conversationName,
   MANAGER_ACTIONS,
+  OFFICER_ACTIONS,
 } from './inboxState';
 
 /**
@@ -325,18 +326,20 @@ describe('naming a thread', () => {
 });
 
 describe('what the manager can say', () => {
-  it('offers every intent the architecture supports', () => {
+  it('offers every intent the architecture supports, generic or officer', () => {
     // Counted against the domain rather than a literal, so adding an intent is
-    // a deliberate act here too.
-    expect(MANAGER_ACTIONS).toHaveLength(COMMUNICATION_INTENTS.length);
-    const intents = MANAGER_ACTIONS.map((a) => a.intent);
+    // a deliberate act here too. Every intent has a button somewhere; which
+    // *thread* offers it is a separate question, answered by who is in it.
+    const all = [...MANAGER_ACTIONS, ...OFFICER_ACTIONS];
+    expect(all).toHaveLength(COMMUNICATION_INTENTS.length);
+    const intents = all.map((a) => a.intent);
     for (const intent of Object.keys(COMMUNICATION_INTENT_LABEL) as CommunicationIntent[]) {
       expect(intents).toContain(intent);
     }
   });
 
   it('never shows the manager an internal intent name', () => {
-    for (const action of MANAGER_ACTIONS) {
+    for (const action of [...MANAGER_ACTIONS, ...OFFICER_ACTIONS]) {
       // The label is read aloud and read at a glance; it has to be a sentence a
       // manager would say, not a constant from the simulation.
       expect(action.label).not.toMatch(/_/);
@@ -354,10 +357,14 @@ describe('what the manager can say', () => {
     sendFromPerson(game.state, conversation.id, kev.id, { body: 'Cannot make Sunday.', type: 'question' });
 
     const actions = threadActions(conversationOf(game.state, conversation.id)!);
-    // Everything remains reachable: a manager may answer a question about
-    // Sunday with an invitation to training, and a menu of three would stop him.
-    expect(actions).toHaveLength(COMMUNICATION_INTENTS.length);
-    expect(new Set(actions.map((a) => a.intent)).size).toBe(COMMUNICATION_INTENTS.length);
+    // Everything a *player* thread can do remains reachable: a manager may
+    // answer a question about Sunday with an invitation to training, and a menu
+    // of three would stop him. The club officers' questions are deliberately
+    // absent — there is nobody in a player thread who can answer them.
+    expect(actions).toHaveLength(MANAGER_ACTIONS.length);
+    expect(new Set(actions.map((a) => a.intent)).size).toBe(MANAGER_ACTIONS.length);
+    const officerIntents = new Set(OFFICER_ACTIONS.map((a) => a.intent));
+    for (const action of actions) expect(officerIntents.has(action.intent)).toBe(false);
   });
 });
 
@@ -405,6 +412,10 @@ describe('the store actions the screen uses', () => {
 
     const store = useGameStore.getState();
     store.game = game.state;
+    // Nothing is open: he is writing from outside the thread, so the answer he
+    // gets is genuinely unread. (The store outlives the test that set it up, so
+    // the premise is stated rather than assumed.)
+    useGameStore.getState().closeConversation();
     useGameStore.getState().sendConversationMessage(conversation.id, 'ASK_FITNESS');
 
     const after = useGameStore.getState().game!;
@@ -420,6 +431,54 @@ describe('the store actions the screen uses', () => {
     expect(stored.consequence.targetId).toBe(kev.id);
     // A reply came back and is unread, because nobody has read it yet.
     expect(inboxUnread(after)).toBeGreaterThan(0);
+  });
+
+  it('leaves no badge on the thread the manager is reading when he writes in it', () => {
+    const game = createTestGame('store-send-open');
+    const kev = person(game.state, 0);
+    const conversation = threadWith(game.state, kev.id);
+    sendFromPerson(game.state, conversation.id, kev.id, { body: 'Hello.' });
+
+    const store = useGameStore.getState();
+    store.game = game.state;
+    useGameStore.getState().openConversation(conversation.id);
+    useGameStore.getState().sendConversationMessage(conversation.id, 'ASK_FITNESS');
+
+    const after = useGameStore.getState().game!;
+    const thread = conversationOf(after, conversation.id)!;
+    // The answer came back into the thread that is on screen, so it is not news.
+    // A badge here asks him to open the thread he is already reading, which is
+    // the one thing opening it again cannot do.
+    expect(threadMessages(after, conversation.id).some((message) => message.mine)).toBe(true);
+    expect(thread.unreadCount).toBe(0);
+    expect(inboxUnread(after)).toBe(0);
+    expect(threadMessages(after, conversation.id).every((message) => message.read)).toBe(true);
+  });
+
+  it('reads a message that lands in the thread while he is sitting in it', async () => {
+    const game = createTestGame('store-lands-while-open');
+    const kev = person(game.state, 0);
+    const conversation = threadWith(game.state, kev.id);
+
+    const store = useGameStore.getState();
+    store.game = game.state;
+    useGameStore.getState().openConversation(conversation.id);
+
+    // Something arrives while he is looking at the thread — the shape of a
+    // promised reply landing days later, with him still on the screen.
+    sendFromPerson(useGameStore.getState().game!, conversation.id, kev.id, {
+      body: 'Forgot to say — I can play.',
+    });
+    expect(inboxUnread(useGameStore.getState().game!)).toBe(1);
+
+    // A day passing is one of the ways a message arrives.
+    await useGameStore.getState().advanceDays(1);
+
+    // Only the open thread is the rule's business: a day brings post of its own
+    // to other threads, and those badges are meant to stay.
+    const after = useGameStore.getState().game!;
+    expect(conversationOf(after, conversation.id)!.unreadCount).toBe(0);
+    expect(threadMessages(after, conversation.id).every((message) => message.read)).toBe(true);
   });
 
   it('does nothing to a conversation that is not there', () => {

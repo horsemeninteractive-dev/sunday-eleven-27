@@ -1,6 +1,7 @@
 import type { ClubId, GroundId, ISODate, PersonId, PlayerId, SeasonId, TownId } from './ids';
 import type { Tactics } from './tactics';
 import type { BadgeChoice } from './badge';
+import type { ClubStaff } from './staff';
 
 export type ClubStructure = 'committee' | 'members' | 'pub-backed' | 'business-backed' | 'community' | 'chairman-led';
 
@@ -25,8 +26,28 @@ export interface ClubIdentity {
 
 export interface ClubFinances {
   balance: number;
-  /** Recurring weekly costs/income recorded as ledger lines from the templates. */
+  /**
+   * The balance the club started from, before any ledger line in `ledger`.
+   *
+   * The ledger is the record of every real transaction, and the balance is
+   * meant to be exactly `openingBalance + sum(ledger)`. Keeping the opening
+   * figure explicit is what lets that identity hold even when the ledger is
+   * trimmed of its oldest lines: the trimmed total is folded back into here
+   * rather than quietly lost, so the books never fail to add up.
+   */
+  openingBalance: number;
+  /**
+   * Legacy weekly subscription figure.
+   *
+   * Kept so saves and the club-generation template still load, but no longer
+   * charged: subs are a per-match liability now, priced by {@link starterSubAmount}
+   * and {@link substituteSubAmount}. Nothing settles the squad against this field.
+   */
   subscriptionPerPlayer: number;
+  /** What a player who started is charged for the match he played. */
+  starterSubAmount: number;
+  /** Reduced rate for a named substitute who actually came on. */
+  substituteSubAmount: number;
   sponsorIncomePerWeek: number;
   weeklyGroundCost: number;
   /** Training pitch and floodlight hire, where the club has to pay for it. */
@@ -126,6 +147,13 @@ export interface Club {
   squadIds: PlayerId[];
   chairmanId: PersonId | null;
   managerId: PersonId | null;
+  /**
+   * The club's other personnel: assistant, coaches, physio, secretary,
+   * treasurer, scouts and volunteers. Manager and chairman stay above, because
+   * they predate this and are read all over the game. A Sunday club may leave
+   * most of these empty, and one person may hold more than one of them.
+   */
+  staff: ClubStaff;
   sponsorIds: string[];
   /** The manager's default approach; AI clubs keep this for the season. */
   tactics: Tactics;

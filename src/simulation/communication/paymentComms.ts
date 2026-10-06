@@ -2,18 +2,18 @@
  * The bridge between the subs book and conversation.
  *
  * The finance system owns the money and keeps owning it: the ledger says what
- * arrived, the balance says what is in the account, and `settlePlayerSubs` is
- * the only thing in the game that moves either. This module reads those facts
- * and talks about them. It cannot move money, cannot clear a debt, and cannot
- * make a man who says "I'll pay Sunday" paid — the promise lives on the message
- * that carried it and nowhere else.
+ * arrived, the balance says what is in the account, and `settleMatchdaySubs`
+ * and `collectPlayerSubs` are the only things in the game that move either.
+ * This module reads those facts and talks about them. It cannot move money,
+ * cannot clear a liability, and cannot make a man who says "I'll pay Sunday"
+ * paid — the promise lives on the message that carried it and nowhere else.
  *
  * The rules this file exists to keep:
  *
  *  - **Money is decided by finance.** Every function here takes the debt as
  *    given. Nothing writes `player.subs`.
  *  - **A promise is not a payment.** It is recorded as a promise, it moves the
- *    relationship a little, and the debt is still there on Friday.
+ *    relationship a little, and the liability is still there afterwards.
  *  - **Not everybody agrees.** A man who is annoyed at being chased stays
  *    annoyed; he does not roll over. The reply is chosen from his circumstances
  *    and from how he already feels about the man asking.
@@ -32,6 +32,7 @@ import { isPlayer, type Player } from '@/domain/person';
 import { applyRelationshipEvent, getRelationship } from '@/simulation/relationships';
 import { stream } from '@/simulation/rng';
 import { ensurePlayerSubs } from '@/simulation/finance';
+import { deliveryContext, deliveryKey, hasDelivered } from './dedup';
 import { appendMessage, findConversation, lastMessageOf } from './store';
 import { sendFromManager, threadWith } from './system';
 
@@ -143,12 +144,9 @@ export function announceOverdueSubs(state: GameState, playerId: PersonId): Messa
   const crossed = crossedInto(standing);
   if (!crossed) return null;
 
-  const key = `subs:${playerId}:${crossed}`;
-  const existing = findConversation(state, [playerId], { type: 'player' });
-  if (existing) {
-    const already = existing.messages.some((message) => message.context.deliveryKey === key);
-    if (already) return null;
-  }
+  // Once per threshold, across every thread — the shared rule in `dedup.ts`.
+  const key = deliveryKey('subs', playerId, crossed);
+  if (hasDelivered(state, key)) return null;
 
   const pool = OVERDUE_SAYING[crossed];
   const rng = stream(state.seed, 'subs-announcement', state.date, playerId, crossed);
@@ -162,8 +160,8 @@ export function announceOverdueSubs(state: GameState, playerId: PersonId): Messa
     body,
     type: 'notice',
     context: {
+      ...deliveryContext(key),
       announced: 'subs',
-      deliveryKey: key,
       standing: crossed,
       owed: Math.round(person.subs.owed * 100) / 100,
       missedWeeks: weeks,
@@ -499,8 +497,8 @@ export function paymentSummaryFor(state: GameState, playerId: PersonId): string 
  *
  *  - the reply is the one drafted above, from his circumstances;
  *  - **nothing about the debt is touched.** A promise is written on the reply
- *    and nothing else, and the debt is exactly where the finance system left
- *    it on Friday morning.
+ *    and nothing else, and the outstanding liabilities are exactly where the
+ *    finance system left them.
  */
 export function sendPaymentMessage(
   state: GameState,

@@ -435,6 +435,38 @@ function intentPrompt(intent: CommunicationIntent, context: Record<string, strin
       return who ? `${who} - I would like to offer you a place.` : 'I would like to offer you a place.';
     case 'ASK_ADVICE':
       return who ? `${who} - got a minute for a bit of advice?` : 'Got a minute for a bit of advice?';
+    // The club officers. These are the manager's own words to the people who
+    // run the place, so they read as questions rather than as a system talking.
+    case 'ASK_FINANCES':
+      return 'How are we doing, money-wise?';
+    case 'ASK_ARREARS':
+      return 'Who still owes us subs?';
+    case 'ASK_BILLS':
+      return "Have the club's bills all been seen to?";
+    case 'ASK_AFFORD':
+      return 'Can we afford it?';
+    case 'ASK_TAKINGS':
+      return 'What did we take on Sunday?';
+    case 'ASK_LEAGUE_NEWS':
+      return 'Anything come in from the league?';
+    case 'ASK_FA':
+      return 'Have we heard from the county?';
+    case 'ASK_AGM':
+      return 'When is the AGM?';
+    case 'ASK_FIXTURE_STATUS':
+      return "Is Sunday's fixture confirmed?";
+    case 'ASK_EXPECTATIONS':
+      return who ? `${who} - what are you expecting this season?` : 'What are you expecting this season?';
+    case 'ASK_SUPPORT':
+      return who ? `${who} - will you back me on this?` : 'Will you back me on this?';
+    case 'EXPLAIN_DECISION':
+      return who ? `${who} - let me explain a decision I made.` : 'Let me explain a decision I made.';
+    case 'DISCUSS_CLUB':
+      return who ? `${who} - how do you see the club at the moment?` : 'How do you see the club at the moment?';
+    case 'DISCUSS_FINANCES':
+      return who ? `${who} - about the money, can we talk it through?` : 'About the money, can we talk it through?';
+    case 'ASK_SPONSOR':
+      return who ? `${who} - what is the situation with the sponsor?` : 'What is the situation with the sponsor?';
     default:
       return who ? `Quick one about you, ${who}.` : 'Quick word.';
   }
@@ -457,6 +489,21 @@ function managerMessageType(intent: CommunicationIntent): Message['type'] {
     case 'ASK_FITNESS':
     case 'ASK_ADVICE':
     case 'GENERAL_CHECK_IN':
+    case 'ASK_FINANCES':
+    case 'ASK_ARREARS':
+    case 'ASK_BILLS':
+    case 'ASK_AFFORD':
+    case 'ASK_TAKINGS':
+    case 'ASK_LEAGUE_NEWS':
+    case 'ASK_FA':
+    case 'ASK_AGM':
+    case 'ASK_FIXTURE_STATUS':
+    case 'ASK_EXPECTATIONS':
+    case 'ASK_SUPPORT':
+    case 'EXPLAIN_DECISION':
+    case 'DISCUSS_CLUB':
+    case 'DISCUSS_FINANCES':
+    case 'ASK_SPONSOR':
       return 'question';
     default:
       return 'answer';

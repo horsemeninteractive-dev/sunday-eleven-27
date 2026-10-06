@@ -34,6 +34,7 @@ import {
 import { createEvent } from './news';
 import { removePersonRelationships } from './relationships';
 import { stream } from './rng';
+import { generateClubStaff } from './staff';
 
 /** Tunable, so the soak decides how often a club actually dies. */
 export const CLUB_LIFECYCLE = {
@@ -245,6 +246,19 @@ function formReplacement(
   chairman.notes = [`Helped found the club ahead of ${context.seasonLabel}.`];
   state.people[chairman.id] = chairman;
 
+  const staff = generateClubStaff({
+    seed: state.seed,
+    clubId,
+    townId,
+    reputation,
+    structure: 'community',
+    seasonStart: context.seasonStart,
+    squad,
+    people: state.people,
+    managerId: null,
+    chairmanId: chairman.id,
+  });
+
   const club: Club = {
     id: clubId,
     identity,
@@ -255,6 +269,7 @@ function formReplacement(
     squadIds: squad.map((player) => player.id),
     chairmanId: chairman.id,
     managerId: null, // the managers' market fills it, the same as any vacancy
+    staff,
     sponsorIds: [],
     tactics: defaultTactics('4-4-2'),
     finances: buildFinances(rng, town, reputation),

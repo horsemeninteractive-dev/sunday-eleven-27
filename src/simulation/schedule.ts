@@ -501,18 +501,6 @@ export function recurringEvents(state: GameState): RecurringEvent[] {
       endsOn: last,
     },
     {
-      id: 'rec_subs',
-      kind: 'finance',
-      priority: 'background',
-      source: 'finance',
-      title: 'Player subs collected',
-      detail: 'The treasurer goes round with the subs book.',
-      frequency: 'weekly',
-      weekday: 5, // Friday
-      startsOn,
-      endsOn: last,
-    },
-    {
       id: 'rec_costs',
       kind: 'finance',
       priority: 'background',
@@ -521,18 +509,6 @@ export function recurringEvents(state: GameState): RecurringEvent[] {
       detail: 'Pitch hire, insurance and equipment come out of the account.',
       frequency: 'weekly',
       weekday: 3, // Wednesday
-      startsOn,
-      endsOn: last,
-    },
-    {
-      id: 'rec_sponsor',
-      kind: 'sponsor',
-      priority: 'background',
-      source: 'club',
-      title: 'Sponsorship instalment',
-      detail: 'The monthly payment from the sponsor clears.',
-      frequency: 'monthly',
-      dayOfMonth: 1,
       startsOn,
       endsOn: last,
     },

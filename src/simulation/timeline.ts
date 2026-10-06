@@ -33,7 +33,7 @@ export function weekEndOf(iso: ISODate): ISODate {
  * The league's own matchdays, in date order.
  *
  * The season calendar also carries cup rounds, which are numbered after the
- * league's matchdays but dated *inside* them — a midweek tie in the middle of
+ * league's matchdays but dated *inside* them — a cup tie in the middle of
  * matchday twelve. Counting the calendar from the top would therefore count a
  * matchday that has not happened yet as one that has. Everything that means
  * "how far through the league are we" works from the league's Sundays alone.
@@ -66,6 +66,20 @@ export function nextMatchday(state: GameState, date: ISODate = state.date): numb
   return matchdaysPlayed(state, date) + 1;
 }
 
+/**
+ * How many of this season's matchdays are league Sundays — the denominator for
+ * "matchday X of N".
+ *
+ * The season calendar counts league matchdays *and* cup rounds, so its length
+ * is not the league's size: a 22-matchday season with eleven cup rounds has a
+ * 33-entry calendar, and reading the calendar length would show matchday one as
+ * "1 of 33". Never fewer than one, so a hand-built or migrated state with no
+ * league entry still has a denominator.
+ */
+export function leagueMatchdayCount(state: GameState): number {
+  return Math.max(1, leagueEntries(state).length);
+}
+
 /** The matchday whose football falls on this date, if any. */
 export function matchdayOnDate(state: GameState, date: ISODate): number | null {
   return state.season.calendar.find((entry) => entry.date === date)?.matchday ?? null;
@@ -94,6 +108,37 @@ export function isMatchdayDate(state: GameState, date: ISODate): boolean {
   return matchdayOnDate(state, date) !== null;
 }
 
+/** The last date the season's calendar holds, or null when it holds none. */
+export function seasonEndDate(state: GameState): ISODate | null {
+  let last: ISODate | null = null;
+  for (const entry of state.season.calendar) {
+    if (last === null || entry.date > last) last = entry.date;
+  }
+  return last;
+}
+
+/**
+ * How many weeks of the season are left, counted on the calendar rather than in
+ * fixtures.
+ *
+ * The club's money is a weekly figure — pitch hire, insurance and the hall come
+ * round every seven days, and so does a weekly sponsor's instalment — so the
+ * number a manager multiplies that figure by is the number of weeks left, not
+ * the number of Sundays. Counting matchdays reads plausibly and is quietly
+ * wrong: the league's twenty-two Sundays sit inside a season that runs some
+ * forty weeks, so a budget built on them comes up short by every week between
+ * fixtures, and a rearranged cup tie can keep the season open past the last
+ * Sunday besides.
+ *
+ * Whole weeks to the last date on the calendar, and never negative: a season
+ * that has already run out has no weeks left in it.
+ */
+export function weeksRemaining(state: GameState, date: ISODate = state.date): number {
+  const end = seasonEndDate(state);
+  if (!end) return 0;
+  return Math.max(0, Math.ceil(daysUntil(date, end) / 7));
+}
+
 /**
  * True once the last date of the season has been and gone.
  *
@@ -104,10 +149,7 @@ export function isMatchdayDate(state: GameState, date: ISODate): boolean {
  * keeps the season open through `everyFixtureSettled`.
  */
 export function seasonCalendarExhausted(state: GameState, date: ISODate = state.date): boolean {
-  if (state.season.calendar.length === 0) return true;
-  let last = state.season.calendar[0]!.date;
-  for (const entry of state.season.calendar) {
-    if (entry.date > last) last = entry.date;
-  }
+  const last = seasonEndDate(state);
+  if (last === null) return true;
   return date > last;
 }

@@ -26,6 +26,7 @@ import { candidateOf } from '@/simulation/recruitment/store';
 import { RELATIONSHIP_PROVENANCE_LABEL } from '@/domain/relationship';
 import { socialProfileOf, visibleRelationshipViewsFor } from '@/simulation/relationships';
 import { developmentSummary } from '@/simulation/training/development';
+import { sponsorNameFor, weeklySponsorshipIncome } from '@/simulation/sponsorship';
 import type { ProfileTarget } from '@/state/gameStore';
 import { moneyShort } from '../format';
 import { gameActions, useGame } from '../hooks';
@@ -225,7 +226,7 @@ function PlayerProfile({ personId }: { personId: string }) {
               <Row label="Joined" value={formatShortDate(player.joinedClubOn)} />
               <Row label="Position group" value={POSITION_GROUP_LABEL[player.positionGroup]} />
               <Row label="Deal" value="Non-contract (Sunday League)" />
-              <Row label="Subs" value={`£${club?.finances.subscriptionPerPlayer ?? 5}/wk`} />
+              <Row label="Subs" value={`£${club?.finances.starterSubAmount ?? 5}/£${club?.finances.substituteSubAmount ?? 3} per game`} />
               <Row label="Registration" value={player.registered ? 'Registered' : 'Not registered'} />
             </div>
           </Panel>
@@ -760,8 +761,12 @@ function ClubProfile({ clubId }: { clubId: string }) {
                 <>
                   <div className="stat-grid stat-grid--wide">
                     <Stat label="Balance" value={moneyShort(club.finances.balance)} />
-                    <Stat label="Subs" value={`£${club.finances.subscriptionPerPlayer}`} hint="Per player, per week" />
-                    <Stat label="Sponsorship" value={`£${club.finances.sponsorIncomePerWeek}`} hint="Per week" />
+                    <Stat label="Subs" value={`£${club.finances.starterSubAmount ?? 5} / £${club.finances.substituteSubAmount ?? 3}`} hint="Starter / substitute, per match" />
+                    <Stat
+                      label="Sponsorship"
+                      value={sponsorNameFor(game, club.id) ? `£${weeklySponsorshipIncome(game, club.id)}` : '—'}
+                      hint={sponsorNameFor(game, club.id) ?? 'No sponsor'}
+                    />
                     <Stat label="Ground" value={`£${club.finances.weeklyGroundCost}`} hint="Per week" />
                     <Stat label="Training" value={`£${club.finances.trainingCostPerWeek}`} hint="Per week" />
                     <Stat label="Insurance" value={`£${club.finances.insurancePerWeek}`} hint="Per week" />

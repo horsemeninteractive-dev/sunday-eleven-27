@@ -29,7 +29,9 @@ export type ClubRole =
   | 'manager'
   | 'assistant'
   | 'coach'
+  | 'physio'
   | 'chairman'
   | 'secretary'
   | 'treasurer'
+  | 'scout'
   | 'volunteer';

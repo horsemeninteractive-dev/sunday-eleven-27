@@ -1,12 +1,20 @@
 import { useState } from 'react';
 import { CLUB_STRUCTURE_LABEL, type LedgerEntry } from '@/domain/club';
-import { financeSummary } from '@/simulation/finance';
+import { competenceLabel } from '@/domain/staff';
 import { formatShortDate } from '@/simulation/calendar';
-import { matchdaysPlayed } from '@/simulation/timeline';
+import {
+  seasonOutlook,
+  treasurerSummary,
+  type FinancialConcern,
+  type OutstandingSub,
+} from '@/simulation/treasurer';
+import { renewalText, sponsorshipSummary, weeklySponsorshipIncome } from '@/simulation/sponsorship';
+import { obligationsTotal, upcomingObligations } from '@/simulation/obligations';
 import { money, moneyShort } from '../format';
-import { useGame } from '../hooks';
-import { Callout, PageHeader, Panel, Pill, SortTh } from '../components/primitives';
+import { gameActions, useGame } from '../hooks';
+import { Button, Callout, PageHeader, Panel, Pill, SortTh } from '../components/primitives';
 import { MetricTile, Section, TileGrid } from '../components/hierarchy';
+import { PlayerLink } from '../components/Links';
 import { applySort, UNSORTED, type SortAccessors, type SortState } from '../tableSort';
 
 type LedgerSortKey = 'date' | 'description' | 'category' | 'amount' | 'balance';
@@ -34,11 +42,62 @@ const LEDGER_SORT: SortAccessors<LedgerEntry, LedgerSortKey> = {
 };
 
 /**
+ * One man's outstanding matchday money, with the treasurer's hand on it.
+ *
+ * The amount defaults to everything he owes, so taking the whole sub is one
+ * press; typing a smaller figure leaves the rest on his record as a part payment.
+ * Either way the money is only booked when it is actually taken.
+ */
+function OutstandingSubRow({ row }: { row: OutstandingSub }) {
+  const [entry, setEntry] = useState(String(row.owed));
+  const parsed = Number(entry);
+  const amount = Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, row.owed) : row.owed;
+  const full = amount >= row.owed;
+
+  return (
+    <li>
+      <div className="row row--wrap">
+        <PlayerLink personId={row.personId} />
+        <Pill tone="warn">{money(row.owed)} owed</Pill>
+        {row.matches > 1 && (
+          <span className="muted small">
+            {row.matches} match{row.matches === 1 ? '' : 'es'}
+          </span>
+        )}
+        {row.oldestDate && <span className="muted small">since {formatShortDate(row.oldestDate)}</span>}
+        <label className="muted small">
+          Take £
+          <input
+            className="input input--small"
+            type="number"
+            min={0}
+            max={row.owed}
+            step={0.5}
+            value={entry}
+            onChange={(event) => setEntry(event.target.value)}
+          />
+        </label>
+        <Button size="sm" variant={full ? 'primary' : 'default'} onClick={() => gameActions().collectSubs(row.personId, amount)}>
+          {full ? 'Collect in full' : 'Take part payment'}
+        </Button>
+      </div>
+    </li>
+  );
+}
+
+function concernTone(concern: FinancialConcern): 'warn' | 'bad' | 'info' {
+  if (concern.tone === 'bad') return 'bad';
+  if (concern.tone === 'warn') return 'warn';
+  return 'info';
+}
+
+/**
  * Finances.
  *
- * A treasurer's book, not accounting software. The balance is the first thing
- * on the screen, a warning appears when it matters, and the ledger is there to
- * answer "where did that go?" rather than to be studied.
+ * A treasurer's book, not accounting software. The balance is the first thing on
+ * the screen, the treasurer is named as the man accountable for it, and the money
+ * a player still owes is kept visibly apart from the money the club actually has.
+ * The ledger is there to answer "where did that go?" rather than to be studied.
  */
 export function FinancesView() {
   const game = useGame();
@@ -47,13 +106,22 @@ export function FinancesView() {
 
   const club = game.clubs[game.userClubId]!;
   const finances = club.finances;
-  const summary = financeSummary(club);
+  const treasurer = treasurerSummary(game);
+  const sponsorship = sponsorshipSummary(game, club.id);
+  const obligations = upcomingObligations(game, club.id, { weeks: 6, limit: 5 });
   const ledger = finances.ledger.slice().reverse().slice(0, 60);
   const rows = applySort(ledger, sort, LEDGER_SORT);
-  const weeklyIn = club.squadIds.length * finances.subscriptionPerPlayer + finances.sponsorIncomePerWeek;
+  // Subs are a matchday liability now, so the recurring weekly income is the
+  // sponsor alone — read from the club's actual agreement, not a stored figure,
+  // and averaged to a week, since a monthly deal pays on the 28th.
+  const weeklyIn = weeklySponsorshipIncome(game, club.id);
   const weeklyOut = finances.weeklyGroundCost + finances.insurancePerWeek + finances.trainingCostPerWeek;
-  const net = weeklyIn - weeklyOut;
-  const weeksLeft = game.season.calendar.length - matchdaysPlayed(game);
+  // Where that week takes the balance, and over how many weeks — the treasurer's
+  // own read, so the projection and the tiles above it are the same arithmetic.
+  const outlook = seasonOutlook(game, club.id);
+  const net = outlook.weeklyNet;
+  const weeksLeft = outlook.weeksLeft;
+  const responsibility = treasurer.responsibility;
 
   return (
     <div className="stack">
@@ -63,78 +131,229 @@ export function FinancesView() {
         meta={
           <>
             <span className="small muted">{CLUB_STRUCTURE_LABEL[club.structure]}</span>
-            <span className="small muted">{finances.ledger.length} entries · {weeksLeft} weeks left</span>
+            <span className="small muted">
+              {finances.ledger.length} entries · {weeksLeft} weeks left
+            </span>
           </>
         }
       />
 
+      <Callout tone="info" title={responsibility.role === 'treasurer' ? 'Treasurer' : 'Who holds the book'}>
+        {responsibility.role === 'none' ? (
+          <>Nobody is keeping the club's books. You are on your own with the money.</>
+        ) : (
+          <>
+            <strong>{responsibility.name}</strong>
+            {responsibility.role === 'treasurer'
+              ? ' keeps the club’s books'
+              : ' is both manager and treasurer, so the book is his'}
+            {responsibility.competence > 0 && <> · {competenceLabel(responsibility.competence)} with money</>}
+            {!responsibility.available && ' · away this week'}.
+          </>
+        )}
+      </Callout>
+
       <TileGrid min={185}>
         <MetricTile
           label="Balance"
-          value={money(finances.balance)}
+          value={money(treasurer.balance)}
           note="Everything in and out"
-          tone={finances.balance < 0 ? 'bad' : finances.balance < 120 ? 'warn' : 'ok'}
+          tone={treasurer.balance < 0 ? 'bad' : treasurer.balance < 120 ? 'warn' : 'ok'}
         />
-        <MetricTile label="In" value={money(weeklyIn)} note="Subs and sponsorship" />
+        <MetricTile
+          label="Heading for"
+          value={money(outlook.projected)}
+          note={
+            outlook.seasonEnd
+              ? `By ${formatShortDate(outlook.seasonEnd)}, if the week repeats`
+              : 'The season has run out'
+          }
+          tone={outlook.projected < 0 ? 'bad' : outlook.projected < 120 ? 'warn' : 'ok'}
+        />
+        <MetricTile
+          label="Owed to us"
+          value={money(treasurer.outstandingTotal)}
+          note={`Matchday subs · ${treasurer.outstanding.length} outstanding`}
+          tone={treasurer.outstandingTotal > 0 ? 'warn' : 'ok'}
+        />
+        <MetricTile
+          label="In"
+          value={money(weeklyIn)}
+          note={sponsorship.deal ? `${sponsorship.sponsorName} · ${sponsorship.payDay}` : 'No sponsor (subs are per match)'}
+        />
         <MetricTile label="Out" value={money(-weeklyOut)} note="Pitch, insurance, training" />
         <MetricTile label="Net" value={money(net)} note="Typical week" tone={net < 0 ? 'bad' : 'ok'} />
       </TileGrid>
 
-      {finances.balance < 0 ? (
-        <Callout tone="bad" title="The club is in the red">
-          Referees still want paying. A fund-raiser or a smaller squad are the usual answers.
-        </Callout>
-      ) : finances.balance < 120 ? (
-        <Callout tone="warn" title="Not much room for error">
-          A pitch hire and a referee will take most of that in a single Sunday.
-        </Callout>
-      ) : null}
+      {/*
+        What is wrong and what is coming, together, because they are the same
+        question at a Sunday club. The section is always drawn even when both
+        halves are empty, so a card that sends the manager here for "the
+        treasurer is worried about the money" always lands on something.
+      */}
+      <Section
+        title="The outlook"
+        id="money-outlook"
+        action={<span className="small muted">Next six weeks</span>}
+      >
+        {treasurer.concerns.map((concern, index) => (
+          <Callout key={index} tone={concernTone(concern)}>
+            {concern.amount !== undefined ? (
+              <>
+                {concern.text} <strong>{money(concern.amount)}</strong>.
+              </>
+            ) : (
+              concern.text
+            )}
+          </Callout>
+        ))}
+
+        {obligations.length === 0 ? (
+          <p className="empty">Nothing due in the next six weeks beyond the usual week.</p>
+        ) : (
+          <>
+            <ul className="tight-list">
+              {obligations.map((obligation) => (
+                <li key={obligation.id}>
+                  <div className="row row--wrap">
+                    <span className="muted small">{formatShortDate(obligation.date)}</span>
+                    <strong>{obligation.label}</strong>
+                    <Pill tone="muted">{money(obligation.amount)}</Pill>
+                  </div>
+                  <div className="muted small">{obligation.detail}</div>
+                </li>
+              ))}
+            </ul>
+            <p className="muted small">
+              {money(obligationsTotal(obligations))} of known commitments in the next six weeks. Pitch hire,
+              insurance and the hall come round every week; referees come with the fixture.
+            </p>
+          </>
+        )}
+      </Section>
+
+      <Section title="Money owed to the club" id="money-owed">
+        <p className="muted small">
+          Subs a player has been charged but has not paid. Owed money is not income — it only reaches the
+          balance when it is handed over and recorded here.
+        </p>
+        {treasurer.outstanding.length === 0 ? (
+          <p className="empty">Everyone is up to date on their matchday subs.</p>
+        ) : (
+          <ul className="tight-list">
+            {treasurer.outstanding.map((row) => (
+              <OutstandingSubRow key={row.personId} row={row} />
+            ))}
+          </ul>
+        )}
+      </Section>
+
+      <Section title="Sponsorship" id="sponsorship">
+        {sponsorship.deal ? (
+          <>
+            <div className="row row--wrap">
+              <strong>{sponsorship.sponsorName}</strong>
+              <Pill tone={sponsorship.standing === 'active' ? 'ok' : sponsorship.standing === 'renewal-due' ? 'warn' : 'bad'}>
+                {sponsorship.standing === 'active'
+                  ? 'Active'
+                  : sponsorship.standing === 'renewal-due'
+                    ? 'Renewal due'
+                    : 'In trouble'}
+              </Pill>
+              {sponsorship.sponsorKindLabel && (
+                <span className="muted small">
+                  {sponsorship.sponsorKindLabel}
+                  {sponsorship.sponsorTownName ? `, ${sponsorship.sponsorTownName}` : ''}
+                </span>
+              )}
+            </div>
+            <TileGrid min={150}>
+              <MetricTile label="Income" value={money(sponsorship.instalment)} note={sponsorship.payDay} />
+              <MetricTile label="Renewal" value={renewalText(game, sponsorship)} note="When the term runs out" />
+              <MetricTile label="Fit" value={`${Math.round(sponsorship.fit)}`} note="How the club suits them" />
+            </TileGrid>
+            <p className="muted small">
+              Paid {sponsorship.paidCount} time{sponsorship.paidCount === 1 ? '' : 's'}
+              {sponsorship.missedCount > 0 ? ` · ${sponsorship.missedCount} missed` : ''}. The agreement decides when
+              money is due — there is no other sponsorship schedule.
+            </p>
+            {sponsorship.issue && (
+              <Callout tone={sponsorship.standing === 'lapsed' ? 'bad' : 'warn'}>{sponsorship.issue}</Callout>
+            )}
+          </>
+        ) : (
+          <>
+            <p className="empty">No sponsor at the moment. The books are leaner without one.</p>
+            <div className="row row--wrap">
+              <Button size="sm" variant="primary" onClick={() => gameActions().seekSponsor()}>
+                Look for a sponsor
+              </Button>
+            </div>
+            {sponsorship.candidates.length > 0 && (
+              <ul className="tight-list">
+                {sponsorship.candidates.slice(0, 4).map((candidate) => (
+                  <li key={candidate.businessId}>
+                    <div className="row row--wrap">
+                      <strong>{candidate.name}</strong>
+                      <Pill tone="muted">{candidate.kindLabel}</Pill>
+                      <span className="muted small">
+                        {candidate.townName} · fit {Math.round(candidate.fit)} ·{' '}
+                        {candidate.frequency === 'weekly' ? 'pays weekly' : 'pays monthly'}
+                      </span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        )}
+      </Section>
 
       <Section title="Where it goes">
         <MetricTile
           label="Last entries"
-          value={`${money(summary.income)} in`}
-          note={`${money(summary.expenditure)} out over ${Math.min(40, finances.ledger.length)} entries`}
+          value={`${money(treasurer.income)} in`}
+          note={`${money(treasurer.expenditure)} out over ${Math.min(40, finances.ledger.length)} entries`}
         />
       </Section>
 
       <Section title="The ledger">
-      <Panel level="quiet" flush subtitle="Newest first">
-        {ledger.length === 0 && <p className="empty">No money has moved yet.</p>}
-        <div className="table-wrapper">
-          <table className="table table--stack">
-            <thead>
-              <tr>
-                <SortTh label="Date" sortKey="date" sort={sort} onSort={setSort} />
-                <SortTh label="Description" sortKey="description" sort={sort} onSort={setSort} />
-                <SortTh label="Category" sortKey="category" sort={sort} onSort={setSort} />
-                <SortTh label="Amount" sortKey="amount" sort={sort} onSort={setSort} />
-                <SortTh label="Balance" sortKey="balance" sort={sort} onSort={setSort} className="col--opt" />
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((entry) => (
-                <tr key={entry.id}>
-                  <td className="muted small" data-label="Date">
-                    {formatShortDate(entry.date)}
-                  </td>
-                  <td data-label="What">{entry.description}</td>
-                  <td data-label="Category">
-                    <Pill tone="muted">{CATEGORY_LABEL[entry.category] ?? entry.category}</Pill>
-                  </td>
-                  <td className={entry.amount < 0 ? 'tone tone--bad num' : 'tone tone--ok num'} data-label="Amount">
-                    {entry.amount > 0 ? '+' : ''}
-                    {money(entry.amount)}
-                  </td>
-                  <td className="muted num col--opt" data-label="After">
-                    {moneyShort(entry.balanceAfter)}
-                  </td>
+        <Panel level="quiet" flush subtitle="Newest first">
+          {ledger.length === 0 && <p className="empty">No money has moved yet.</p>}
+          <div className="table-wrapper">
+            <table className="table table--stack">
+              <thead>
+                <tr>
+                  <SortTh label="Date" sortKey="date" sort={sort} onSort={setSort} />
+                  <SortTh label="Description" sortKey="description" sort={sort} onSort={setSort} />
+                  <SortTh label="Category" sortKey="category" sort={sort} onSort={setSort} />
+                  <SortTh label="Amount" sortKey="amount" sort={sort} onSort={setSort} />
+                  <SortTh label="Balance" sortKey="balance" sort={sort} onSort={setSort} className="col--opt" />
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Panel>
+              </thead>
+              <tbody>
+                {rows.map((entry) => (
+                  <tr key={entry.id}>
+                    <td className="muted small" data-label="Date">
+                      {formatShortDate(entry.date)}
+                    </td>
+                    <td data-label="What">{entry.description}</td>
+                    <td data-label="Category">
+                      <Pill tone="muted">{CATEGORY_LABEL[entry.category] ?? entry.category}</Pill>
+                    </td>
+                    <td className={entry.amount < 0 ? 'tone tone--bad num' : 'tone tone--ok num'} data-label="Amount">
+                      {entry.amount > 0 ? '+' : ''}
+                      {money(entry.amount)}
+                    </td>
+                    <td className="muted num col--opt" data-label="After">
+                      {moneyShort(entry.balanceAfter)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
       </Section>
     </div>
   );

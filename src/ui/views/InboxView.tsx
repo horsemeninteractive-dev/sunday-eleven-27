@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Conversation, ResponseOption } from '@/domain/communication';
+import { MESSAGE_PRIORITY_LABEL, type Conversation, type ResponseOption } from '@/domain/communication';
 import { useGameStore } from '@/state/gameStore';
-import { playerResponseOptions } from '@/simulation/communication/playerConversation';
 import { useGame, gameActions } from '../hooks';
 import {
+  inboxAttention,
   inboxEmptyCopy,
   inboxRows,
   inboxUnread,
   kindLabel,
+  liveThreadOptions,
   personName,
   threadActions,
   threadMessages,
@@ -59,6 +60,7 @@ function InboxList({ unread }: { unread: number }) {
   if (!game) return null;
 
   const rows = inboxRows(game);
+  const attention = inboxAttention(game);
   const empty = inboxEmptyCopy();
 
   return (
@@ -69,7 +71,7 @@ function InboxList({ unread }: { unread: number }) {
         meta={
           unread > 0 ? (
             <span className="inbox__unread-note">
-              {unread} unread
+              {unread} unread{attention > 0 ? ` · ${attention} to look at` : ''}
             </span>
           ) : (
             <span className="small muted">All read</span>
@@ -112,6 +114,11 @@ function Row({ row, open }: { row: InboxRow; open: boolean }) {
             </span>
           </span>
           <span className="inbox__row-bottom">
+            {row.attention && (
+              <span className="inbox__priority" title="Wants your attention">
+                {MESSAGE_PRIORITY_LABEL[row.priority]}
+              </span>
+            )}
             <span className="inbox__row-preview">
               {/* A manager reads his own messages differently from other people's,
                   so the thread says who said the last thing. */}
@@ -240,10 +247,7 @@ function ReplyBar({ conversation }: { conversation: Conversation }) {
   // so "How is the knock?" is offered to a man with a hamstring and a man who is
   // not expecting to hear about one. Every other thread is not about a player
   // and reads its options from the message.
-  const live: ResponseOption[] =
-    conversation.type === 'player' && game
-      ? playerResponseOptions(game, conversation.participantIds.find((id) => id !== 'user_manager') ?? '')
-      : [];
+  const live: ResponseOption[] = game ? liveThreadOptions(game, conversation) : [];
   const actions = threadActions(conversation, live);
   if (actions.length === 0) return null;
 

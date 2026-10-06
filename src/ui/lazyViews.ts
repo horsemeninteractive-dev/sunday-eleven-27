@@ -50,6 +50,8 @@ export const HistoryView = view(() => import('./views/HistoryView'), 'HistoryVie
 export const WorldView = view(() => import('./views/WorldView'), 'WorldView');
 export const NewsView = view(() => import('./views/NewsView'), 'NewsView');
 export const InboxView = view(() => import('./views/InboxView'), 'InboxView');
+export const ClubView = view(() => import('./views/ClubView'), 'ClubView');
+export const StaffView = view(() => import('./views/StaffView'), 'StaffView');
 export const RecruitmentView = view(() => import('./views/RecruitmentView'), 'RecruitmentView');
 export const TrainingView = view(() => import('./views/TrainingView'), 'TrainingView');
 export const MatchView = view(() => import('./views/MatchView'), 'MatchView');

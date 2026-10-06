@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { useGameStore } from '@/state/gameStore';
 import { createTestGame } from '@/simulation/testSupport';
 import { gameActions } from './hooks';
+import { clubMatters } from './clubMatters';
 import { inPreSeason, kitChosenForSeason, kitDecisionOutstanding } from './kit';
 
 /**
@@ -180,9 +181,19 @@ describe('the kit is a pre-season decision', () => {
   });
 
   it('offers itself from the dashboard, and nowhere permanent', () => {
-    const dashboard = source('src/ui/views/DashboardView.tsx');
-    expect(dashboard).toContain("id: 'kit'");
-    expect(dashboard).toContain("view: 'kit'");
+    // The prompt now comes out of the shared club-matters list that Home and
+    // the Club screen both draw, so it is asserted where it is decided rather
+    // than by searching the dashboard for a string it no longer needs to
+    // contain. The behaviour is the same: it arrives on Home, in pre-season,
+    // and it is not a place in the sidebar.
+    const game = createTestGame('kit-dashboard');
+    const prompt = clubMatters(game.state, 0).find((matter) => matter.id === 'kit');
+    expect(prompt).toBeTruthy();
+    expect(prompt!.destination).toEqual({ kind: 'view', view: 'kit' });
+
+    // Home really does draw that list.
+    expect(source('src/ui/views/DashboardView.tsx')).toContain('clubMatters(game');
+
     // Still not a place in the navigation — that was the point of it.
     expect(source('src/ui/navigation.ts')).not.toContain("id: 'kit',");
   });

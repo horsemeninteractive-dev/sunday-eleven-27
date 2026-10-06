@@ -1,7 +1,12 @@
 import { GAME_STATE_VERSION, type GameState } from '@/domain/game';
 import type { Player, PlayerDevelopment } from '@/domain/person';
 import { birthdayForAge, type ManagerProfile } from '@/domain/manager';
-import { ensurePlayerSubs } from '@/simulation/finance';
+import { DEFAULT_STARTER_SUB, DEFAULT_SUBSTITUTE_SUB, ensurePlayerSubs } from '@/simulation/finance';
+import { ensureClubStaff, generateClubStaff } from '@/simulation/staff';
+import { refreshSubSummary } from '@/domain/person';
+import { emptyAdminState } from '@/domain/admin';
+import { emptyGovernanceState } from '@/domain/governance';
+import { emptySponsorshipState } from '@/domain/sponsorship';
 import { emptyCommunicationStore } from '@/domain/communication';
 import { emptyRecruitmentStore } from '@/domain/recruitment';
 import { DEFAULT_PYRAMID, FRIENDLY_COMPETITION_ID, type Competition, type FixtureList, type PyramidConfig } from '@/domain/competition';
@@ -201,10 +206,28 @@ function enqueueWrite<T>(slot: string, work: () => Promise<T>): Promise<T> {
  *  - version 8 predates development curves: its players have no ceiling and no
  *    peak age. Each is given one from the ability and age he already has, on a
  *    stream of his own, and a session that does not say what age took back is
- *    given an empty record of it.
- *  - version 9 predates communication: it has no conversations. It is given an
- *     empty inbox, which is what it had, rather than one seeded with threads it
- *     never held.
+ *    given an empty record of it. *  - version 9 predates communication: it has no conversations. It is given an
+ *    empty inbox, which is what it had, rather than one seeded with threads it
+ *    never held.
+ *  - version 11 predates matchday subs: subs were a weekly squad tax settled
+ *    independently of whether a man played. The club's old weekly figure
+ *    becomes the matchday rates, and an outstanding per-player balance is kept
+ *    as a "carried" liability so it is neither lost nor explained away with a
+ *    match the save never recorded.
+ *  - version 12 predates the club personnel system: officials were managers,
+ *    chairmen or referees, and a club had no staff roster at all. Each club is
+ *    given an empty committee rather than an invented one, so the men it already
+ *    had stay exactly where they were and the club can be staffed up in play.
+ *  - version 13 predates the secretary's desk. It has no administrative events.
+ *    It is given an empty desk rather than a seeded one, because a career that
+ *    had received no correspondence should not wake up holding any.
+ *  - version 14 predates club governance. Its committee has taken no view of the
+ *    manager, so it is given the comfortable default rather than an invented
+ *    history of warnings it never issued.
+ *  - version 15 predates sponsorship agreements. Its clubs have only the old
+ *    weekly figure and no deal, so they are given an empty log rather than an
+ *    invented agreement; the clubs that were already backed by a business sign
+ *    a real one in play, and the season review offers the rest.
  */
 function migrateSave(file: SaveFile): SaveFile {
   const state = file.state as GameState & {
@@ -251,10 +274,77 @@ function migrateSave(file: SaveFile): SaveFile {
 
   // Subs became per-player after this save was written. Every man in it was
   // paying in full, because the ledger said they were, so each is given a
-  // clear record rather than an invented debt.
+  // clear record rather than an invented debt. A later record that already had
+  // a balance keeps it: the migration fills the new liability arrays but never
+  // turns one old figure into a pile of would-be match liabilities, because a
+  // save carries no participation the game can honestly attribute them to.
   for (const person of Object.values(state.people)) {
     if (person.kind === 'player') ensurePlayerSubs(person);
   }
+
+  // Matchday subs: a club written before them has only the old weekly figure.
+  // Give every club the realistic defaults so the book can be kept at all, and
+  // keep any balance a man already had as a *carried* liability rather than a
+  // bare number — no match is fabricated to explain it, but nothing is lost.
+  if (from < 11) {
+    for (const club of Object.values(state.clubs)) {
+      if (typeof club.finances.starterSubAmount !== 'number') club.finances.starterSubAmount = DEFAULT_STARTER_SUB;
+      if (typeof club.finances.substituteSubAmount !== 'number') club.finances.substituteSubAmount = DEFAULT_SUBSTITUTE_SUB;
+    }
+    for (const person of Object.values(state.people)) {
+      if (person.kind !== 'player') continue;
+      const subs = person.subs;
+      if (!subs) continue;
+      if (subs.owed > 0 && (subs.liabilities ?? []).length === 0) {
+        subs.liabilities = [
+          {
+            id: `carried:${person.id}`,
+            matchId: 'carried',
+            date: state.date,
+            category: 'carried',
+            amount: Math.round(subs.owed * 100) / 100,
+            paid: 0,
+            paidOn: null,
+          },
+        ];
+      }
+      refreshSubSummary(subs);
+    }
+  }
+
+  // Club books: an older save has no explicit opening balance, and the ledger it
+  // does hold may already have been trimmed. Setting the opening figure to
+  // "balance minus what the ledger still shows" makes the two agree exactly
+  // without changing the balance the manager already had. Training cost also
+  // predates some saves; a missing one is 0 (a club that pays nothing to train).
+  for (const club of Object.values(state.clubs)) {
+    if (typeof club.finances.trainingCostPerWeek !== 'number') club.finances.trainingCostPerWeek = 0;
+    if (typeof club.finances.openingBalance !== 'number') {
+      const history = club.finances.ledger.reduce((sum, line) => sum + line.amount, 0);
+      club.finances.openingBalance = Math.round((club.finances.balance - history) * 100) / 100;
+    }
+    // A save written before the personnel system has no staff roster. It is
+    // given an empty one rather than an invented committee: the manager and
+    // chairman it already had stay exactly where they were, and it can be
+    // staffed up in play.
+    ensureClubStaff(club);
+  }
+
+  // A save written before the secretary's desk has received no administrative
+  // events. It is given an empty desk, not a seeded one: correspondence that
+  // never arrived is not correspondence, and the secretary will fill it in as
+  // the season goes on.
+  if (!state.admin || !Array.isArray(state.admin.events)) state.admin = emptyAdminState();
+
+  // A save written before the committee kept a view of the manager is given the
+  // comfortable default. Nothing is invented: a career that was never warned
+  // should not wake up already under pressure.
+  if (!state.governance || !Array.isArray(state.governance.events)) state.governance = emptyGovernanceState();
+
+  // A save written before sponsorship agreements existed has no deals. It is
+  // given an empty log, not a seeded one: an agreement that was never signed is
+  // not an agreement, and the world will sign its own as the seasons turn.
+  if (!state.sponsorship || !Array.isArray(state.sponsorship.deals)) state.sponsorship = emptySponsorshipState();
 
   // A career that predates training has no session history, no plans and no
   // per-player familiarity: all three are rebuilt from the world itself, so the
@@ -606,6 +696,19 @@ function generateLowerTierClubs(state: GameState, count: number): ClubId[] {
     });
     for (const player of squad) state.people[player.id] = player;
 
+    const staff = generateClubStaff({
+      seed: state.seed,
+      clubId,
+      townId: town.id,
+      reputation,
+      structure,
+      seasonStart: state.season.startDate,
+      squad,
+      people: state.people,
+      managerId: manager.id,
+      chairmanId: chairman.id,
+    });
+
     state.clubs[clubId] = {
       id: clubId,
       identity,
@@ -616,6 +719,7 @@ function generateLowerTierClubs(state: GameState, count: number): ClubId[] {
       squadIds: squad.map((player) => player.id),
       chairmanId: chairman.id,
       managerId: manager.id,
+      staff,
       sponsorIds: business ? [business.id] : [],
       finances: buildFinances(rng, town, reputation),
       history: { ...emptyHistory(rng, identity.foundedYear), honours: [] },

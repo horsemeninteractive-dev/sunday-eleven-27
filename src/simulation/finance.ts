@@ -1,16 +1,30 @@
 import type { ClubFinances, LedgerCategory, LedgerEntry } from '@/domain/club';
 import type { GameState } from '@/domain/game';
 import type { ClubId, ISODate, PersonId } from '@/domain/ids';
-import { isCompetitiveMatch, type Match } from '@/domain/match';
-import { emptyPlayerSubs, type Player } from '@/domain/person';
+import { isCompetitiveMatch, type Match, type PlayerPerformance } from '@/domain/match';
+import {
+  emptyPlayerSubs,
+  outstandingOnLiability,
+  refreshSubSummary,
+  type Player,
+  type PlayerSubParticipation,
+  type PlayerSubLiability,
+} from '@/domain/person';
 import { nextId } from './ids';
 import { Rng, stream } from './rng';
+
+/** Default matchday subs, used when a club has no setting of its own. */
+export const DEFAULT_STARTER_SUB = 5;
+export const DEFAULT_SUBSTITUTE_SUB = 3;
 
 /**
  * Modest financial depth: money comes in from subs, sponsorship and the gate,
  * and goes out on pitches, referees, insurance and the small stuff that adds
  * up. The point is that money has consequences, not that it is a spreadsheet.
  */
+
+/** How many ledger lines a club keeps before the oldest are folded away. */
+const LEDGER_LIMIT = 400;
 
 export function addLedgerEntry(
   state: GameState,
@@ -31,8 +45,31 @@ export function addLedgerEntry(
     balanceAfter: finances.balance,
   };
   finances.ledger.push(line);
-  if (finances.ledger.length > 400) finances.ledger.splice(0, finances.ledger.length - 400);
+  // The book is capped so a long career cannot grow it without limit, but the
+  // arithmetic must still add up: whatever is dropped is folded into the
+  // opening balance, so `balance === openingBalance + sum(ledger)` holds for
+  // ever. Nothing is double-counted and nothing is lost.
+  if (finances.ledger.length > LEDGER_LIMIT) {
+    const dropped = finances.ledger.splice(0, finances.ledger.length - LEDGER_LIMIT);
+    const droppedTotal = dropped.reduce((sum, line) => sum + line.amount, 0);
+    finances.openingBalance = Math.round(((finances.openingBalance ?? 0) + droppedTotal) * 100) / 100;
+  }
   return line;
+}
+
+/**
+ * Recompute the balance from the books: opening balance plus every recorded
+ * transaction. This is the audit the club's finances must always pass — the
+ * stored balance is only ever moved here, through `addLedgerEntry`.
+ */
+export function reconcileBalance(finances: ClubFinances): number {
+  const history = finances.ledger.reduce((sum, line) => sum + line.amount, 0);
+  return Math.round(((finances.openingBalance ?? 0) + history) * 100) / 100;
+}
+
+/** True when the stored balance and the ledger agree. */
+export function ledgerBalances(finances: ClubFinances): boolean {
+  return Math.abs(finances.balance - reconcileBalance(finances)) < 0.005;
 }
 
 export interface FinanceReport {
@@ -44,146 +81,188 @@ export interface FinanceReport {
 /**
  * Money moves on the day it actually moves.
  *
- * The club's finances used to be settled by one weekly tick, which meant the
- * balance lurched every time the week advanced and nothing could be said about
- * *when* the subs came in. Now there are two dated rounds — the subs book on a
- * Friday, the standing costs on a Wednesday — and everything else (gate money,
- * referee fees, travel, a session moved indoors) is dated by the event that
- * caused it.
+ * Player subs are a matchday liability now: raised from the Match Engine's own
+ * participation record when a fixture is completed, and collected when a man
+ * actually pays. Standing costs run on their weekly Wednesday, everything else
+ * (gate money, referee fees, travel, a training pitch, a session moved indoors)
+ * is dated by the event that caused it, and the sponsor's instalment is booked
+ * by the sponsorship service on the payday its own agreement sets.
  */
 
-/** Friday: the subs book and the sponsor's weekly instalment. */
-export function applySubsAndSponsorship(state: GameState, clubId: ClubId, date: ISODate): FinanceReport {
-  const club = state.clubs[clubId];
-  if (!club) return { income: 0, expenditure: 0, balance: 0 };
-  const finances = club.finances;
-  const squad = club.squadIds
-    .map((id) => state.people[id])
-    .filter((person): person is Player => Boolean(person && person.kind === 'player'));
-  const owed = settlePlayerSubs(state, clubId, squad, finances.subscriptionPerPlayer, date);
-  let income = 0;
+/* ------------------------------------------------------------------------ *
+ * Matchday subs: a liability created by the match, not a weekly squad tax
+ * ------------------------------------------------------------------------ */
 
-  // One line for the week, saying how many of how many actually paid. The
-  // ledger records what *arrived*; each man's own record says what did not. The
-  // two cannot drift, because the ledger is written from the same settlement
-  // that writes them.
-  if (owed.paid > 0) {
-    const subs = addLedgerEntry(state, clubId, {
-      date,
-      description: `Player subs (${owed.paid} of ${squad.length} players)`,
-      category: 'subs',
-      amount: owed.paid * finances.subscriptionPerPlayer,
-    });
-    income += subs?.amount ?? 0;
-  }
+/**
+ * Which subs category a performance falls into, straight off the engine.
+ *
+ * The engine writes a performance for every man it put on the pitch *and* every
+ * man it named among the substitutes. That is what makes the two facts
+ * distinguishable without Finance deciding anything: `started` is a starter, a
+ * non-starter with a `cameOnMinute` came on, and a non-starter without one was
+ * named but never used. A man who was neither is not in the record at all, so he
+ * never reaches here.
+ */
+export function participationCategory(performance: PlayerPerformance): PlayerSubParticipation | null {
+  if (performance.started) return 'starter';
+  if (performance.cameOnMinute !== null) return 'substitute';
+  return null;
+}
 
-  if (finances.sponsorIncomePerWeek > 0) {
-    const sponsor = addLedgerEntry(state, clubId, {
-      date,
-      description: 'Sponsorship instalment',
-      category: 'sponsorship',
-      amount: finances.sponsorIncomePerWeek,
-    });
-    income += sponsor?.amount ?? 0;
-  }
-
-  return { income: Math.round(income), expenditure: 0, balance: finances.balance };
+/** What a club charges for a given participation category. */
+export function subAmountFor(finances: ClubFinances, category: PlayerSubParticipation): number {
+  const configured = category === 'starter' ? finances.starterSubAmount : finances.substituteSubAmount;
+  const fallback = category === 'starter' ? DEFAULT_STARTER_SUB : DEFAULT_SUBSTITUTE_SUB;
+  const amount = typeof configured === 'number' ? configured : fallback;
+  return amount > 0 ? amount : 0;
 }
 
 /**
- * Settle the subs book, man by man.
+ * Raise the matchday liabilities for one completed match.
  *
- * The club's money has always moved in one weekly tick for the whole squad, so
- * the game could say how much came in and never who did not pay. This is the
- * attribution the ledger could not carry, and it is the only thing in the
- * finance system that decides whether a player is behind.
+ * This consumes the Match Engine's participation record and nothing else. A man
+ * is charged because the engine says he played, never because he is on the
+ * squad list: the unused substitute, the unselected player and the unavailable
+ * one are simply absent from the record and are charged nothing.
  *
- * Two rules it must never break:
- *
- *  - **Money moves when money moves.** A player who pays has his `owed` cleared
- *    here, on this day, because the money genuinely arrived. Nothing else in
- *    the game may clear it — in particular, nothing anybody *says* may.
- *  - **The balance never counts a debt.** What has not arrived is not income,
- *    so it is not on the ledger. Only real money is.
- *
- * How often a man pays comes from his own reliability and from whether the club
- * itself is in a position to argue, on the same named stream every time, so the
- * same career produces the same book.
+ * The liability id is `<matchId>:<playerId>`, so running this twice over the
+ * same completed match is a no-op rather than a second charge.
  */
-function settlePlayerSubs(
-  state: GameState,
-  clubId: ClubId,
-  squad: readonly Player[],
-  subscription: number,
-  date: ISODate,
-): { paid: number } {
-  let paid = 0;
-  for (const player of squad) {
-    ensurePlayerSubs(player);
-    if (subscription <= 0) {
-      // A club that charges nothing cannot be owed anything, and a man already
-      // behind is written off rather than left owing forever.
-      player.subs = { owed: 0, missedWeeks: 0, lastPaidOn: player.subs.lastPaidOn };
-      continue;
-    }
+export function recordMatchdaySubs(state: GameState, match: Match): PlayerSubLiability[] {
+  const created: PlayerSubLiability[] = [];
+  if (!match.result) return created;
 
-    const rng = stream(state.seed, 'subs', clubId, player.id, date);
-    const reliability = player.attributes.behavioural.reliability / 20;
+  for (const performance of Object.values(match.performances)) {
+    const category = participationCategory(performance);
+    if (!category) continue;
+    const club = state.clubs[performance.clubId];
+    const person = state.people[performance.playerId];
+    if (!club || !person || person.kind !== 'player') continue;
+
+    ensurePlayerSubs(person);
+    const id = `${match.id}:${person.id}`;
+    const liabilities = person.subs.liabilities ?? (person.subs.liabilities = []);
+    if (liabilities.some((liability) => liability.id === id)) continue;
+
+    const amount = subAmountFor(club.finances, category);
+    if (amount <= 0) continue;
+
+    const liability: PlayerSubLiability = {
+      id,
+      matchId: match.id,
+      date: match.date,
+      category,
+      amount,
+      paid: 0,
+      paidOn: null,
+    };
+    liabilities.push(liability);
+    refreshSubSummary(person.subs);
+    created.push(liability);
+  }
+
+  return created;
+}
+
+/**
+ * Settle a completed match: raise the liabilities, then let the men who are
+ * good for it hand the money over on the day.
+ *
+ * This replaces the old Friday book. There is no squad-wide assessment and no
+ * income independent of a match: money comes in only from men the engine says
+ * played, and only when they actually pay. A man's reliability and the club's
+ * own strain decide whether he hands it over now or carries it, on the same
+ * named stream every time, so a career reproduces its own book.
+ */
+export function settleMatchdaySubs(state: GameState, match: Match): { liabilities: PlayerSubLiability[]; income: number } {
+  const liabilities = recordMatchdaySubs(state, match);
+  let income = 0;
+
+  for (const performance of Object.values(match.performances)) {
+    if (!participationCategory(performance)) continue;
+    const person = state.people[performance.playerId];
+    if (!person || person.kind !== 'player' || !person.clubId) continue;
+    ensurePlayerSubs(person);
+    if (person.subs.owed <= 0) continue;
+
+    const clubId = person.clubId;
+    const rng = stream(state.seed, 'subs', clubId, person.id, match.id);
+    const reliability = person.attributes.behavioural.reliability / 20;
     // A club that has not paid its own bills is in no position to chase anybody,
     // and the man most likely to stop paying is the one already behind.
-    const clubStrained = state.clubs[clubId]!.finances.balance < 0;
-    const pressure = player.subs.owed > 0 ? 0.88 : 1;
-    // Calibrated so that most of a squad is level and a few are not. Set this
-    // too high and the treasurer never has anybody to chase, which makes the
-    // whole conversation layer untestable in play; set it too low and half the
-    // club is in arrears every week, which is a different game.
-    //
-    // A man at 0.72 misses roughly one week in four, so over a season he drifts
-    // to four or five weeks before he catches up. A man at 0.94 misses one in
-    // sixteen and is square most weeks. Those are the two ends worth having.
+    const clubStrained = (state.clubs[clubId]?.finances.balance ?? 0) < 0;
+    const pressure = person.subs.owed > 0 ? 0.88 : 1;
     const chance = Math.min(0.97, (0.72 + reliability * 0.22) * pressure * (clubStrained ? 0.97 : 1));
+    if (!rng.chance(chance)) continue;
 
-    if (rng.chance(chance)) {
-      player.subs = {
-        owed: 0,
-        missedWeeks: 0,
-        lastPaidOn: date,
-      };
-      paid += 1;
-    } else {
-      player.subs = {
-        owed: Math.round((player.subs.owed + subscription) * 100) / 100,
-        missedWeeks: player.subs.missedWeeks + 1,
-        lastPaidOn: player.subs.lastPaidOn,
-      };
-    }
+    const collected = collectPlayerSubs(state, clubId, person.id, match.date);
+    income += collected;
   }
-  return { paid };
+
+  return { liabilities, income: Math.round(income * 100) / 100 };
 }
 
 /**
  * Settle one man's debt by hand — the treasurer taking cash on a Sunday.
  *
  * Goes through `addLedgerEntry`, so the balance, the ledger line and his record
- * all move together. This is the only other thing in the game that may clear an
- * `owed`, and it exists because a real manager has a cash tin.
+ * all move together. This is the only other thing in the game that may clear a
+ * liability, and it exists because a real manager has a cash tin.
+ *
+ * Payment is applied oldest liability first, and a part payment is allowed: a
+ * man with £5 from Match A and £3 from Match B who hands over £5 settles Match
+ * A in full and still owes £3, because the liabilities are kept apart rather
+ * than merged into one number. `amount` defaults to everything he owes.
  */
-export function collectPlayerSubs(state: GameState, clubId: ClubId, playerId: PersonId, date: ISODate): number {
+export function collectPlayerSubs(
+  state: GameState,
+  clubId: ClubId,
+  playerId: PersonId,
+  date: ISODate,
+  amount?: number,
+): number {
   const club = state.clubs[clubId];
   const person = state.people[playerId];
   if (!club || !person || person.kind !== 'player') return 0;
   ensurePlayerSubs(person);
-  const owed = person.subs.owed;
-  if (owed <= 0) return 0;
+
+  const target = Math.min(amount === undefined ? person.subs.owed : amount, person.subs.owed);
+  if (!(target > 0)) return 0;
+
+  let remaining = target;
+  const liabilities = [...(person.subs.liabilities ?? [])].sort((a, b) =>
+    a.date === b.date ? (a.id < b.id ? -1 : 1) : a.date < b.date ? -1 : 1,
+  );
+  for (const liability of liabilities) {
+    if (remaining <= 0) break;
+    const due = outstandingOnLiability(liability);
+    if (due <= 0) continue;
+    const paid = Math.min(due, remaining);
+    liability.paid = Math.round((liability.paid + paid) * 100) / 100;
+    if (outstandingOnLiability(liability) <= 0) liability.paidOn = date;
+    remaining = Math.round((remaining - paid) * 100) / 100;
+  }
+
+  // A save written before liabilities existed can still carry a bare `owed`.
+  // Whatever could not be applied to a real liability reduces it directly, so
+  // the old book is not ignored on the first collection. Every penny of `target`
+  // was applied one way or the other, so that is what actually arrived.
+  if (remaining > 0) person.subs.owed = Math.round((person.subs.owed - remaining) * 100) / 100;
+  const collected = target;
 
   const entry = addLedgerEntry(state, clubId, {
     date,
     description: `Subs from ${person.firstName} ${person.surname}`,
     category: 'subs',
-    amount: owed,
+    amount: collected,
   });
-  person.subs = { owed: 0, missedWeeks: 0, lastPaidOn: date };
-  return entry?.amount ?? 0;
+  person.subs.payments = [
+    ...(person.subs.payments ?? []),
+    { id: nextId(state, 'subpayment'), date, amount: collected },
+  ];
+  person.subs.lastPaidOn = date;
+  refreshSubSummary(person.subs);
+  return entry?.amount ?? collected;
 }
 
 /** Give a player the record if a save predates it. Never invents a debt. */
@@ -193,7 +272,13 @@ export function ensurePlayerSubs(player: Player): void {
     // because the ledger said they had. Giving anybody an opening balance would
     // be inventing a debt the club never recorded.
     player.subs = emptyPlayerSubs();
+    return;
   }
+  if (!player.subs.liabilities) player.subs.liabilities = [];
+  if (!player.subs.payments) player.subs.payments = [];
+  if (typeof player.subs.owed !== 'number') player.subs.owed = 0;
+  if (typeof player.subs.missedWeeks !== 'number') player.subs.missedWeeks = 0;
+  if (player.subs.lastPaidOn === undefined) player.subs.lastPaidOn = null;
 }
 
 /** Wednesday: pitch hire, insurance and the small things that add up. */
@@ -238,18 +323,55 @@ export function applyStandingCosts(state: GameState, clubId: ClubId, date: ISODa
   return { income: 0, expenditure: Math.round(expenditure), balance: finances.balance };
 }
 
+/* ------------------------------------------------------------------------ *\
+ * What a fixture costs, before it is played
+ * ------------------------------------------------------------------------ */
+
+/** The referee's fee for a fixture, before it is split between the two clubs. */
+export const REFEREE_FEE_WITH_OFFICIAL = 46;
+export const REFEREE_FEE_BARE = 30;
+
+/** What a fixture will cost one club: the referee, the ground, the travel. */
+export interface MatchdayCosts {
+  /** This club's half of the referee. */
+  referee: number;
+  /** Hire of somebody else's ground, for the home club only. */
+  groundHire: number;
+  /** Fuel money, for the away club only. */
+  travel: number;
+}
+
 /**
- * Both rounds in one call, for callers that genuinely want a whole week at once
- * (the compatibility `advanceWeek`, and tests that think weekly).
+ * The costs a fixture carries, worked out the same way it is charged.
+ *
+ * Both the ledger (below) and the treasurer's forward look (`obligations.ts`)
+ * read this one function, so what the club is told it will owe and what it is
+ * actually billed cannot drift apart. It reads state and returns numbers; it
+ * writes nothing and is safe to call on a fixture that has not been played.
  */
-export function applyWeeklyFinances(state: GameState, clubId: ClubId): FinanceReport {
-  const income = applySubsAndSponsorship(state, clubId, state.date);
-  const costs = applyStandingCosts(state, clubId, state.date);
-  return {
-    income: income.income,
-    expenditure: costs.expenditure,
-    balance: state.clubs[clubId]?.finances.balance ?? 0,
-  };
+export function matchdayCosts(state: GameState, match: Match, clubId: ClubId): MatchdayCosts {
+  const referee = (match.refereeId ? REFEREE_FEE_WITH_OFFICIAL : REFEREE_FEE_BARE) / 2;
+
+  const ground = state.world.grounds[match.groundId];
+  const groundHire =
+    match.homeClubId === clubId && ground && ground.tenantClubId !== match.homeClubId
+      ? ground.matchdayCost
+      : 0;
+
+  let travel = 0;
+  if (match.awayClubId === clubId) {
+    const home = state.clubs[match.homeClubId];
+    const away = state.clubs[match.awayClubId];
+    const homeTown = home ? state.world.towns[home.townId] : undefined;
+    const awayTown = away ? state.world.towns[away.townId] : undefined;
+    if (homeTown && awayTown) {
+      // 45p a mile, split across a couple of cars.
+      const km = Math.hypot(homeTown.x - awayTown.x, homeTown.y - awayTown.y) * 0.45;
+      travel = Math.round(km * 1.4 + 8);
+    }
+  }
+
+  return { referee, groundHire, travel };
 }
 
 /** Matchday money: gate, clubhouse, referee fees, travel and fines. */
@@ -281,45 +403,37 @@ export function applyMatchdayFinances(state: GameState, match: Match): FinanceRe
   });
   report.income += (home?.amount ?? 0) + (bar?.amount ?? 0);
 
-  if (ground && ground.tenantClubId !== match.homeClubId) {
+  const costs = matchdayCosts(state, match, match.homeClubId);
+  if (costs.groundHire > 0) {
     addLedgerEntry(state, match.homeClubId, {
       date: match.date,
-      description: `Ground hire — ${ground.name}`,
+      description: `Ground hire — ${ground?.name ?? 'the ground'}`,
       category: 'pitch-hire',
-      amount: -ground.matchdayCost,
+      amount: -costs.groundHire,
     });
-    report.expenditure += ground.matchdayCost;
+    report.expenditure += costs.groundHire;
   }
 
   // Referee fees are split between the two clubs.
-  const refereeFee = match.refereeId ? 46 : 30;
   for (const clubId of [match.homeClubId, match.awayClubId]) {
     addLedgerEntry(state, clubId, {
       date: match.date,
       description: 'Referee fee (half share)',
       category: 'referee',
-      amount: -refereeFee / 2,
+      amount: -costs.referee,
     });
-    report.expenditure += refereeFee / 2;
+    report.expenditure += costs.referee;
   }
 
-  // Away travel: fuel money at 45p a mile, split across a couple of cars.
-  const homeClub = state.clubs[match.homeClubId];
-  const awayClub = state.clubs[match.awayClubId];
-  if (homeClub && awayClub) {
-    const homeTown = state.world.towns[homeClub.townId];
-    const awayTown = state.world.towns[awayClub.townId];
-    if (homeTown && awayTown) {
-      const km = Math.hypot(homeTown.x - awayTown.x, homeTown.y - awayTown.y) * 0.45;
-      const travelCost = Math.round(km * 1.4 + 8);
-      addLedgerEntry(state, match.awayClubId, {
-        date: match.date,
-        description: 'Away travel costs',
-        category: 'other',
-        amount: -travelCost,
-      });
-      report.expenditure += travelCost;
-    }
+  const awayCosts = matchdayCosts(state, match, match.awayClubId);
+  if (awayCosts.travel > 0) {
+    addLedgerEntry(state, match.awayClubId, {
+      date: match.date,
+      description: 'Away travel costs',
+      category: 'other',
+      amount: -awayCosts.travel,
+    });
+    report.expenditure += awayCosts.travel;
   }
 
   // Fines for cards keep the league honest and the treasurer grumpy.

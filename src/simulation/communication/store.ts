@@ -7,6 +7,7 @@ import {
   type ConversationSubject,
   type ConversationType,
   type Message,
+  type MessagePriority,
 } from '@/domain/communication';
 import type { ConversationId, ISODate, MessageId, PersonId } from '@/domain/ids';
 import { isOfficial, isPlayer, personDisplayName, type Person } from '@/domain/person';
@@ -167,6 +168,8 @@ export interface AppendMessageSeed {
   context?: Record<string, string | number>;
   responseOptions?: Message['responseOptions'];
   consequence?: Message['consequence'];
+  /** How loudly this should present itself. Defaults to `normal`. */
+  priority?: MessagePriority;
   /** Inbound messages arrive unread; the manager's own do not. */
   read?: boolean;
 }
@@ -196,6 +199,7 @@ export function appendMessage(state: GameState, conversationId: ConversationId, 
     type: seed.type,
     context: seed.context ?? {},
     subject: seed.subject ?? conversation.subject ?? null,
+    priority: seed.priority ?? 'normal',
     responseOptions: seed.responseOptions ?? [],
     consequence:
       seed.consequence ?? {

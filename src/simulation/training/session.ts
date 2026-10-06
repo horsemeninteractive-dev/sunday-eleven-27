@@ -160,12 +160,15 @@ export function conductTraining(state: GameState, clubId: ClubId, matchday: numb
   let cancelReason: string | null = null;
   let indoor = ground?.surface === '3G';
   let usedVenueName = venueName;
+  /** True when the club paid to hire a hall because the normal pitch was unfit. */
+  let hiredHall = false;
   const events: GameEvent[] = [];
 
   const pitchUnfit = conditions.pitch === 'waterlogged' || conditions.pitch === 'frozen';
   if (pitchUnfit && !indoor) {
     if (plan.fallbackVenue && rng.chance(0.85)) {
       indoor = true;
+      hiredHall = true;
       usedVenueName = fallbackName;
       const cost = rng.int(18, 32);
       addLedgerEntry(state, clubId, {
@@ -208,6 +211,19 @@ export function conductTraining(state: GameState, clubId: ClubId, matchday: numb
       'The council padlocked the gate — a booking mix-up',
       'The floodlights went out five minutes after we started',
     ]);
+  }
+
+  // The training pitch has to be paid for, and it is charged on the night the
+  // session is actually held — a cancelled session costs the club nothing. When
+  // the weather has already moved the club into a hired hall, that hall hire is
+  // the night's cost and the standing training rate is not charged on top of it.
+  if (!cancelled && !hiredHall && club.finances.trainingCostPerWeek > 0) {
+    addLedgerEntry(state, clubId, {
+      date,
+      description: 'Training pitch and floodlights',
+      category: 'pitch-hire',
+      amount: -club.finances.trainingCostPerWeek,
+    });
   }
 
   // A session with no floodlights in the winter is a shorter one.

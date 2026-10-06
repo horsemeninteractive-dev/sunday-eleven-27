@@ -234,9 +234,10 @@ describe('bodies over time', () => {
 });
 
 describe('money on its own dates', () => {
-  it('collects the subs on the Friday, once, dated that day', () => {
+  it('does not collect squad-wide subs on a Friday any more', () => {
     const { state } = createTestGame('day-money');
-    // Walk to the first Friday in the season.
+    // Walk to the first Friday in the season. There is no match, so nobody can
+    // be charged: subs are a matchday liability now.
     let date = state.date;
     while (dayOfWeek(date) !== 5) date = addDays(date, 1);
     processDay(state, date);
@@ -244,8 +245,7 @@ describe('money on its own dates', () => {
     const subs = ledgerOf(state, state.userClubId).filter(
       (entry) => entry.category === 'subs' && entry.date === date,
     );
-    expect(subs).toHaveLength(1);
-    expect(subs[0]!.amount).toBeGreaterThan(0);
+    expect(subs).toHaveLength(0);
   });
 
   it('pays the standing costs on the Wednesday, dated that day', () => {

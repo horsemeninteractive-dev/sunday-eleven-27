@@ -4,6 +4,7 @@ import { isPlayer, type Player } from '@/domain/person';
 import type { PositionGroup } from '@/domain/positions';
 import type { Town } from '@/domain/world';
 import { Rng, stream } from '../rng';
+import { removePersonFromCommunication } from '../communication/store';
 import { removePersonRelationships } from '../relationships';
 import { generatePlayer } from './playerGenerator';
 
@@ -156,10 +157,11 @@ export function refreshUnattachedPool(state: GameState, seasonStart: ISODate, id
 
   for (const player of departed) {
     delete state.people[player.id];
-    // A man who leaves the world should not leave his relationships behind:
-    // the save loader would prune them on the next load, so a running career and
-    // a reloaded one would otherwise differ in the social world.
+    // A man who leaves the world should not leave his relationships or his
+    // correspondence behind: the save loader would prune both on the next load,
+    // so a running career and a reloaded one would otherwise differ.
     removePersonRelationships(state, player.id);
+    removePersonFromCommunication(state, player.id);
     for (const candidateId of Object.keys(state.recruitment?.candidates ?? {})) {
       if (candidateId === player.id) delete state.recruitment.candidates[candidateId];
     }

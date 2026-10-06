@@ -686,6 +686,20 @@ export interface MatchResult {
 export type MatchStatus = 'scheduled' | 'in-progress' | 'finished';
 
 /**
+ * How a fixture was decided.
+ *
+ * The game has two ways to play a match, and which one is used is a property of
+ * the fixture rather than of the caller: `'full'` is the `MatchEngine` — the
+ * fixed-step spatial simulation, run either watched or straight out to the
+ * whistle — and `'fast'` is the abstract background model that plays the
+ * fixtures nobody watches. The distinction is explicit because the two produce
+ * different *depth* of record (the full engine writes the ordinary texture, the
+ * fast mode writes only what the rest of the game reads) and because a reader
+ * must never have to guess which one it is looking at.
+ */
+export type MatchSimulationMode = 'full' | 'fast';
+
+/**
  * The calendar's view of a fixture: on, off, or never played at all.
  *
  * A postponement is not a silent edit to a date — the original is kept, with
@@ -849,6 +863,16 @@ export interface Match {
   replacedByMatchId: MatchId | null;
   /** Whether the morning-of-the-game phone calls have already been made. */
   lateCallMade: boolean;
+
+  /**
+   * Which simulation decided this fixture.
+   *
+   * Written by whichever entry point played the match, so nobody has to infer
+   * it after the fact. Optional, and an absent value means the full engine —
+   * every match already saved was played by it, and every save written before
+   * the modes existed loads unchanged. See {@link MatchSimulationMode}.
+   */
+  simulationMode?: MatchSimulationMode;
 }
 
 /**

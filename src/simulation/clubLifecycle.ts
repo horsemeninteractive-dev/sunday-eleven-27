@@ -32,6 +32,7 @@ import {
   reputationForTown,
 } from './generation/worldGenerator';
 import { createEvent } from './news';
+import { removePersonFromCommunication } from './communication/store';
 import { removePersonRelationships } from './relationships';
 import { stream } from './rng';
 import { generateClubStaff } from './staff';
@@ -51,6 +52,16 @@ export interface ClubLifecycleContext {
   seasonLabel: string;
   seasonStart: ISODate;
   protectedClubIds?: ClubId[];
+  /**
+   * The ladder the new season is about to be built from, tier 1 first.
+   *
+   * The fold-and-reform swap happens *here*, in the division the club is in,
+   * rather than on `state.competitions`: those are last season's competition
+   * records and are about to be replaced. A replacement pushed into them was
+   * never seen by `buildSeasonStructure`, which is how a newly formed club
+   * ended up in no division at all and with no season record to archive.
+   */
+  divisions: ClubId[][];
 }
 
 export interface ClubFold {
@@ -74,57 +85,60 @@ export interface ClubLifecycleOutcome {
 
 export function reviewClubFinances(state: GameState, context: ClubLifecycleContext): ClubLifecycleOutcome {
   const outcome: ClubLifecycleOutcome = { events: [], folded: [], formed: [], inTheRed: [] };
-  const competition = Object.values(state.competitions)[0];
-  if (!competition) return outcome;
   const protectedIds = new Set<ClubId>(context.protectedClubIds ?? []);
 
-  for (const clubId of [...competition.clubIds]) {
-    const club = state.clubs[clubId];
-    if (!club || !club.active) continue;
-    if (protectedIds.has(clubId)) {
-      // The player's own club is held out of this for now, the way his manager
-      // is: a club folding is a career-ending event and belongs with its own
-      // decision.
-      club.finances.administrationSeasons = 0;
-      continue;
-    }
+  // Every division, not just the top one: a club in the bottom tier that cannot
+  // pay its way is exactly the club the cycle exists for, and reading only the
+  // first competition meant the rest of the pyramid could never fold.
+  for (const divisionClubIds of context.divisions) {
+    for (const clubId of [...divisionClubIds]) {
+      const club = state.clubs[clubId];
+      if (!club || !club.active) continue;
+      if (protectedIds.has(clubId)) {
+        // The player's own club is held out of this for now, the way his manager
+        // is: a club folding is a career-ending event and belongs with its own
+        // decision.
+        club.finances.administrationSeasons = 0;
+        continue;
+      }
 
-    if (club.finances.balance >= 0) {
-      if ((club.finances.administrationSeasons ?? 0) > 0) {
+      if (club.finances.balance >= 0) {
+        if ((club.finances.administrationSeasons ?? 0) > 0) {
+          outcome.events.push(
+            worldNews(state, `${club.identity.name} are solvent again`, `${club.identity.name} have cleared their debts and come out of the red.`),
+          );
+        }
+        club.finances.administrationSeasons = 0;
+        continue;
+      }
+
+      club.finances.administrationSeasons = (club.finances.administrationSeasons ?? 0) + 1;
+      outcome.inTheRed.push(clubId);
+      if (club.finances.administrationSeasons <= 1) {
+        club.reputation = Math.max(1, club.reputation - CLUB_LIFECYCLE.administrationReputationHit);
         outcome.events.push(
-          worldNews(state, `${club.identity.name} are solvent again`, `${club.identity.name} have cleared their debts and come out of the red.`),
+          worldNews(
+            state,
+            `${club.identity.name} are in the red`,
+            `${club.identity.name} ended the season £${Math.abs(Math.round(club.finances.balance))} in the red and go into administration. The committee has ${CLUB_LIFECYCLE.graceSeasons} seasons to turn it around before the club folds.`,
+          ),
         );
       }
-      club.finances.administrationSeasons = 0;
-      continue;
-    }
 
-    club.finances.administrationSeasons = (club.finances.administrationSeasons ?? 0) + 1;
-    outcome.inTheRed.push(clubId);
-    if (club.finances.administrationSeasons <= 1) {
-      club.reputation = Math.max(1, club.reputation - CLUB_LIFECYCLE.administrationReputationHit);
-      outcome.events.push(
-        worldNews(
-          state,
-          `${club.identity.name} are in the red`,
-          `${club.identity.name} ended the season £${Math.abs(Math.round(club.finances.balance))} in the red and go into administration. The committee has ${CLUB_LIFECYCLE.graceSeasons} seasons to turn it around before the club folds.`,
-        ),
-      );
-    }
+      const terminal = club.finances.balance < CLUB_LIFECYCLE.terminalDebt;
+      if (!terminal && club.finances.administrationSeasons < CLUB_LIFECYCLE.graceSeasons) {
+        outcome.events.push(
+          worldNews(
+            state,
+            `${club.identity.name} still in trouble`,
+            `${club.identity.name} are still losing money — a second season in administration. The next one could be their last.`,
+          ),
+        );
+        continue;
+      }
 
-    const terminal = club.finances.balance < CLUB_LIFECYCLE.terminalDebt;
-    if (!terminal && club.finances.administrationSeasons < CLUB_LIFECYCLE.graceSeasons) {
-      outcome.events.push(
-        worldNews(
-          state,
-          `${club.identity.name} still in trouble`,
-          `${club.identity.name} are still losing money — a second season in administration. The next one could be their last.`,
-        ),
-      );
-      continue;
+      fold(state, club, divisionClubIds, context, outcome, terminal ? 'debt' : 'administration');
     }
-
-    fold(state, club, competition.clubIds, context, outcome, terminal ? 'debt' : 'administration');
   }
 
   return outcome;
@@ -160,12 +174,14 @@ function fold(
   for (const id of [...club.squadIds]) {
     delete state.people[id];
     removePersonRelationships(state, id);
+    removePersonFromCommunication(state, id);
   }
   club.squadIds = [];
   for (const person of Object.values(state.people)) {
     if (!isOfficial(person) || person.clubId !== club.id) continue;
     delete state.people[person.id];
     removePersonRelationships(state, person.id);
+    removePersonFromCommunication(state, person.id);
   }
   club.managerId = null;
   club.chairmanId = null;
@@ -185,7 +201,7 @@ function fold(
     ),
   );
 
-  const formed = formReplacement(state, townId, groundId, context, divisionClubIds);
+  const formed = formReplacement(state, townId, groundId, context, divisionClubIds, club.id);
   outcome.formed.push(formed);
   outcome.events.push(
     worldNews(
@@ -203,10 +219,16 @@ function formReplacement(
   groundId: GroundId,
   context: ClubLifecycleContext,
   divisionClubIds: ClubId[],
+  replacedClubId: ClubId,
 ): ClubFormation {
   const town = state.world.towns[townId]!;
-  const rng = stream(state.seed, 'club-formation', context.seasonId, townId);
-  const clubId: ClubId = `club_new_${context.seasonId}_${townId}`;
+  // The stream and the id are keyed on the club being replaced, not on the
+  // town: a town can hold more than one club, and two of them folding in the
+  // same summer used to mint the *same* replacement twice — one id pushed into
+  // the division twice, one club scheduled in two fixtures on the same day,
+  // and both replacements sharing a name because they drew from one stream.
+  const rng = stream(state.seed, 'club-formation', context.seasonId, replacedClubId);
+  const clubId: ClubId = `club_new_${context.seasonId}_${replacedClubId}`;
 
   const usedNames = new Set(Object.values(state.clubs).map((existing) => existing.identity.name));
   const usedNicknames = new Set(Object.values(state.clubs).map((existing) => existing.identity.nickname));

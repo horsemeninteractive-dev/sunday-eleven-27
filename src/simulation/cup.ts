@@ -452,6 +452,11 @@ function matchDateFor(state: GameState, matchday: number): ISODate | null {
  *  - A round can be drawn after its slot has gone — an earlier round's
  *    rearranged ties push it back — and a tie dated in the past would sit
  *    scheduled for ever, because nothing plays matches that have already been.
+ *    The slot has to be *after* today rather than merely today: a round is drawn
+ *    in the same day's processing as the tie that completed the round before it,
+ *    so when that tie's replay lands on this round's own slot the slot is
+ *    already today — and today's fixtures have been through the pitch. A tie
+ *    dated today is never picked up either, and the season cannot close.
  *
  *  - The slot can already be spoken for. A rearranged league fixture lands on a
  *    spare Sunday, and if it lands on the same Sunday a cup round wants, one club
@@ -468,7 +473,7 @@ function playDateFor(state: GameState, matchday: number, clubIds: readonly ClubI
   // tie dated on a day the clock then stepped over is how a cup round failed to
   // complete. A slot the club has since been given another game on is not taken
   // either: the round moves rather than double-booking anybody.
-  if (date >= state.date && fieldIsFree(state, clubIds, date)) return date;
+  if (date > state.date && fieldIsFree(state, clubIds, date)) return date;
   return nextFreeDateForField(state, clubIds);
 }
 
@@ -510,8 +515,13 @@ function nextFreeDateForField(state: GameState, clubIds: readonly ClubId[]): ISO
   const seasonStart = state.season.calendar[0]?.date ?? state.season.startDate;
   let candidate = addDays(state.date, 3);
   if (candidate < seasonStart) candidate = seasonStart;
-  for (let day = 0; day < 30; day += 1) {
-    if (candidate > deadline) return null;
+  // The search runs as far as the rearrangement deadline, not for a fixed month.
+  // A congested spring can leave every spare Sunday and Wednesday taken for weeks
+  // on end, and a round that gave up after thirty days was never drawn at all:
+  // the competition simply stopped, with no winner and an honour nobody ever
+  // collected. The deadline is the real bound, and it is the one the doc comment
+  // above always claimed was being used.
+  while (candidate <= deadline) {
     const weekday = toDate(candidate).getUTCDay();
     // A round that has to move looks for a free Sunday first, the same as any
     // other fixture, and falls back to a Wednesday evening. Never a Thursday

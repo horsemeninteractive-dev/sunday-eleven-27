@@ -25,7 +25,7 @@ import { createTestGame } from './testSupport';
 import { advanceWeek, startNextSeason } from './progression';
 import { lastSessionFor } from './training/store';
 import { computeStandings } from './league';
-import { simulateToCompletion } from './match/engine';
+import { simulateMatchHeadless } from './match/matchEngine';
 import { matchEnvironment } from './matchday';
 import { applyMatchConsequences } from './consequences';
 import { applyMatchdayFinances } from './finance';
@@ -91,7 +91,7 @@ describe('weekly progression', () => {
     // consequences and matchday money are applied immediately.
     for (const id of fixtureIdsOnMatchday(state, 1)) {
       const match = state.matches[id]!;
-      simulateToCompletion(match, matchEnvironment(state, match, { autoManageAllBenches: true }));
+      simulateMatchHeadless(match, matchEnvironment(state, match, { autoManageAllBenches: true }));
       applyMatchConsequences(state, match);
       applyMatchdayFinances(state, match);
     }
@@ -157,7 +157,9 @@ describe('weekly progression', () => {
     const matchday = nextMatchday(state);
     const match = Object.values(state.matches).find((candidate) => candidate.matchday === matchday)!;
     const env = matchEnvironment(state, match, { autoManageAllBenches: true });
-    simulateToCompletion(match, env);
+    // The engine the game actually plays: the old one is being retired, and a
+    // test that kept driving it would stop saying anything about the cricket.
+    simulateMatchHeadless(match, env);
 
     const energies = Object.values(match.performances).map((performance) => performance.energy);
     expect(energies.length).toBeGreaterThanOrEqual(22);
@@ -170,25 +172,33 @@ describe('weekly progression', () => {
     // top of Sunday, so the floor is lower for the ones who trained.
     expect(squad.every((player) => player.fitness > 40)).toBe(true);
 
-    // Training costs freshness on top of the match does. One week cannot show
-    // it: it compares two small groups, and who happened to play is a far bigger
-    // effect on how fresh a man is than whether he turned up on Thursday. The
-    // cost is a running one, so it is measured across a run of weeks.
+    // Training costs freshness on top of the match does. The comparison has to
+    // be drawn among the men no match touched: a week contains a fixture, and
+    // who played is a far bigger effect on freshness than whether a man turned
+    // up on Thursday, so comparing every attendee against every non-attendee
+    // measures the team sheet rather than the session. Among the men who did
+    // not play, the session is the only thing that differed, and the rested
+    // group is fitter by roughly its cost. Averaged over several worlds because
+    // the two groups are small in any one of them.
     const mean = (players: Player[]) => players.reduce((sum, player) => sum + player.fitness, 0) / players.length;
+    const appearances = (player: Player) => player.record.appearances + player.record.substituteAppearances;
     let balance = 0;
     let worlds = 0;
     for (const seed of ['recovery-loop', 'recovery-b', 'recovery-c', 'recovery-d', 'recovery-e', 'recovery-f', 'recovery-g']) {
       const world = createTestGame(seed);
+      const worldClub = world.state.clubs[world.state.userClubId]!;
+      const before = new Map<string, number>(
+        worldClub.squadIds.map((id) => [id, appearances(world.state.people[id] as Player)]),
+      );
       advanceWeek(world.state, { instant: true });
-      const worldSquad = world.state.clubs[world.state.userClubId]!.squadIds
-        .map((id) => world.state.people[id])
-        .filter(isPlayer);
+      const worldSquad = worldClub.squadIds.map((id) => world.state.people[id]).filter(isPlayer);
       const worldSession = lastSessionFor(world.state, world.state.userClubId);
       const attendees = new Set(
         worldSession?.attendance.filter((entry) => entry.status === 'attending').map((entry) => entry.personId) ?? [],
       );
-      const trainedGroup = worldSquad.filter((player) => attendees.has(player.id));
-      const restedGroup = worldSquad.filter((player) => !attendees.has(player.id));
+      const idle = worldSquad.filter((player) => appearances(player) === (before.get(player.id) ?? 0));
+      const trainedGroup = idle.filter((player) => attendees.has(player.id));
+      const restedGroup = idle.filter((player) => !attendees.has(player.id));
       if (trainedGroup.length === 0 || restedGroup.length === 0) continue;
       balance += mean(restedGroup) - mean(trainedGroup);
       worlds += 1;
@@ -199,13 +209,17 @@ describe('weekly progression', () => {
 
   it('accumulates match history that the world remembers', () => {
     const { state } = createTestGame('history-loop');
-    advanceWeek(state, { instant: true });
-    advanceWeek(state, { instant: true });
-
     const club = state.clubs[state.userClubId]!;
+    // A Sunday can be called off — a waterlogged pitch, a frozen one, no referee
+    // — and a postponed game is rearranged rather than counted, so two weeks are
+    // not reliably two league games. Advance until the club has actually played
+    // twice, which is what this test is about.
+    for (let guard = 0; guard < 6 && (club.history.seasons[0]?.played ?? 0) < 2; guard += 1) {
+      advanceWeek(state, { instant: true });
+    }
+
     // A season record is the club's competitive log, so it covers the league
-    // Sundays and the cup ties the draw slotted between them. Two weeks is at
-    // least the two league games, plus whatever midweek football came with it.
+    // Sundays and the cup ties the draw slotted between them.
     const record = club.history.seasons[0]!;
     expect(record.played).toBeGreaterThanOrEqual(2);
     expect(record.won + record.drawn + record.lost).toBe(record.played);
@@ -336,5 +350,30 @@ describe('weekly progression', () => {
       expect(manager.clubId).toBe(club.id);
       expect(manager.roles).toEqual([{ clubId: club.id, role: 'manager', since: expect.any(String) }]);
     }
+  });
+});
+
+/**
+ * Rolling the calendar over.
+ *
+ * A season is as long as its own calendar plus the rearranged fixtures played
+ * before the rearrangement deadline, and that tail can run a week or more past
+ * the fixed early-September rollover. The new season has to wait for the old one
+ * to finish: winding the clock backwards would open pre-season before the last
+ * ball of the season before it had been kicked.
+ */
+describe('rolling the season over', () => {
+  it('never opens the new season before the old one has finished', () => {
+    const { state } = createTestGame('season-rollover-overrun');
+    // A date past the Monday the next pre-season would naturally begin: what a
+    // season whose last game was rearranged looks like on the day it closes.
+    const overrun = '2027-07-22';
+    state.date = overrun;
+    state.season.endDate = overrun;
+
+    startNextSeason(state);
+
+    expect(state.season.startDate > overrun).toBe(true);
+    expect(state.date).toBe(state.season.startDate);
   });
 });

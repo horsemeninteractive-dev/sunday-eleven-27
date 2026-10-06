@@ -357,26 +357,38 @@ describe('development', () => {
   });
 
   it('does not turn training into an attribute every week', () => {
-    const game = createTestGame('training-development-rate');
-    const squad = squadOf(game);
-    const before = attributeSnapshot(squad);
-
+    // The rate this is testing is deliberately so low that any one seed can show
+    // nobody improving over half a season — the roll is a coin toss at the world
+    // level, not a property of a single squad. The claim is about the model, so
+    // it is measured across several worlds rather than trusting one seed's luck.
+    const seeds = [
+      'training-development-rate',
+      'training-development-rate-b',
+      'training-development-rate-c',
+      'training-development-rate-d',
+    ];
     const sessions: number[] = [];
-    // Half a season rather than a fortnight: every player now has his own
-    // ceiling, and the older half of a squad is at or near it, so an
-    // improvement is worth waiting a few months for rather than ten weeks.
-    for (let week = 0; week < 26; week++) {
-      const outcome = week === 0
-        ? ensureTrainingConducted(game.state, 1)
-        : (advanceWeek(game.state), ensureTrainingConducted(game.state, nextMatchday(game.state)));
-      sessions.push(outcome.session?.improvements.length ?? 0);
-    }
-
-    const after = attributeSnapshot(squad);
     let increases = 0;
-    for (const [key, value] of after) {
-      const previous = before.get(key);
-      if (previous !== undefined && value > previous) increases += 1;
+    for (const seed of seeds) {
+      const game = createTestGame(seed);
+      const squad = squadOf(game);
+      const before = attributeSnapshot(squad);
+
+      // Half a season rather than a fortnight: every player now has his own
+      // ceiling, and the older half of a squad is at or near it, so an
+      // improvement is worth waiting a few months for rather than ten weeks.
+      for (let week = 0; week < 26; week++) {
+        const outcome = week === 0
+          ? ensureTrainingConducted(game.state, 1)
+          : (advanceWeek(game.state), ensureTrainingConducted(game.state, nextMatchday(game.state)));
+        sessions.push(outcome.session?.improvements.length ?? 0);
+      }
+
+      const after = attributeSnapshot(squad);
+      for (const [key, value] of after) {
+        const previous = before.get(key);
+        if (previous !== undefined && value > previous) increases += 1;
+      }
     }
 
     // Over half a season somebody should have come on a bit...

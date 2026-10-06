@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { deserialiseGame, serialiseGame } from '@/state/persistence';
 import { addDays, dayOfWeek } from './calendar';
 import { processDay } from './day';
-import { addLedgerEntry, financeSummary, ledgerBalances, reconcileBalance } from './finance';
+import { isCompetitiveMatch } from '@/domain/match';
+import { addLedgerEntry, applyMatchdayFinances, financeSummary, ledgerBalances, matchdayCosts, reconcileBalance } from './finance';
 import { activeDealForClub } from './sponsorship';
 import { sessionDatesFor } from './training/plan';
 import { sessionsFor } from './training/store';
@@ -50,8 +51,9 @@ describe('a career begins with no artificial settlement', () => {
     let date = state.date;
     while (dayOfWeek(addDays(date, 1)) !== 3) date = addDays(date, 1);
     processDay(state, date);
-    expect(linesFor(state, 'Weekly pitch hire')).toHaveLength(0);
     expect(linesFor(state, 'Insurance (weekly)')).toHaveLength(0);
+    // The ground is not a weekly bill at all, on any day.
+    expect(userClub(state).finances.ledger.some((line) => line.category === 'pitch-hire')).toBe(false);
   });
 });
 
@@ -64,13 +66,13 @@ describe('recurring costs occur on their own dates', () => {
     const { state } = createTestGame('finance-cost-dates');
     runDays(state, 24);
 
-    const ground = linesFor(state, 'Weekly pitch hire');
     const insurance = linesFor(state, 'Insurance (weekly)');
-    expect(ground.length).toBeGreaterThan(0);
     expect(insurance.length).toBeGreaterThan(0);
-    for (const line of [...ground, ...insurance]) {
+    for (const line of insurance) {
       expect(dayOfWeek(line.date)).toBe(3);
     }
+    // A pitch is never billed on a Wednesday: it belongs to the fixture.
+    expect(linesFor(state, 'Weekly pitch hire')).toHaveLength(0);
   });
 
   it('takes the sponsorship only on an agreement payday, once each', () => {
@@ -231,5 +233,69 @@ describe('financial state survives a save', () => {
     expect(typeof migrated.finances.openingBalance).toBe('number');
     expect(migrated.finances.balance).toBe(club.finances.balance);
     expect(ledgerBalances(migrated.finances)).toBe(true);
+  });
+});
+
+/* ------------------------------------------------------------------------ *\
+ * The ground is billed with the fixture that used it
+ * ------------------------------------------------------------------------ */
+
+describe('the ground is a fixture cost, not a weekly one', () => {
+  it('charges the home club its own pitch, on the day it plays at home', () => {
+    const { state } = createTestGame('finance-ground-home');
+    const homeId = state.userClubId;
+    const match = Object.values(state.matches).find(
+      (candidate) => candidate.homeClubId === homeId && !candidate.played && isCompetitiveMatch(state, candidate),
+    )!;
+    expect(match).toBeTruthy();
+    match.result = {
+      homeGoals: 1,
+      awayGoals: 0,
+      homeShots: 4,
+      awayShots: 2,
+      homePossession: 55,
+      awayPossession: 45,
+      attendance: 30,
+    };
+
+    const club = state.clubs[homeId]!;
+    const before = club.finances.ledger.length;
+    applyMatchdayFinances(state, match);
+    const pitch = club.finances.ledger.slice(before).find((line) => line.category === 'pitch-hire')!;
+
+    expect(pitch).toBeTruthy();
+    expect(pitch.amount).toBe(-club.finances.weeklyGroundCost);
+    // Dated the day the ground was actually used.
+    expect(pitch.date).toBe(match.date);
+  });
+
+  it('charges a club nothing for a ground it is only visiting', () => {
+    const { state } = createTestGame('finance-ground-away');
+    const awayId = state.userClubId;
+    const match = Object.values(state.matches).find(
+      (candidate) => candidate.awayClubId === awayId && !candidate.played && isCompetitiveMatch(state, candidate),
+    )!;
+    expect(match).toBeTruthy();
+
+    expect(matchdayCosts(state, match, awayId).groundHire).toBe(0);
+  });
+
+  it('bills a pitch only on a day the club actually played at home', () => {
+    const { state } = createTestGame('finance-ground-count');
+    const clubId = state.userClubId;
+    runDays(state, 120);
+
+    const club = state.clubs[clubId]!;
+    const homeDates = new Set(
+      Object.values(state.matches)
+        .filter((m) => m.homeClubId === clubId && m.played)
+        .map((m) => m.date),
+    );
+    // The match-ground line specifically: the `pitch-hire` category also holds
+    // the weekly training pitch, which is a different, genuinely weekly cost.
+    const pitchLines = club.finances.ledger.filter((line) => line.description.startsWith('Ground hire —'));
+    expect(pitchLines.length).toBeGreaterThan(0);
+    expect(pitchLines.length).toBeLessThanOrEqual(homeDates.size);
+    for (const line of pitchLines) expect(homeDates.has(line.date)).toBe(true);
   });
 });

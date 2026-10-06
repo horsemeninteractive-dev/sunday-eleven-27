@@ -15,7 +15,8 @@ import {
   type Preferences,
 } from './preferences';
 import { rememberProfile } from './managerProfiles';
-import { currentScore, simulateMatchEngine } from '@/simulation/match/matchEngine';
+import { currentScore } from '@/simulation/match/matchEngine';
+import { simulateMatchFull } from '@/simulation/fastMatch';
 import {
   currentLiveEngine,
   forgetLiveEngine,
@@ -1408,7 +1409,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const working = state.matches[match.id]!;
     forgetLiveEngine();
     const env = matchEnvironment(state, working, { autoManageAllBenches: true });
-    const instant = simulateMatchEngine(working, env);
+    // The manager's own fixture, sent to the bench: still the full engine, and
+    // stamped as such so the record says which simulation decided it.
+    const instant = simulateMatchFull(working, env);
     narrateDrained(working, env, instant.drain());
     syncEnginePossession(working, instant);
     const events = [...applyMatchConsequences(state, working).events, matchReportEvent(state, working)];

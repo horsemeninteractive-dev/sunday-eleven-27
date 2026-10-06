@@ -300,9 +300,9 @@ describe('the treasurer operates existing costs, never a copy of them', () => {
     for (let i = 0; i < 12; i += 1) processDay(game.state, game.state.date);
 
     // The standing costs are still applied by the finance service on its own dates.
-    const ground = club.finances.ledger.filter((line) => line.description === 'Weekly pitch hire');
-    expect(ground.length).toBeGreaterThan(0);
     expect(club.finances.ledger.some((line) => line.description === 'Insurance (weekly)')).toBe(true);
+    // The ground is billed with the home fixture that used it, not every week.
+    expect(club.finances.ledger.some((line) => line.description === 'Weekly pitch hire')).toBe(false);
 
     const ledgerLength = club.finances.ledger.length;
     const balance = club.finances.balance;
@@ -396,8 +396,7 @@ describe('where the book is heading', () => {
     const game = createTestGame('outlook-week');
     const outlook = seasonOutlook(game.state);
     const club = userClub(game.state);
-    const weeklyOut =
-      club.finances.weeklyGroundCost + club.finances.insurancePerWeek + club.finances.trainingCostPerWeek;
+    const weeklyOut = club.finances.insurancePerWeek + club.finances.trainingCostPerWeek;
 
     expect(outlook.weeklyNet).toBeCloseTo(weeklySponsorshipIncome(game.state, game.clubId) - weeklyOut, 2);
     expect(outlook.weeksLeft).toBe(weeksRemaining(game.state));

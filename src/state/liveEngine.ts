@@ -49,6 +49,10 @@ let live: {
 export function liveEngineFor(match: Match, env: MatchEnvironment): MatchEngine {
   if (!live || live.match !== match) {
     const engine = createMatchEngine(match, env);
+    // A watched match is played by the full engine, and the record says so. The
+    // mode is written here, at the one place the engine is chosen, rather than
+    // left to be inferred from the fact that a session exists.
+    match.simulationMode = 'full';
     // Remember the movement while the match is watched, at the engine's own step
     // cadence — so the replay can play back the afternoon that was actually seen,
     // rather than draw a version of it afterwards.

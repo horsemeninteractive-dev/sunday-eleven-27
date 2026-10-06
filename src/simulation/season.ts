@@ -6,7 +6,7 @@ import type { GameEvent } from '@/domain/news';
 import { isPlayer, createSystemFamiliarity, type Official, type Player } from '@/domain/person';
 import { yearOf } from './calendar';
 import { applyAnnualCosts, addLedgerEntry } from './finance';
-import { preSeasonStart, seasonLabelFor } from './calendar';
+import { addDays, preSeasonStart, seasonLabelFor } from './calendar';
 import { prepareMatchday } from './matchday';
 import { arrangePreSeason } from './preseason';
 import { applyMovements, buildSeasonStructure, openSeasonRecords } from './seasonStructure';
@@ -21,6 +21,7 @@ import {
   tierOf,
 } from './pyramid';
 import { generatePlayer, resetPlayerIdCounter } from './generation/playerGenerator';
+import { clubQualityFromReputation } from './generation/worldGenerator';
 import { linkNewTeammate } from './generation/relationshipGenerator';
 import { refreshUnattachedPool } from './generation/unattachedPlayers';
 import { clubSignsFromPool, releaseFromClub, runAiClubSummer } from './aiClubs';
@@ -34,7 +35,7 @@ import { emptyScheduleState } from './schedule';
 import { weekStartOf } from './timeline';
 import { applyRelationshipEvent, relationshipStore, relationshipViewsFor } from './relationships';
 import { runManagerMarket } from './managers';
-import { runStaffLifecycle } from './staff';
+import { leaveClubStaff, runStaffLifecycle } from './staff';
 import { runGovernance } from './governance';
 import { renewSponsorship } from './sponsorship';
 import { reviewClubFinances } from './clubLifecycle';
@@ -196,6 +197,27 @@ export function everyFixtureSettled(state: GameState): boolean {
 }
 
 /**
+ * The quality a summer arrival is generated at, from the club's standing.
+ *
+ * A squad the world generator built drew every man at the club's level *plus his
+ * own roll of the dice* — one of them is a ringer, the next is making up the
+ * numbers — so the squad had a spread to it. An arrival generated at the club's
+ * average with no roll had none, and a squad topped up by arrivals alone quietly
+ * lost its top end: the best player in the side regressed towards the average.
+ * The keeper shows it first, because a keeper is one man where the attack is a
+ * team average — the county's best glove fell five per cent over a career and
+ * dragged the goals-per-match rate up with it. Same centre, same roll, so a
+ * squad built through the summer has the spread of one that was generated.
+ *
+ * The centre is the club's *standing*, not its current squad, so a club cannot
+ * lift itself above the level it plays at by signing: see `clubStandardQuality`.
+ * Exported so tests and the soak can reason about the numbers.
+ */
+export function arrivalQualityFor(rng: Rng, reputation: number, offset = 0): number {
+  return clubQualityFromReputation(rng, reputation) + rng.gaussian(0, 1.1) + offset;
+}
+
+/**
  * The summer's squad business: a youth intake, and a cap on how many a club
  * carries. Exported so tests and the soak can reason about the numbers.
  */
@@ -348,9 +370,21 @@ export function startNextSeason(state: GameState): GameEvent[] {
   const events: GameEvent[] = [];
   const previousSeason = state.season;
   const nextYear = yearOf(previousSeason.startDate) + 1;
-  const firstSunday = firstSundayOfSeptember(nextYear);
+  let firstSunday = firstSundayOfSeptember(nextYear);
   // A new season opens with pre-season, exactly as the first one did: six
   // Sundays before the football, starting on the Monday of the first of them.
+  //
+  // The opener cannot fall before the previous season closed. A season lasts its
+  // own calendar plus whatever rearranged fixtures were played before the
+  // rearrangement deadline, and that tail can put the last ball a week or more
+  // past the fixed early-September rollover. Rolling over regardless would wind
+  // the clock backwards — pre-season starting before the season that preceded it
+  // had finished — so the opener steps on a week at a time until it is genuinely
+  // after the football already played.
+  const previousClosedOn = state.date > previousSeason.endDate ? state.date : previousSeason.endDate;
+  while (weekStartOf(preSeasonStart(firstSunday)) <= previousClosedOn) {
+    firstSunday = addDays(firstSunday, 7);
+  }
   const firstPreSeasonSunday = preSeasonStart(firstSunday);
   const seasonStart = weekStartOf(firstPreSeasonSunday);
   const seasonId = `season_${nextYear}_${String((nextYear + 1) % 100).padStart(2, '0')}`;
@@ -390,6 +424,12 @@ export function startNextSeason(state: GameState): GameEvent[] {
       (player) => player.age >= 41 || (player.age >= 38 && player.attributes.physical.pace <= 6),
     );
     for (const player of overTheHill) {
+      // A man who stops playing gives up the committee posts he was holding at
+      // the same time. Grassroots sides are full of players doubling up as
+      // coach or secretary, and letting one retire while the club's staff
+      // record still named him left the club pointing at a man who had left
+      // the world. The player-manager keeps the dugout, under the same id.
+      leaveClubStaff(state, club.id, player.id);
       player.clubId = null;
       player.registered = false;
       player.roles = [];
@@ -437,9 +477,11 @@ export function startNextSeason(state: GameState): GameEvent[] {
         townId: club.townId,
         homeGroundId: club.groundId,
         // A teenager is not as good as the grown man the club would otherwise
-        // sign, however much he might grow into. Slightly below the senior
-        // standard keeps the intake an intake rather than an upgrade.
-        quality: 8 + club.reputation / 20,
+        // sign, however much he might grow into. A shade below the club's own
+        // standard keeps the intake an intake rather than an upgrade — and the
+        // standard is the club's, not the squad's, so a summer of intakes can
+        // never lift a club above the level its standing says it plays at.
+        quality: arrivalQualityFor(rng, club.reputation, -0.2),
         seasonStart,
         age: rng.int(SQUAD_REFRESH.youthAge[0], SQUAD_REFRESH.youthAge[1]),
       });
@@ -458,7 +500,10 @@ export function startNextSeason(state: GameState): GameEvent[] {
         clubId,
         townId: club.townId,
         homeGroundId: club.groundId,
-        quality: 9 + club.reputation / 20,
+        // A grown man filling a gap is a journeyman: the club's own standard,
+        // no better. Generated a shade above it, as this used to be, every squad
+        // that ever fell short of bodies was quietly upgraded.
+        quality: arrivalQualityFor(rng, club.reputation),
         seasonStart,
       });
       state.people[newPlayer.id] = newPlayer;
@@ -524,11 +569,16 @@ export function startNextSeason(state: GameState): GameEvent[] {
   // get out of it, fold. A new club forms in the town to take the place, so the
   // division keeps its size however many seasons pass. The player's own club is
   // held out of it for now, like his manager.
+  // The review runs on the ladder the season is about to be built from, not on
+  // `state.competitions` (last season's records, about to be replaced), so the
+  // club that forms in a folded club's place is already in its division by the
+  // time `buildSeasonStructure` reads `divisions`.
   const lifecycle = reviewClubFinances(state, {
     seasonId,
     seasonLabel,
     seasonStart,
     protectedClubIds: [state.userClubId],
+    divisions,
   });
   events.push(...lifecycle.events);
   // A folded club's players may have been names on the manager's shortlist.

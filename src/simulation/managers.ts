@@ -7,6 +7,7 @@ import { yearOf } from './calendar';
 import { linkManagerToClub } from './generation/relationshipGenerator';
 import { maybeNickname, occupation, personFirstName, personSurname } from './generation/names';
 import { createEvent } from './news';
+import { removePersonFromCommunication } from './communication/store';
 import { removePersonRelationships, relationshipStore } from './relationships';
 import { Rng, stream } from './rng';
 
@@ -312,6 +313,7 @@ export function runManagerMarket(state: GameState, context: ManagerMarketContext
       club.managerId = null;
       delete state.people[manager.id];
       removePersonRelationships(state, manager.id);
+      removePersonFromCommunication(state, manager.id);
     } else {
       leaveClub(club, manager, context.seasonStart);
       manager.notes.push(`Between jobs, ${context.seasonStart}.`);
@@ -405,6 +407,7 @@ export function runManagerMarket(state: GameState, context: ManagerMarketContext
     for (const person of trim) {
       delete state.people[person.id];
       removePersonRelationships(state, person.id);
+      removePersonFromCommunication(state, person.id);
     }
   }
 

@@ -2,7 +2,9 @@ import { isOfficial, isPlayer, type Player } from '@/domain/person';
 import { isCompetitiveMatch, type Match } from '@/domain/match';
 import type { GameState } from '@/domain/game';
 import type { ISODate } from '@/domain/ids';
+import { daysBetween } from './calendar';
 import { processDay, currentAttention } from './day';
+import { REARRANGEMENT_GRACE_DAYS } from './postponement';
 import { startNextSeason } from './season';
 import { cupCompetitions, leagueCompetitions, tierOf } from './pyramid';
 import { publishEvents } from './news';
@@ -1109,9 +1111,21 @@ export function runSoak(options: SoakOptions): SoakResult {
         violation(snapshot, 'fail', 'clock-never-rewinds', `the season closed on ${state.date}, before it started`),
       );
     }
-    if (days > SOAK_BANDS.daysPerSeason - 60) {
+    // A season is as long as its own calendar: six weeks of pre-season, a
+    // fortnightly league spread across the year and the Christmas skip come to
+    // a full twelve months, and that is the design, not drift. What is worth a
+    // warning is a season that runs past the calendar it was given — which is
+    // what a backlog of rearranged fixtures can do, up to the rearrangement
+    // deadline the postponement system already imposes.
+    const calendarDays = daysBetween(state.season.startDate, state.season.endDate);
+    if (days > calendarDays + REARRANGEMENT_GRACE_DAYS) {
       violations.push(
-        violation(snapshot, 'warn', 'season-not-overrunning', `${days} days for one season, close to the limit`),
+        violation(
+          snapshot,
+          'warn',
+          'season-not-overrunning',
+          `${days} days for a season whose calendar is ${calendarDays}, past the rearrangement deadline`,
+        ),
       );
     }
     clock = state.date;

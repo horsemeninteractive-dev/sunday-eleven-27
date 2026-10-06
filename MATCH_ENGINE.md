@@ -11,6 +11,63 @@ should look to answer *"where does the match actually happen?"*
 
 ---
 
+## 0. The two modes — read this first
+
+The game has **two ways to play a fixture**, and which one is used is a property
+of the fixture itself, written onto its record as `Match.simulationMode` and never
+inferred from a call site.
+
+| | **FULL** | **FAST** |
+| --- | --- | --- |
+| What it is | this engine — the fixed-step spatial simulation | the abstract background model beside it |
+| Who plays in it | the manager's own club: watched, played out at speed, or sent to the bench | every other fixture in the world |
+| Entry points | `MatchEngine` (watched) · `simulateMatchFull(match, env)` (headless) | `simulateMatchFast(match, env)` |
+| Module | `src/simulation/match/matchEngine/` | `src/simulation/fastMatch/` |
+| Cost, one match | ~1 030 ms | ~2 ms |
+| Renderer state | yes — `MatchEngineState`, `Match.recording` | none |
+| Commentary | yes, for the one match somebody reads | none |
+| Ordinary-play texture | ~2 400 events (pass, carry, tackle, throw-in, corner…) | ~80 events — the ones the rest of the game reads |
+
+**FULL is not going anywhere and is not simplified.** It remains the authoritative
+simulation for a match the manager is watching, and the football he sees is the
+football he played. FAST does **not** replace the engine; it is an *abstraction of
+the same football world* used for the fixtures nobody watches, and it renders
+nothing.
+
+What the two modes **share** is everything that decides what a match *means*:
+
+- the same inputs — `MatchLineup`s, `Player`s, tactics, conditions, referee,
+  crowd, supplied by `matchEnvironment`;
+- the same football judgement — `computeTeamStrength`, `tacticalProfile`,
+  `conditionEffects`, `pickInjury`, `conditionFactor`, `positionScore`;
+- the same random principles — `stream(match.seed, 'fast-match')`, and no
+  `Math.random()` anywhere;
+- the same result contract — `Match.result`, `Match.events`, `Match.performances`,
+  `Match.possessionTicks`, `Match.stoppage`, `Match.substitutions`,
+  `Match.shootoutWinnerId`;
+- the same consumers — `applyMatchConsequences`, `applyMatchdayFinances`, the
+  league table, the cup, the record books. **Nothing downstream knows or cares
+  which mode played a fixture.**
+
+What FAST **deliberately omits**, and why: player and ball movement, the step
+loop, renderer state, the replay recording, the commentary, and the ordinary-play
+texture. Every one of those exists for a *watcher* — the 2D pitch, the passage
+grouping, the playback pacing, the statistics panel — and no watcher ever opens a
+background fixture. Producing ~2 400 events for one would bloat every save to say
+nothing to anybody. The events FAST does write are the ones with meaning: the
+goals and who scored them, the shots and saves, the fouls and cards, the knocks,
+the substitutions and the whistles, plus the per-player record the season
+accumulates.
+
+Measured against the full engine over 425 background fixtures of the test world
+(`npm run benchmark`), the two agree on what a Sunday League match looks like —
+goals 2.75 vs 2.86, shots 18.2 vs 17.6, fouls 50.9 vs 52.1, bookings 3.3 vs 3.7,
+knocks 2.0 vs 2.2, substitutions 5.91 vs 5.95, appearances 27.9 vs 28.0, pass
+completion 65.9 % vs 66.9 %, mean rating 6.78 vs 6.76. They are not meant to
+produce the same match. They are meant to produce the same *football*.
+
+---
+
 ## 1. Phase 1 — Audit of the previous implementation
 
 The old match code lived in `src/simulation/match/` and was **fragmented across two
@@ -263,18 +320,28 @@ serialisable, so it cannot live in the store's saved state) and
 `buildEngineRenderState(engine, match, game)` and no longer reads `match.spatial`.
 Substitutions, tactics, warm-up energy and half-time are all the engine's.
 
-**Every fixture now runs on the new engine — the one the manager watches and the
-ones nobody sees.** The headless path is `simulateMatchHeadless(match, env)`
-(`matchEngine/index.ts`), which is a straight call into the same
-`simulateMatchEngine` the watched match uses: identical football, no renderer.
-`src/simulation/day.ts` calls it for every AI fixture in `applyFixtures`, so a
-league round, a cup tie and the manager's own match are all decided by the same
-engine, in the same step loop, from the same `MatchEnvironment`. The old minute
-engine (`match/engine.ts`) and its supporting modules (`spatial.ts`,
+**Every fixture now runs on the new code — in one of the two modes.** The
+manager's own fixture is the full engine, whether he watches it or sends it to the
+bench; every other fixture is the fast background model. `src/simulation/day.ts`
+decides which with one call — `simulateFixture(match, env, simulationModeFor(state,
+match))` — and the policy that answers it lives in `fastMatch/mode.ts` and nowhere
+else. Both modes are handed the same `MatchEnvironment`, and both write the same
+record, so a league round, a cup tie and the manager's own match are all decided
+by the same authoritative domain and read by the same consequences code.
+
+`simulateMatchHeadless(match, env)` still exists and is still a straight call into
+`simulateMatchEngine`: it is the *full* engine, headless, and the tests and tools
+that want the real football in bulk still use it. What changed is that the season
+no longer uses it for the games nobody sees.
+
+The old minute engine (`match/engine.ts`) and its supporting modules (`spatial.ts`,
 `possession.ts`, `continuousPossession.ts`, `shot.ts`, `restarts.ts`,
 `discipline.ts`, `actionTimeline.ts`, `trace.ts`, `setPieces.ts`) have **no
 production call sites** any more; they are kept only for their tests and the two
 developer tools that read them (`tools/balance.ts`, `tools/matchReadout.ts`).
+Neither mode reintroduced them — the fast model is new code that shares the
+project's *models* (`teamStrength`, `tacticsModel`, `injuries`), never the old
+engine's simulation.
 
 `simulateMatchHeadless` returns the same authoritative record as the watched
 match, written onto the `Match`: `result` (score, possession percentages,

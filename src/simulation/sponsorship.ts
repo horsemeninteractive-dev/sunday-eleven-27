@@ -18,7 +18,7 @@ import { nextId } from './ids';
 import { createEvent } from './news';
 import { leagueClubIds, leagueCompetitions, tierFactor, tierOf, TIER_EXPECTATIONS } from './pyramid';
 import { applyRelationshipEvent, getRelationship } from './relationships';
-import { stream } from './rng';
+import { stream, type Rng } from './rng';
 
 /**
  * The sponsorship service.
@@ -210,6 +210,30 @@ export interface OfferResult {
 }
 
 /**
+ * What a business puts behind a club, as one instalment.
+ *
+ * The tier factor is a *level* — what a first-division backer is worth against a
+ * third-division one — not a growth rate. It lives here so the offer and the
+ * annual renewal compute the same figure from the same arithmetic, rather than
+ * the renewal multiplying the last instalment by the factor and compounding a
+ * first-division deal by 1.4 every summer.
+ *
+ * The cadence changes the dates the money lands on, not how much of it there is:
+ * a monthly deal is the same annual money in twelve instalments instead of
+ * fifty-two. Anything else would make a monthly sponsor a four-fold cut.
+ */
+function instalmentFor(business: Business, tier: number | null, rng: Rng): number {
+  const weekly = Math.max(
+    SPONSORSHIP.minInstalment,
+    Math.round(business.wealth * 2.6 * tierFactor(TIER_EXPECTATIONS.sponsor, tier) * rng.float(0.85, 1.2)),
+  );
+  const terms = sponsorshipTermsFor(business);
+  return terms.frequency === 'weekly'
+    ? weekly
+    : Math.max(SPONSORSHIP.minInstalment, Math.round((weekly * 52) / 12));
+}
+
+/**
  * The businesses that run on invoices rather than a pint glass.
  *
  * A builder, a garage or a plumber is paid by other people at the end of a
@@ -268,19 +292,8 @@ export function offerSponsorship(
   }
 
   const tier = tierOf(state, clubId);
-  // What the business puts behind a club over a year, expressed as a week.
-  const weekly = Math.max(
-    SPONSORSHIP.minInstalment,
-    Math.round(business.wealth * 2.6 * tierFactor(TIER_EXPECTATIONS.sponsor, tier) * rng.float(0.85, 1.2)),
-  );
-  // The cadence changes the dates the money lands on, not how much of it there
-  // is: a monthly deal is the same annual money in twelve instalments instead
-  // of fifty-two. Anything else would make a monthly sponsor a four-fold cut.
   const terms = sponsorshipTermsFor(business);
-  const instalment =
-    terms.frequency === 'weekly'
-      ? weekly
-      : Math.max(SPONSORSHIP.minInstalment, Math.round((weekly * 52) / 12));
+  const instalment = instalmentFor(business, tier, rng);
   const deal: SponsorshipDeal = {
     id: nextId(state, 'sponsor'),
     clubId,
@@ -429,6 +442,12 @@ export function runSponsorship(state: GameState, date: ISODate = state.date): Ga
       });
       deal.paidCount += 1;
       deal.lastPaidOn = date;
+      // A payment that arrives clears the run. `missedCount` is *consecutive*
+      // misses, which is what "if it keeps happening" means: never resetting it
+      // meant a ~7% weekly miss chance accumulated to about three and a half a
+      // season, so almost every weekly sponsor walked within a year whatever the
+      // club did.
+      deal.missedCount = 0;
       deal.relationship = clamp(deal.relationship + 1);
       if (deal.issue && /payment/i.test(deal.issue)) deal.issue = null;
       continue;
@@ -563,14 +582,15 @@ export function renewSponsorship(state: GameState, context: RenewalContext): Ren
     if (deal) {
       // Renewed by default: extend the term and let the figures follow the
       // season. The tier factor is where a promotion or relegation bites.
-      const factor = tierFactor(TIER_EXPECTATIONS.sponsor, tier);
       const perfBonus = finish !== null && finish <= 3 ? 1.06 : 1;
       deal.endDate = state.season.endDate;
-      deal.instalment = Math.max(
-        SPONSORSHIP.minInstalment,
-        Math.round(deal.instalment * rng.float(0.92, 1.15) * factor * perfBonus),
-      );
       const business = state.world.businesses[deal.sponsorId];
+      // Re-derive the figure from the business and the division rather than
+      // compounding the last one: the tier factor is a level, so a well-run
+      // club's deal moves with its standing instead of growing by 40% a summer.
+      deal.instalment = business
+        ? Math.max(SPONSORSHIP.minInstalment, Math.round(instalmentFor(business, tier, rng) * perfBonus))
+        : Math.max(SPONSORSHIP.minInstalment, Math.round(deal.instalment * rng.float(0.92, 1.15) * perfBonus));
       if (business) deal.fit = sponsorFit(state, clubId, business);
       deal.relationship = clamp(deal.relationship + (struggling ? -6 : 3));
       deal.issue = deal.missedCount > 0 ? deal.issue : null;
@@ -608,10 +628,16 @@ export function renewSponsorship(state: GameState, context: RenewalContext): Ren
       }
     }
 
-    // Find a sponsor for a club that has none. Every club gets a look, but not
-    // every club gets one: the world's weaker sides can go a summer without.
+    // Find a sponsor for a club that has none. Every club gets a look, and the
+    // odds rise with the club's standing — a well-followed side finds a backer
+    // in a summer, a poor one takes a season or two. The baseline was low enough
+    // that coverage decayed every year (17 → 20 → 23 sponsor-less clubs over
+    // three seasons), and a club with no backer runs at a loss it cannot close:
+    // the sponsorship is most of the difference between a solvent bottom-half
+    // club and one in administration. Still not certain — a bad side can go a
+    // summer without, which is what keeps a few clubs under real pressure.
     if (!activeDealForClub(state, clubId)) {
-      const chance = 0.35 + club.reputation / 400;
+      const chance = 0.7 + club.reputation / 250;
       if (rng.chance(chance)) {
         const result = seekSponsor(state, clubId, { date: context.seasonStart, endDate: state.season.endDate });
         if (result.outcome === 'accepted' && result.deal) {

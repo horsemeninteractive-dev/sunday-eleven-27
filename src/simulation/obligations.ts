@@ -51,7 +51,10 @@ export function obligationsBetween(state: GameState, clubId: ClubId, from: ISODa
   const rules = recurringEvents(state);
   const standingRule = rules.find((rule) => rule.id === 'rec_costs');
   const trainingRule = rules.find((rule) => rule.id === 'rec_training');
-  const standing = finances.weeklyGroundCost + finances.insurancePerWeek;
+  // The pitch is not a weekly bill: it is charged when the club plays at home,
+  // and appears on the fixture itself below. What recurs every week is the
+  // insurance.
+  const standing = finances.insurancePerWeek;
   const hall = finances.trainingCostPerWeek;
 
   for (let date = from; daysBetween(date, to) >= 0; date = addDays(date, 1)) {
@@ -60,7 +63,7 @@ export function obligationsBetween(state: GameState, clubId: ClubId, from: ISODa
         id: `standing:${date}`,
         date,
         label: 'Standing costs',
-        detail: 'Pitch hire and insurance',
+        detail: 'Insurance',
         amount: -standing,
       });
     }

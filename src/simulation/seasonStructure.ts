@@ -146,6 +146,14 @@ export function buildSeasonStructure(options: BuildSeasonOptions): SeasonStructu
   const mainPlan = config.leagueCup ? mainCupPlan(cupField) : [];
   const plateRounds = config.leagueCup && config.consolationCup ? platePlan(mainPlan) : [];
   const calendar = buildSeasonCalendarWithCups(firstLeagueDate, leagueMatchdays, cupSlots);
+  // The calendar is ordered by *date*, not by matchday: a cup round sits on the
+  // Sunday before the league matchday it precedes, so its matchday number is
+  // higher than the league rounds around it. A fixture's date must therefore be
+  // read by its own matchday, never by its position in the array — indexing by
+  // position dated every league matchday after the first interleaved cup round
+  // to the wrong Sunday, landing league fixtures on cup nights and pushing cup
+  // rounds onto days already played.
+  const dateOfMatchday = new Map<number, ISODate>(calendar.map((entry) => [entry.matchday, entry.date]));
 
   // --- The competitions -----------------------------------------------------
   const competitions: Record<CompetitionId, Competition> = {};
@@ -191,18 +199,18 @@ export function buildSeasonStructure(options: BuildSeasonOptions): SeasonStructu
     for (const fixture of generated) {
       matchCounter += 1;
       const id = `match_${seasonId}_${matchCounter}` as MatchId;
-      const entry = calendar[fixture.matchday - 1];
-      if (!entry) continue;
+      const date = dateOfMatchday.get(fixture.matchday);
+      if (!date) continue;
       matches[id] = createMatchRecord({
         state,
         id,
         matchday: fixture.matchday,
-        date: entry.date,
+        date,
         homeClubId: fixture.homeClubId,
         awayClubId: fixture.awayClubId,
         competitionId: competition.id,
         competitionName: competition.name,
-        kickOff: kickOffTimeFor(entry.date),
+        kickOff: kickOffTimeFor(date),
       });
       order.push(id);
       list.byMatchday[fixture.matchday] = [...(list.byMatchday[fixture.matchday] ?? []), id];

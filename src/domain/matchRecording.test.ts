@@ -79,9 +79,14 @@ describe('reading a recording back', () => {
     expectClose(mid.players, [0.2, 0.3, 0.5, 0.6]);
   });
 
-  it('reads an older, shorter frame against the roster it was taken with', () => {
+  it('reads a frame shorter than its neighbour without dropping the men it does not know about', () => {
+    // The roster only grows, so the older frame simply has no slot for a man
+    // who had not come on yet. Reading to the shorter frame would drop him at
+    // the very instant he appears — and, alongside him, every slot the later
+    // frame knows about. A missing slot is treated as off the pitch, exactly as
+    // a `-1` is, so the men who were out there are still placed.
     const grown: MatchRecording = {
-      roster: ['a', 'b', 'c'] as PlayerId[],
+      roster: ['a', 'b', 'c', 'd'] as PlayerId[],
       interval: 0.5,
       frames: [
         { clock: 0, ballX: 0.5, ballY: 0.5, ballStatus: 'loose', owner: -1, target: -1, players: [0.1, 0.2] },
@@ -89,7 +94,8 @@ describe('reading a recording back', () => {
       ],
     };
     const mid = sampleRecording(grown, 0.5)!;
-    // Only the slots both samples knew about are blended.
-    expectClose(mid.players, [0.2, 0.3]);
+    // The two slots both samples know about are blended; the two the earlier
+    // frame has no slot for are placed where the later frame has them.
+    expectClose(mid.players, [0.2, 0.3, 0.5, 0.6]);
   });
 });

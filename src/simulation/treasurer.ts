@@ -342,8 +342,9 @@ export function seasonOutlook(state: GameState, clubId: ClubId = state.userClubI
   // costs that are billed every seven days. Subs are absent on purpose — they
   // are owed per match, and only the money handed over reaches the balance.
   const weeklyIn = weeklySponsorshipIncome(state, clubId);
-  const weeklyOut =
-    club.finances.weeklyGroundCost + club.finances.insurancePerWeek + club.finances.trainingCostPerWeek;
+  // The pitch is not in the weekly run rate: it is charged when the club plays
+  // at home, which is a fixture cost rather than a standing one.
+  const weeklyOut = club.finances.insurancePerWeek + club.finances.trainingCostPerWeek;
   const weeklyNet = Math.round((weeklyIn - weeklyOut) * 100) / 100;
   const projected = Math.round((club.finances.balance + weeklyNet * weeksLeft) * 100) / 100;
   return { weeklyNet, weeksLeft, seasonEnd, projected };

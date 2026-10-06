@@ -19,6 +19,7 @@ import {
   setStaffAvailability,
 } from './staff';
 import { createTestGame } from './testSupport';
+import { startNextSeason } from './season';
 
 /**
  * The staff system holds one promise above all others: a member of staff is a
@@ -303,6 +304,27 @@ describe('the club personnel system', () => {
     // The lists are genuinely returned, not just muted.
     expect(Array.isArray(first.departed)).toBe(true);
     expect(club2.managerId || club2.chairmanId).toBeTruthy();
+  });
+
+  it('takes a retiring player’s committee posts with him', () => {
+    const { state } = createTestGame('staff-player-retires');
+    const club = state.clubs[state.userClubId]!;
+    const player = club.squadIds.map((id) => state.people[id]).filter(isPlayer)[0]!;
+    // The grassroots double: he plays, and he keeps the bibs and the minutes.
+    appointStaff(state, club.id, player.id, 'coach', state.season.startDate);
+    appointStaff(state, club.id, player.id, 'secretary', state.season.startDate);
+    player.age = 41; // over the hill: this summer takes him as a player
+
+    startNextSeason(state);
+
+    // He has stopped playing, so he is off the pitch and off the committee: no
+    // slot at the club goes on naming a man who has left the world.
+    expect(club.squadIds).not.toContain(player.id);
+    expect(club.staff.coachIds).not.toContain(player.id);
+    expect(club.staff.secretaryId).not.toBe(player.id);
+    for (const member of staffMembers(club)) {
+      expect(state.people[member.personId], `${member.role} names a missing person`).toBeDefined();
+    }
   });
 
   it('creates no duplicate staff records across the whole world', () => {

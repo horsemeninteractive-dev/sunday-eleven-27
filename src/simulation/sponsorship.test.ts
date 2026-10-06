@@ -5,6 +5,7 @@ import { deserialiseGame, serialiseGame } from '@/state/persistence';
 import { dayOfWeek } from './calendar';
 import { processDay } from './day';
 import { ledgerBalances, reconcileBalance } from './finance';
+import { tierFactor, tierOf, TIER_EXPECTATIONS } from './pyramid';
 import { getRelationship } from './relationships';
 import {
   activeDealForClub,
@@ -257,6 +258,55 @@ describe('the summer review', () => {
     expect(after.endDate).toBe(state.season.endDate);
     expect(after.instalment).toBeGreaterThan(0);
     expect(after.startDate).toBe(before.startDate);
+  });
+
+  it('does not lose a sponsor to misses that are not consecutive', () => {
+    const { state } = createTestGame('sponsor-misses');
+    const clubId = sponsoredClub(state);
+    const dealId = activeDealForClub(state, clubId)!.id;
+    const businessName = sponsorNameFor(state, clubId);
+
+    // A full season of weekly instalments. Occasional misses are the design —
+    // but `missedCount` is *consecutive* misses, and it was never cleared when a
+    // payment landed, so the ~7% weekly miss rate accumulated past the threshold
+    // and almost every club lost its backer every year. A club that pays on time
+    // keeps its sponsor.
+    runDays(state, 364);
+
+    const deal = sponsorshipStore(state).deals.find((entry) => entry.id === dealId);
+    expect(deal, 'the deal vanished rather than ending').toBeDefined();
+    expect(deal!.status).toBe('active');
+    expect(deal!.missedCount).toBeLessThan(SPONSORSHIP.missThreshold);
+    expect(state.world.businesses[deal!.sponsorId]!.name).toBe(businessName);
+  });
+
+  it('renews at the division’s level rather than compounding the last figure', () => {
+    const { state } = createTestGame('sponsor-renew-level');
+    const clubId = sponsoredClub(state);
+    const first = activeDealForClub(state, clubId)!;
+    const business = state.world.businesses[first.sponsorId]!;
+    const tier = tierOf(state, clubId);
+    const weeklyLevel = business.wealth * 2.6 * tierFactor(TIER_EXPECTATIONS.sponsor, tier);
+    const level =
+      sponsorshipTermsFor(business).frequency === 'weekly' ? weeklyLevel : (weeklyLevel * 52) / 12;
+
+    const review = () =>
+      renewSponsorship(state, {
+        seasonId: state.season.id,
+        seasonLabel: state.season.label,
+        seasonStart: state.season.startDate,
+        previousSeasonId: 'season-not-played',
+        previousSeasonLabel: 'last season',
+      });
+    review();
+    review();
+
+    const after = activeDealForClub(state, clubId)!;
+    // The tier factor is a level, not an annual growth rate: two renewals must
+    // leave the instalment near what the business is worth in this division, not
+    // near the starting figure multiplied by the factor twice over.
+    expect(after.instalment).toBeGreaterThan(level * 0.6);
+    expect(after.instalment).toBeLessThan(level * 1.6);
   });
 
   it('replaces a departed sponsor when the club can find another', () => {

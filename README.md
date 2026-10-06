@@ -46,6 +46,27 @@ npm run dev        # http://localhost:5273
 | `npm run preview` | serve the built game |
 | `npm test` | the test suite |
 | `npm run soak` | play out long runs and report on them |
+| `npm run benchmark` | time the two match simulation modes, and compare their fingerprints |
+| `npm run release` | cut a release: version, changelog, build, deploy, tag |
+
+Releasing is one command, and it insists on the order:
+
+```bash
+npm run release -- --minor --title="the people who run the club"
+```
+
+The number that moves is said with `--major`, `--minor` or `--patch`, or as an
+exact version (`npm run release -- 0.8.0 --title="…"`). Below 1.0.0 the project
+reads the rule in the way the changelog says it does: features arrive in the
+minor number, fixes in the patch, and the major is the one that makes it 1.0.0.
+
+Write the notes under `## [Unreleased]` in `CHANGELOG.md` first, then run it. It
+bumps `package.json`, folds those notes into a dated heading, runs the guard on
+the changelog, builds, checks the built bundle carries the new number, commits,
+deploys to Cloudflare Pages and tags the commit — stopping, with the tree put
+back exactly as it was, at the first thing that does not check out. Add
+`--dry-run` to rehearse, `--push` to send the branch and tag on, or `--no-deploy`
+to stop after the commit.
 
 There are also read-out tools for inspecting a single match, a season's timeline
 and the balance of the world:
@@ -72,6 +93,15 @@ same season.
 
 The match engine is deliberately separate from everything that watches it, so the
 same engine can drive a 2D view, a list of events, or something not built yet.
+
+There are two ways to play a fixture. The manager's own match runs on the full
+engine — the spatial simulation he watches — and so does every other game the
+world would otherwise need him to look at; the remaining fixtures of a matchday,
+and every other club's season, run through a lightweight background mode that
+writes the same result, the same goalscorers and the same player record without
+moving anybody or drawing anything. A whole division's Sunday costs a few tens of
+milliseconds that way rather than a minute. Both modes are documented in
+[`MATCH_ENGINE.md`](MATCH_ENGINE.md#0-the-two-modes--read-this-first).
 
 ## Further reading
 

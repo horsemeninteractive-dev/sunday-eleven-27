@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { isPlayer } from '@/domain/person';
 import { createTestGame } from './testSupport';
+import { leagueCompetitions, tierOf } from './pyramid';
+import { startNextSeason } from './season';
 import { CLUB_LIFECYCLE, reviewClubFinances, type ClubLifecycleContext } from './clubLifecycle';
 
 /**
@@ -14,6 +16,7 @@ function contextFor(state: ReturnType<typeof createTestGame>['state'], index = 0
     seasonId: `season_lifecycle_${index}`,
     seasonLabel: `lifecycle ${index}`,
     seasonStart: state.season.startDate,
+    divisions: leagueCompetitions(state).map((competition) => competition.clubIds),
   };
 }
 
@@ -93,6 +96,90 @@ describe('club folding and reform', () => {
     expect(third.folded.some((fold) => fold.clubId === clubId)).toBe(true);
     expect(club.active).toBe(false);
     expect(competition.clubIds.length).toBe(size);
+  });
+
+  /**
+   * The club that forms in a folded club's place has to be in the ladder from
+   * the moment it exists. It used to be pushed into last season's competition
+   * record, which the new season was not built from — so it arrived in no
+   * division at all, with no fixtures and no season record to archive.
+   */
+  it('puts a replacement club straight into the division its predecessor left', () => {
+    const { state } = createTestGame('club-reform-division');
+    const clubId = firstNonUserClub(state);
+    const club = state.clubs[clubId]!;
+    const tier = tierOf(state, clubId);
+    const sizesBefore = leagueCompetitions(state).map((competition) => competition.clubIds.length);
+    const knownBefore = new Set(leagueCompetitions(state).flatMap((competition) => [...competition.clubIds]));
+    club.finances.balance = CLUB_LIFECYCLE.terminalDebt - 500;
+
+    startNextSeason(state);
+
+    // The old club is off the ladder entirely, not merely inactive on it.
+    expect(state.clubs[clubId]!.active).toBe(false);
+    expect(leagueCompetitions(state).some((competition) => competition.clubIds.includes(clubId))).toBe(false);
+
+    // The new club exists, is in exactly one division, and sits in the tier the
+    // club it replaced played in.
+    const replacement = Object.values(state.clubs).find(
+      (candidate) => candidate.active && !knownBefore.has(candidate.id),
+    );
+    expect(replacement).toBeTruthy();
+    const memberships = leagueCompetitions(state).filter((competition) =>
+      competition.clubIds.includes(replacement!.id),
+    );
+    expect(memberships).toHaveLength(1);
+    expect(tierOf(state, replacement!.id)).toBe(tier);
+
+    // And it has this season's record already opened, so the season is archived.
+    expect(replacement!.history.seasons.some((record) => record.seasonId === state.season.id)).toBe(true);
+
+    // The ladder holds its size, which is the whole point of the cycle.
+    expect(leagueCompetitions(state).map((competition) => competition.clubIds.length)).toEqual(sizesBefore);
+
+    // Every active club is in exactly one division, both halves of the swap
+    // having gone through the same ladder the season was actually built from.
+    for (const candidate of Object.values(state.clubs)) {
+      if (!candidate.active) continue;
+      const count = leagueCompetitions(state).filter((competition) => competition.clubIds.includes(candidate.id)).length;
+      expect(count).toBe(1);
+    }
+  });
+
+  it('forms a distinct replacement for each club that folds, even in one town', () => {
+    const { state } = createTestGame('club-reform-collision');
+    // A town can hold more than one club and both can go under in one summer.
+    // The replacement stream and id used to be keyed on the town, so the second
+    // fold minted the same club again: one id in the division twice and two
+    // fixtures on one afternoon.
+    const byTown = new Map<string, string[]>();
+    for (const club of Object.values(state.clubs)) {
+      if (!club.active || club.id === state.userClubId) continue;
+      byTown.set(club.townId, [...(byTown.get(club.townId) ?? []), club.id]);
+    }
+    const pair = [...byTown.values()].find((ids) => ids.length >= 2);
+    expect(pair).toBeTruthy();
+    const sizesBefore = leagueCompetitions(state).map((competition) => competition.clubIds.length);
+    const knownBefore = new Set(leagueCompetitions(state).flatMap((competition) => [...competition.clubIds]));
+    for (const clubId of pair!.slice(0, 2)) {
+      state.clubs[clubId]!.finances.balance = CLUB_LIFECYCLE.terminalDebt - 500;
+    }
+
+    startNextSeason(state);
+
+    const formed = Object.values(state.clubs).filter((club) => club.active && !knownBefore.has(club.id));
+    expect(formed).toHaveLength(2);
+    for (const replacement of formed) {
+      const memberships = leagueCompetitions(state).filter((competition) =>
+        competition.clubIds.includes(replacement.id),
+      );
+      expect(memberships).toHaveLength(1);
+    }
+    // No club id is listed twice in any division, and the ladder holds its size.
+    for (const competition of leagueCompetitions(state)) {
+      expect(new Set(competition.clubIds).size).toBe(competition.clubIds.length);
+    }
+    expect(leagueCompetitions(state).map((competition) => competition.clubIds.length)).toEqual(sizesBefore);
   });
 
   it('holds the player’s own club out of the cycle', () => {

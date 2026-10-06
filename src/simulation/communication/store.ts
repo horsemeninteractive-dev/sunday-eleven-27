@@ -325,6 +325,41 @@ export function pruneCommunication(state: GameState): { droppedParticipants: num
 }
 
 /**
+ * Forget somebody who has left the world, in every thread that named them.
+ *
+ * The twin of `removePersonRelationships`, and for the same reason: a man
+ * deleted from `state.people` leaves his id in `participantIds`, and
+ * `pruneCommunication` drops it on the next load. Leaving it in place makes a
+ * running career and a reloaded one differ — a thread that reads as three people
+ * before the save and two after it. Removing it here keeps the two in step: what
+ * happens to a man who leaves is the same whether or not the manager saves first.
+ *
+ * The messages are left alone. The words were said, whatever has since become of
+ * the people who said them, and a thread the manager is left holding is still his
+ * to read.
+ *
+ * Safe to call for somebody in no thread, and for somebody who is not in
+ * `state.people` at all. Returns how many threads were changed.
+ */
+export function removePersonFromCommunication(state: GameState, personId: PersonId): number {
+  const store = communicationStore(state);
+  let changed = 0;
+  for (const conversation of Object.values(store.conversations)) {
+    if (!conversation.participantIds.includes(personId)) continue;
+    conversation.participantIds = conversation.participantIds.filter((id) => id !== personId);
+    changed += 1;
+    // A thread left with nobody in it cannot be written to. It stays readable —
+    // messages are never deleted — but it goes quiet, exactly as it would have
+    // done had the loader pruned it.
+    if (conversation.participantIds.length === 0) {
+      conversation.active = false;
+      conversation.closedOn = conversation.closedOn ?? (state.date as ISODate);
+    }
+  }
+  return changed;
+}
+
+/**
  * People the manager can hold a conversation with, most obvious first.
  *
  * This is not a UI list: it is the set of *valid targets*, so a caller that

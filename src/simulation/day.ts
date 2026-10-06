@@ -28,7 +28,7 @@ import {
   readCupRound,
 } from './cup';
 import { prepareMatchday } from './matchday';
-import { simulateMatchHeadless } from './match/matchEngine';
+import { simulateFixture, simulationModeFor } from './fastMatch';
 import { matchEnvironment } from './matchday';
 import { rollWeeklyAvailabilityForAll } from './gameSetup';
 import { decidePostponement, isActiveFixture, postponeFixture } from './postponement';
@@ -643,12 +643,12 @@ function* applyFixturesSteps(
       continue;
     }
 
-    // One engine decides every match, watched or not: an AI fixture is played
-    // by the same MatchEngine the manager watches, headless. There is no second,
-    // simplified simulation for the games he is not looking at.
-    //
-    // This is the moment the manager is waiting on — a second or more per game
-    // — so the loop stands here and says which match is being worked out.
+    // Two simulation modes, one policy. A fixture the manager's own club is
+    // involved in is played by the full MatchEngine — he may watch it, play it
+    // out, or (here) send it to the bench, and it is the same football either
+    // way — while every other fixture is the fast background model, which writes
+    // the identical record at a fraction of the cost. `simulationModeFor` is the
+    // one place that rule lives; nothing infers it from the call site.
     if (!involvesUser) {
       yield {
         kind: 'fixture',
@@ -660,7 +660,7 @@ function* applyFixturesSteps(
       };
     }
     const env = matchEnvironment(state, match, { autoManageAllBenches: true });
-    simulateMatchHeadless(match, env);
+    simulateFixture(match, env, simulationModeFor(state, match));
     played += 1;
     const consequences = applyMatchConsequences(state, match);
     outcome.events.push(...consequences.events);

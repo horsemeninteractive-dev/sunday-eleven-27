@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { ClubId, CompetitionId } from '@/domain/ids';
+import type { ClubId, CompetitionId, MatchId } from '@/domain/ids';
+import { addDays, dayOfWeek } from './calendar';
 import type { Match } from '@/domain/match';
 import {
   mainCupPlan,
@@ -8,12 +9,15 @@ import {
   matchesForRound,
   loserOf,
   winnerOf as winner,
+  cupRoundMatchday,
+  drawCupRound,
   PRELIMINARY_SIZE,
   PLATE_PRELIMINARY_FROM_FIRST_ROUND,
 } from './cup';
 import { LEAGUE_CUP_ID, PLATE_ID } from './pyramid';
 import { createTestGame } from './testSupport';
 import { processDay } from './day';
+import { leagueMatchdayCount } from './timeline';
 
 /**
  * The shape of the season's cups.
@@ -289,6 +293,101 @@ describe('a season of cups actually played', () => {
       clubs.add(match.homeClubId);
       clubs.add(match.awayClubId);
       byDate.set(match.date, clubs);
+    }
+  });
+});
+
+/**
+ * A round is drawn in the same day's processing as the tie that completed the
+ * round before it. When that tie was a rearranged one, its replay can land on the
+ * next round's own calendar slot — so the slot is already today by the time the
+ * draw runs, and today's fixtures have been played. A tie dated today is never
+ * picked up again, and the competition never finishes.
+ */
+describe('drawing a round whose slot has already arrived', () => {
+  it('dates every tie after today rather than onto a day already played', () => {
+    const { state } = createTestGame('cup-slot-passed');
+    const cup = state.competitions[LEAGUE_CUP_ID]!;
+    const plan = cup.cup?.plan ?? [];
+    const finalRound = plan[plan.length - 1]!.round;
+    // Stand the competition at its final with two clubs left, as it would be when
+    // a semi-final replay has just finished on the final's own Sunday.
+    cup.clubIds = Object.values(state.clubs)
+      .filter((club) => club.active)
+      .slice(0, 2)
+      .map((club) => club.id);
+    cup.cup = { ...cup.cup!, round: finalRound };
+    const matchday = cupRoundMatchday(state, cup, finalRound);
+    const slot = state.season.calendar.find((entry) => entry.matchday === matchday)?.date;
+    expect(slot).toBeTruthy();
+    state.date = slot!;
+
+    const drawn = drawCupRound(state, cup, {
+      seasonId: state.season.id,
+      seasonLabel: state.season.label,
+      leagueMatchdays: leagueMatchdayCount(state),
+    });
+    expect(drawn).not.toBeNull();
+
+    const ties = matchesForRound(state, cup, finalRound);
+    expect(ties.length).toBeGreaterThan(0);
+    for (const tie of ties) {
+      expect(tie.date > state.date).toBe(true);
+    }
+  });
+
+  it('still draws the round when the first free day is over a month away', () => {
+    // A congested calendar can leave every spare Sunday and Wednesday taken for
+    // weeks. The search for a free day used to give up after thirty days and hand
+    // back nothing — and a round with no date is a round that is never drawn. The
+    // competition simply stopped there, with no winner and an honour nobody ever
+    // collected. The search is bounded by the rearrangement deadline, not a month.
+    const { state } = createTestGame('cup-round-crowded');
+    const cup = state.competitions[LEAGUE_CUP_ID]!;
+    const plan = cup.cup?.plan ?? [];
+    const finalRound = plan[plan.length - 1]!.round;
+    const field = Object.values(state.clubs).filter((club) => club.active).slice(0, 2);
+    cup.clubIds = field.map((club) => club.id);
+    cup.cup = { ...cup.cup!, round: finalRound };
+    const matchday = cupRoundMatchday(state, cup, finalRound);
+    const slot = state.season.calendar.find((entry) => entry.matchday === matchday)!.date;
+    state.date = slot;
+
+    // Book both clubs out of every Sunday and Wednesday for the next month, so the
+    // first day the round could actually be played is past the old thirty-day cap.
+    const blocker = Object.values(state.clubs).find((club) => !field.includes(club))!.id;
+    const blockedThrough = addDays(slot, 32);
+    let blocked = 0;
+    for (let day = 3; day <= 32; day += 1) {
+      const date = addDays(slot, day);
+      const weekday = dayOfWeek(date);
+      if (weekday !== 0 && weekday !== 3) continue;
+      for (const club of field) {
+        const id = `block_${club.id}_${date}` as MatchId;
+        state.matches[id] = {
+          id,
+          date,
+          homeClubId: club.id,
+          awayClubId: blocker,
+          played: false,
+          status: 'scheduled',
+        } as unknown as Match;
+      }
+      blocked += 1;
+    }
+    expect(blocked).toBeGreaterThan(4);
+
+    const drawn = drawCupRound(state, cup, {
+      seasonId: state.season.id,
+      seasonLabel: state.season.label,
+      leagueMatchdays: leagueMatchdayCount(state),
+    });
+    expect(drawn).not.toBeNull();
+
+    const ties = matchesForRound(state, cup, finalRound);
+    expect(ties.length).toBeGreaterThan(0);
+    for (const tie of ties) {
+      expect(tie.date > blockedThrough).toBe(true);
     }
   });
 });

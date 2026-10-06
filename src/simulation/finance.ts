@@ -281,21 +281,17 @@ export function ensurePlayerSubs(player: Player): void {
   if (player.subs.lastPaidOn === undefined) player.subs.lastPaidOn = null;
 }
 
-/** Wednesday: pitch hire, insurance and the small things that add up. */
+/** Wednesday: insurance and the small things that add up. */
 export function applyStandingCosts(state: GameState, clubId: ClubId, date: ISODate): FinanceReport {
   const club = state.clubs[clubId];
   if (!club) return { income: 0, expenditure: 0, balance: 0 };
   const finances = club.finances;
   let expenditure = 0;
 
-  const ground = addLedgerEntry(state, clubId, {
-    date,
-    description: 'Weekly pitch hire',
-    category: 'pitch-hire',
-    amount: -finances.weeklyGroundCost,
-  });
-  expenditure += Math.abs(ground?.amount ?? 0);
-
+  // The ground is not a weekly bill. A club pays for its pitch on the days it
+  // actually plays at home, so nothing for it is charged here: a week with no
+  // home fixture costs it nothing for a pitch it never used. The ground side of
+  // a fixture is priced by `matchdayCosts` and billed with that fixture.
   const insurance = addLedgerEntry(state, clubId, {
     date,
     description: 'Insurance (weekly)',
@@ -335,7 +331,7 @@ export const REFEREE_FEE_BARE = 30;
 export interface MatchdayCosts {
   /** This club's half of the referee. */
   referee: number;
-  /** Hire of somebody else's ground, for the home club only. */
+  /** The ground, for the home club only: its own pitch, or the hire of somebody else's. */
   groundHire: number;
   /** Fuel money, for the away club only. */
   travel: number;
@@ -352,11 +348,17 @@ export interface MatchdayCosts {
 export function matchdayCosts(state: GameState, match: Match, clubId: ClubId): MatchdayCosts {
   const referee = (match.refereeId ? REFEREE_FEE_WITH_OFFICIAL : REFEREE_FEE_BARE) / 2;
 
+  // The ground is paid for on the day it is used, by the club that uses it. The
+  // home club pays its own pitch cost when it plays at its own ground, and what
+  // the ground charges for the fixture when it is borrowing somebody else's.
   const ground = state.world.grounds[match.groundId];
-  const groundHire =
-    match.homeClubId === clubId && ground && ground.tenantClubId !== match.homeClubId
-      ? ground.matchdayCost
-      : 0;
+  let groundHire = 0;
+  if (match.homeClubId === clubId && ground) {
+    groundHire =
+      ground.tenantClubId === match.homeClubId
+        ? (state.clubs[clubId]?.finances.weeklyGroundCost ?? 0)
+        : ground.matchdayCost;
+  }
 
   let travel = 0;
   if (match.awayClubId === clubId) {

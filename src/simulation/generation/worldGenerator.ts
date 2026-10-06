@@ -238,6 +238,23 @@ export function reputationForTown(rng: Rng, town: Town): number {
 }
 
 /**
+ * A club's standard, without the roll of the dice: the level its standing says
+ * it plays at.
+ *
+ * This is the world's anchor. A squad is generated at this level, a youth intake
+ * and a summer signing are generated at it, and a club that has drifted away
+ * from it is rebuilt back to it. Every one of those has to read the *same*
+ * figure, or the world has no level to come back to: a signing target taken from
+ * the squad it is joining only rises with the squad, and thirty-six clubs
+ * ratcheting each other upwards is what an inflated county looks like.
+ *
+ * 18 -> ~9.1, 88 -> ~12.3 on the 1-20 scale.
+ */
+export function clubStandardQuality(reputation: number): number {
+  return Math.max(7.2, Math.min(13.5, 8.3 + (reputation / 100) * 4.6));
+}
+
+/**
  * The standard of player a club of a given standing tends to attract. Shared
  * with club creation, so a club the manager builds is as good as its standing
  * says it should be rather than being generated to a separate scale.
@@ -245,7 +262,7 @@ export function reputationForTown(rng: Rng, town: Town): number {
  * 18 -> ~8.6, 88 -> ~12.4 on the 1-20 scale.
  */
 export function clubQualityFromReputation(rng: Rng, reputation: number): number {
-  return Math.max(7.2, Math.min(13.5, 8.3 + (reputation / 100) * 4.6 + rng.gaussian(0, 0.4)));
+  return Math.max(7.2, Math.min(13.5, clubStandardQuality(reputation) + rng.gaussian(0, 0.4)));
 }
 
 /**

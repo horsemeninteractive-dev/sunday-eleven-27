@@ -150,7 +150,7 @@ export function rearrangementsSoFar(state: GameState, match: Match): number {
  * after next. The deadline is fixed, and every rearrangement is dated later than
  * the game it replaces, so a chain of them can only ever be finite.
  */
-const REARRANGEMENT_GRACE_DAYS = 56;
+export const REARRANGEMENT_GRACE_DAYS = 56;
 
 /** The last date in the season on which a rearranged game may be played. */
 export function rearrangementDeadlineFor(state: GameState): ISODate {

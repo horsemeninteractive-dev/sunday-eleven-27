@@ -10,6 +10,151 @@ move (any save from an older build is migrated forward on load). `1.0.0` means
 it is finished. This file is also the changelog inside the game, reachable from
 the main menu.
 
+## [0.8.0] - 2026-10-06 — two engines, one football
+
+### Two ways to play a fixture
+
+A fixture nobody watches no longer costs what a fixture somebody watches costs.
+Every match the manager's club is not involved in — the rest of his own matchday,
+and every other club's season — is now decided by a **background mode**: an
+abstract model that walks the match a minute at a time from the same team
+strengths, the same tactics, the same conditions and the same player attributes as
+the full engine, and writes the identical record — the score, the goalscorers and
+assists, the cards, the knocks, the substitutions and the per-player statistics the
+season accumulates. It renders nothing, narrates nothing and moves nobody, because
+nobody is watching it; that is exactly why it is fast. A whole division's Sunday
+costs a few tens of milliseconds rather than a minute.
+
+**Which mode plays a fixture is a property of the fixture, decided in one place.**
+A match the manager's club is involved in is the full engine, always — watched,
+played out at speed, or sent to the bench — and every other match is the
+background model. The mode is stamped onto the match record, so nobody has to
+infer it, and an old save that carries none loads as the full engine, which is
+what played it.
+
+**Nothing downstream knows or cares which mode decided a game.** The league
+table, the cup, the finances, the suspensions, the record books and a player's
+career all read the match record rather than the simulation, so a season does not
+depend on which fixtures the manager happened to watch. The full engine is neither
+replaced nor simplified: it remains the football he sees. `npm run benchmark` times
+the two against the same fixtures and prints their fingerprints side by side —
+goals, shots, fouls, bookings, knocks, substitutions, appearances, pass completion,
+mean rating — which is how the calibration is kept honest, and `MATCH_ENGINE.md`
+now opens with the two modes.
+
+### Ability and goals stop creeping over a career
+
+The fifteen-season soak had been flagging the same thing for a while: the longer a
+career ran, the better the county got and the more prolific its matches — about
+eight or nine per cent of ability and ten to eighteen per cent more goals, with the
+spread of the league narrowing as it went. Two leaks, and they were the same
+mistake twice: **an arrival was better than the club it joined.**
+
+**A club now knows the level it plays at, and it is read from its standing rather
+than from the squad it happens to have.** The summer's signings, the youth intake
+and the journeyman top-up are all generated against that one figure, and a club
+never signs a man better than the club itself is. A side below its standard can
+climb back to it; a side above it cannot keep climbing, because there is nothing
+above the standard to sign — so thirty-six clubs can no longer ratchet each other
+upward every summer, which is what an inflated county looked like.
+
+**An arrival is one player, not an average.** A squad the world generator built
+drew every man at the club's level *plus his own roll of the dice*; an arrival
+generated at the average with no roll had none, so a side topped up through the
+summer quietly lost its top end — and its keeper, the one man who is not a team
+average, first. Arrivals draw the same roll now, and the squad that leaves the
+summer has the spread of the one that was generated.
+
+Over the same fifteen seasons, ability drift falls from eight or nine per cent to
+one to three, the spread holds instead of collapsing, and goals are flat on two of
+the three soak seeds; the third still creeps by about nine per cent between the
+first half of a career and the second, and that is the outstanding item.
+
+### Four ways a season failed to finish
+
+Each of these was found by playing careers forward rather than by reading the code.
+
+**League fixtures landed on the wrong Sunday.** The season calendar is ordered by
+*date*, and a cup round sits on the Sunday before the league matchday that follows
+it, so its matchday number is out of order in the list. Fixtures were dated by
+their position in that list, which put every league matchday after the first
+interleaved cup round on the wrong day — league games on cup nights, and cup rounds
+onto days already played. A fixture now reads its date by its own matchday.
+
+**A cup round could be drawn for the very day it was meant to be played, and so
+never played at all,** because a round is drawn in the same day's processing as the
+tie that completed the round before it. A slot has to be genuinely ahead of today
+now, not merely today.
+
+**A congested spring could silently lose a round.** The search for a free field
+gave up after thirty days, and a round that needed thirty-two was never drawn: the
+competition stopped, with a winner nobody named and an honour nobody collected. The
+search now runs to the rearrangement deadline the season already imposes.
+
+**A season could open before the season before it had closed.** A year carrying a
+back-log of rearranged fixtures ends a week or two past its calendar, and the next
+pre-season opened on a fixed date regardless — winding the clock backwards. The
+opener steps on a week at a time until it is genuinely after the football already
+played.
+
+The pitch is no longer a weekly standing cost, either. A club pays for a ground on
+the days it actually plays at home — its own when it is at home, somebody else's
+when it is borrowing — so a week without a home fixture no longer bills it for a
+pitch nobody used.
+
+### The pyramid folds all the way down, and one club is replaced by one club
+
+**Administration and folding ran on the top division only,** so a club in the
+third tier could lose money for ever and never be wound up. Every division is
+reviewed now. A newly formed club is also shaped in the ladder the new season is
+actually built from, rather than pushed into last season's competition records —
+which is how a replacement once ended up in no division at all and with no season
+record to archive.
+
+A replacement is keyed on **the club it replaces rather than the town**: a town can
+hold more than one club, and when two of them folded in the same summer the game
+minted the same replacement twice — one id pushed into the division twice, one club
+booked into two fixtures on the same day, and both replacements sharing a name
+because they drew from one stream.
+
+### A man who leaves the world leaves his threads too
+
+Deleting somebody now clears them from the communication threads that named them,
+the twin of what already happened to their relationships. The save loader pruned
+participants on load, so a running career and a reloaded one disagreed about who
+was in a conversation; they agree now. A thread the manager is left holding still
+reads, and keeps its messages, but goes quiet.
+
+### A sponsorship figure follows the business and the division
+
+The tier factor is a **level** — what a first-division backer is worth against a
+third-division one — not a growth rate, and a renewal now re-derives the instalment
+from the business and the club's division instead of multiplying the last one by
+the factor: a well-run club's deal moves with its standing rather than compounding
+by forty per cent a summer. **A payment that arrives clears the run of missed
+payments,** which is what "if it keeps happening" always meant — never resetting it
+accumulated to three and a half misses a season, so nearly every weekly sponsor
+walked within a year whatever the club did. And a club without a sponsor looks
+harder for one: the old odds were low enough that coverage decayed season on
+season, and a club with no backer runs at a loss it cannot close.
+
+### Cutting a release is one command that insists on the order
+
+`npm run release` does the six steps that only work in one order — each of which
+has a way of being half-done: it bumps the version, folds `## [Unreleased]` into a
+dated heading, runs the guard that the changelog's first version is the one being
+built, builds, reads the number back out of the built bundle so a stale build
+cannot ship under a new one, commits before deploying so Cloudflare records the
+commit it is serving, deploys, and tags the commit that shipped. It stops at the
+first thing that does not check out, leaving the tree exactly as it found it.
+`--dry-run` rehearses it, `--no-deploy` stops after the commit, and `--push` sends
+the branch and tag on.
+
+The test suite is split in two, named once in `vitest.patterns.ts` so neither half
+can drift: `npm test` is the fast check a person runs on every change, `npm run
+test:slow` is the match-engine and season-loop suites that are minutes of football,
+and `npm run test:all` is both.
+
 ## [0.7.0] - 2026-10-06 — the people who run the club
 
 ### A Club screen, and one answer to "what needs me"

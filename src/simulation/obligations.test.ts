@@ -53,18 +53,20 @@ describe('the club’s known obligations', () => {
     const rows = upcomingObligations(state, clubId, { weeks: 3, limit: 50 });
     const standing = rows.filter((row) => row.label === 'Standing costs');
     expect(standing.length).toBeGreaterThan(0);
-    expect(standing[0]!.amount).toBe(-(club.finances.weeklyGroundCost + club.finances.insurancePerWeek));
+    // The weekly standing bill is the insurance: the pitch is billed with the
+    // home fixture that used it, and appears as a fixture obligation instead.
+    expect(standing[0]!.amount).toBe(-club.finances.insurancePerWeek);
 
     // Now actually run that payday and check the ledger says the same thing.
     const date = standing[0]!.date;
     const before = club.finances.ledger.length;
     applyStandingCosts(state, clubId, date);
     const written = club.finances.ledger.slice(before);
-    const pitch = written.find((line) => line.category === 'pitch-hire')!;
     const insurance = written.find((line) => line.category === 'insurance')!;
-    expect(pitch.amount).toBe(-club.finances.weeklyGroundCost);
     expect(insurance.amount).toBe(-club.finances.insurancePerWeek);
-    expect(pitch.amount + insurance.amount).toBe(standing[0]!.amount);
+    expect(insurance.amount).toBe(standing[0]!.amount);
+    // Nothing for a pitch is charged on a Wednesday any more.
+    expect(written.find((line) => line.category === 'pitch-hire')).toBeUndefined();
   });
 
   it('prices a fixture the way that fixture is actually charged', () => {

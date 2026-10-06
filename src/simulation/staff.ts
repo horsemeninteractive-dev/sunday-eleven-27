@@ -14,6 +14,7 @@ import {
 } from '@/domain/staff';
 import { maybeNickname, occupation, personFirstName, personSurname } from './generation/names';
 import { createEvent } from './news';
+import { removePersonFromCommunication } from './communication/store';
 import { applyRelationshipEvent, removePersonRelationships, upsertRelationship } from './relationships';
 import { Rng, stream } from './rng';
 
@@ -648,6 +649,7 @@ export function runStaffLifecycle(state: GameState, context: StaffLifecycleConte
       if (reason === 'retired') {
         delete state.people[person.id];
         removePersonRelationships(state, person.id);
+        removePersonFromCommunication(state, person.id);
         retired.push(person.id);
       } else {
         departed.push(person.id);
@@ -739,6 +741,7 @@ export function runStaffLifecycle(state: GameState, context: StaffLifecycleConte
     for (const person of trim) {
       delete state.people[person.id];
       removePersonRelationships(state, person.id);
+      removePersonFromCommunication(state, person.id);
     }
   }
 

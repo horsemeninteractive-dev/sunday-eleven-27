@@ -253,10 +253,13 @@ describe('money on its own dates', () => {
     let date = state.date;
     while (dayOfWeek(date) !== 3) date = addDays(date, 1);
     processDay(state, date);
-    const costs = ledgerOf(state, state.userClubId).filter(
-      (entry) => entry.category === 'pitch-hire' && entry.date === date,
-    );
-    expect(costs.length).toBeGreaterThan(0);
+    const costs = ledgerOf(state, state.userClubId).filter((entry) => entry.date === date);
+    // Insurance and equipment are the standing weekly costs. The ground is not a
+    // weekly bill any more: a club pays for its pitch on the days it plays at
+    // home, so a Wednesday with no fixture books nothing for the pitch.
+    expect(costs.some((entry) => entry.category === 'insurance')).toBe(true);
+    expect(costs.some((entry) => entry.category === 'equipment')).toBe(true);
+    expect(costs.some((entry) => entry.category === 'pitch-hire')).toBe(false);
   });
 });
 

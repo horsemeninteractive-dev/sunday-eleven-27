@@ -10,6 +10,7 @@ import { GAME_STATE_VERSION } from '@/domain/game';
 import type { PersonId } from '@/domain/ids';
 import { isPlayer, type Player } from '@/domain/person';
 import { deserialiseGame, serialiseGame } from '@/state/persistence';
+import { refreshUnattachedPool } from '../generation/unattachedPlayers';
 import { createTestGame, type TestGame } from '../testSupport';
 import {
   applyConsequences,
@@ -39,6 +40,7 @@ import {
   markMessageRead,
   messagesOf,
   pruneCommunication,
+  removePersonFromCommunication,
 } from './store';
 
 function squadOf(game: TestGame): Player[] {
@@ -458,6 +460,67 @@ describe('communication: invalid and departed participants', () => {
     expect(contactablePeople(game.state).map((person) => person.id)).not.toContain(player.id);
     // And the manager is never a correspondent with himself.
     expect(contactablePeople(game.state).map((person) => person.id)).not.toContain(MANAGER_PERSON_ID);
+  });
+
+  it('forgets a man who leaves the world, and leaves nothing for the loader to prune', () => {
+    const game = createTestGame('comms-departure');
+    const player = squadOf(game)[0]!;
+    const conversation = threadWith(game.state, player.id);
+    sendFromPerson(game.state, conversation.id, player.id, { body: 'Still on for Sunday?' });
+
+    delete game.state.people[player.id];
+    const changed = removePersonFromCommunication(game.state, player.id);
+
+    expect(changed).toBeGreaterThan(0);
+    expect(conversationOf(game.state, conversation.id)!.participantIds).toEqual([MANAGER_PERSON_ID]);
+    // The words survive him: a thread the manager is left holding is still his.
+    expect(messagesOf(game.state, conversation.id)).toHaveLength(1);
+    // And the loader has nothing left to do — the point being that a running
+    // career and a reloaded one are the same inbox.
+    expect(pruneCommunication(game.state).droppedParticipants).toBe(0);
+  });
+
+  it('is the same inbox before and after a save once a man has left', () => {
+    const game = createTestGame('comms-departure-save');
+    const player = squadOf(game)[0]!;
+    const conversation = threadWith(game.state, player.id);
+    sendFromPerson(game.state, conversation.id, player.id, { body: 'Right you are.' });
+
+    delete game.state.people[player.id];
+    removePersonFromCommunication(game.state, player.id);
+
+    const restored = deserialiseGame(serialiseGame(game.state));
+    expect(restored.error).toBeNull();
+    const before = conversationOf(game.state, conversation.id)!;
+    const after = conversationOf(restored.state!, conversation.id)!;
+    expect(after.participantIds).toEqual(before.participantIds);
+    expect(after.messages).toEqual(before.messages);
+    expect(after.unreadCount).toBe(before.unreadCount);
+    expect(after.active).toBe(before.active);
+    expect(after.lastActivity).toBe(before.lastActivity);
+  });
+
+  it('takes a departed free agent out of every thread when the pool is refreshed', () => {
+    const game = createTestGame('comms-departure-pool');
+    const state = game.state;
+    const freeAgent = Object.values(state.people).filter(isPlayer).find((player) => player.clubId === null)!;
+    expect(freeAgent).toBeDefined();
+    const conversation = threadWith(state, freeAgent.id);
+    sendFromPerson(state, conversation.id, freeAgent.id, { body: 'Fancy a game Sunday?' });
+    expect(conversationOf(state, conversation.id)!.participantIds).toContain(freeAgent.id);
+
+    // Old enough to drift out of the local game when the pool is refreshed.
+    freeAgent.age = 41;
+    refreshUnattachedPool(state, state.season.startDate, 'comms-departure');
+
+    expect(state.people[freeAgent.id]).toBeUndefined();
+    // No thread still lists somebody who has gone...
+    for (const thread of conversationsInOrder(state)) {
+      expect(thread.participantIds).not.toContain(freeAgent.id);
+    }
+    // ...the loader agrees with the running career, and the words are still there.
+    expect(pruneCommunication(state).droppedParticipants).toBe(0);
+    expect(messagesOf(state, conversation.id).length).toBeGreaterThan(0);
   });
 });
 

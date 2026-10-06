@@ -3,8 +3,11 @@ import type { GameState } from '@/domain/game';
 import type { ClubId, ISODate, PlayerId } from '@/domain/ids';
 import { isPlayer, type Player } from '@/domain/person';
 import { abilityMean } from './queries';
+import { clubStandardQuality } from './generation/worldGenerator';
 import { linkNewTeammate } from './generation/relationshipGenerator';
+import { removePersonFromCommunication } from './communication/store';
 import { relationshipStore, removePersonRelationships } from './relationships';
+import { leaveClubStaff } from './staff';
 import { Rng, stream } from './rng';
 
 /**
@@ -45,18 +48,10 @@ export const AI_CLUBS = {
   /** How many men a club will sign from the pool in one summer. */
   maxSigningsPerSeason: 4,
   /**
-   * A signing has to be at least this good, as a share of the squad's median. A
-   * village side does not sign a man markedly worse than what it already fields;
-   * a top-flight club will take one or two above its own level.
+   * A signing has to be at least this good, as a share of the club's standing. A
+   * village side does not sign a man markedly worse than what it already fields.
    */
   signingFloor: 0.92,
-  /**
-   * ...and no better than this, as a share. The ceiling is what stops the best
-   * players in the county from draining into the top division every summer. A
-   * club replaces the men it releases with men of their level, not with the best
-   * men available.
-   */
-  signingCeiling: 1.08,
 } as const;
 
 /** The age at which a player stops being a candidate for anybody's squad. */
@@ -106,33 +101,28 @@ export function clubSignsFromPool(
   const signedIds = new Set<string>();
   const wanted = Math.min(gap, AI_CLUBS.maxSigningsPerSeason);
 
-  // The club's own standard, as one number: it will not sign a man who is worse
-  // than what it already has.
-  //
-  // The standard is the squad's *typical* level, not its best one. A club with
-  // one fourteen in it has a signing policy set by the other nineteen men, and a
-  // floor taken from the best player would put it off signing anybody at all —
-  // which is precisely the bug that let the unattached pool grow without end.
-  const current = club.squadIds
-    .map((id) => state.people[id])
-    .filter((person): person is Player => isPlayer(person))
-    .map(rating)
-    .sort((a, b) => a - b);
-  const standard = current.length > 0 ? current[Math.floor(current.length / 2)]! : 0;
+  // The level the club plays at, read from its standing rather than from the
+  // squad it happens to have. A target taken from the current squad rises with
+  // the squad, and thirty-six clubs each signing men a little better than what
+  // they already field ratchet the whole county upward — the soak watched the
+  // bottom division gain six percent over fifteen seasons that way. Taken from
+  // the reputation, the club has a level to be rebuilt to instead of a level
+  // that climbs with every signing.
+  const standard = clubStandardQuality(club.reputation);
 
   // What the club is looking for. With no scouting, a club replaces like with
-  // like: it signs men of the level of the men it has just let go, within a band.
-  // Without the band the top of the pyramid drains the pool of every good player
-  // in the county each summer and never gives one back, and the soak watched
-  // Division One's average ability climb nine percent over eight seasons while
-  // the other two sat still. The band is what keeps the ladder stratified instead
-  // of hollowing out the bottom.
+  // like: the men it has just let go set the level it shops at, and it never
+  // signs a man better than the club itself is. A side below its standard can
+  // climb back to it; a side above it cannot keep climbing, because there is
+  // nothing above the club's own standard to sign. That ceiling is also what
+  // stops the best players in the county draining into the top division every
+  // summer, without flattening the ladder the way a flat cap would.
   const replaces = options.replaces ?? [];
   const benchmark = replaces.length > 0
     ? replaces.reduce((sum, value) => sum + value, 0) / replaces.length
     : standard;
   const floor = Math.min(standard, benchmark) * AI_CLUBS.signingFloor;
-  const ceiling = Math.max(standard, benchmark) * AI_CLUBS.signingCeiling;
+  const ceiling = standard;
 
   for (let attempt = 0; attempt < wanted; attempt += 1) {
     // Men past the age they retire at are not candidates however good they
@@ -245,6 +235,10 @@ export function runAiClubSummer(state: GameState, seasonId: string, seasonStart:
 
 /** Take a man off a club's books and put him in the pool, or out of the world. */
 export function releaseFromClub(state: GameState, club: Club, player: Player): void {
+  // He may have been doubling up on the committee — a player-coach, a player
+  // secretary. The post goes with him, so a club never keeps a staff slot
+  // naming a man who is no longer at the club or in the world.
+  leaveClubStaff(state, club.id, player.id);
   club.squadIds = club.squadIds.filter((id) => id !== player.id);
   if (club.history.records.recordAppearanceHolderId === player.id) {
     club.history.records.recordAppearanceHolderId = null;
@@ -253,6 +247,7 @@ export function releaseFromClub(state: GameState, club: Club, player: Player): v
   if (!releaseToPool(player)) {
     delete state.people[player.id];
     removePersonRelationships(state, player.id);
+    removePersonFromCommunication(state, player.id);
   }
   for (const candidateId of Object.keys(state.recruitment?.candidates ?? {})) {
     if (candidateId === player.id && state.recruitment) delete state.recruitment.candidates[candidateId];

@@ -1,9 +1,10 @@
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
-import { defineConfig, type Plugin } from 'vitest/config';
+import { configDefaults, defineConfig, type Plugin } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import { fileURLToPath } from 'node:url';
 import pkg from './package.json';
+import { SLOW_TEST_PATTERNS } from './vitest.patterns';
 
 /**
  * Every file the build produces, written into the service worker.
@@ -131,5 +132,10 @@ export default defineConfig({
     environment: 'node',
     globals: true,
     include: ['src/**/*.test.ts'],
+    // `npm test` is the fast check a person runs on every change: the engine
+    // batches and the season-loop suites are minutes of football and live in
+    // `npm run test:slow` instead. Both halves are named once, in
+    // `vitest.patterns.ts`, so neither can drift from the other.
+    exclude: [...configDefaults.exclude, ...SLOW_TEST_PATTERNS],
   },
 });

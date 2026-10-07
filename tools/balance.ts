@@ -11,9 +11,9 @@
  * differences — two even sides, a quality gap, and then one instruction changed
  * at a time — plays a seeded sample of each, and prints what came out: goals and
  * their spread, shots and how many hit the target, possession, passing, the
- * physical side of the game, and the mix of actions players actually chose (read
- * from the simulation trace, so it is what the engine did rather than what it
- * was asked to do).
+ * physical side of the game, and the ordinary play the engine wrote down — the
+ * passes, the carries and the tackles that make up a match's texture (read from
+ * the record, so it is what the engine did rather than what it was asked to do).
  *
  * The tactical scenarios are the ones worth reading twice. A scenario that
  * changes one instruction and produces no measurable difference in behaviour
@@ -33,8 +33,7 @@ import type { Club } from '@/domain/club';
 import type { GameState } from '@/domain/game';
 import type { Match } from '@/domain/match';
 import { defaultTactics, type Tactics } from '@/domain/tactics';
-import type { ActionKind } from '@/simulation/match/actions';
-import { simulateToCompletion } from '@/simulation/match/engine';
+import { simulateMatchHeadless } from '@/simulation/match/matchEngine';
 import { matchEnvironment, prepareMatchday } from '@/simulation/matchday';
 import { createTestGame } from '@/simulation/testSupport';
 
@@ -44,11 +43,11 @@ interface Options {
   games: number;
   only: string | null;
   quiet: boolean;
-  trace: boolean;
+  actions: boolean;
 }
 
 function parseArgs(argv: readonly string[]): Options {
-  const options: Options = { games: 60, only: null, quiet: false, trace: true };
+  const options: Options = { games: 60, only: null, quiet: false, actions: true };
   for (const arg of argv) {
     const [name, value] = arg.replace(/^--/, '').split('=');
     switch (name) {
@@ -62,7 +61,7 @@ function parseArgs(argv: readonly string[]): Options {
         options.quiet = true;
         break;
       case 'no-actions':
-        options.trace = false;
+        options.actions = false;
         break;
       default:
         break;
@@ -173,7 +172,7 @@ interface Sample {
   /** Total goals per match, bucketed; the last bucket is "8 or more". */
   goalSpread: number[];
   scorelines: Map<string, number>;
-  actions: Map<ActionKind, number>;
+  actions: Map<string, number>;
 }
 
 function emptySample(): Sample {
@@ -222,15 +221,18 @@ function sample(b: Bench, games: number, options: Options): Sample {
     const match = structuredClone(b.base);
     match.seed = 9000 + index * 13;
     const env = matchEnvironment(b.state, match, { autoManageAllBenches: true });
-    if (options.trace) {
-      env.trace = (entry) => {
-        const action = entry.detail?.action;
-        if (typeof action !== 'string') return;
-        const kind = action as ActionKind;
-        out.actions.set(kind, (out.actions.get(kind) ?? 0) + 1);
-      };
+    simulateMatchHeadless(match, env);
+
+    // The ordinary play the engine wrote down. This used to be read from the old
+    // possession model's own trace of the actions it weighed; the record carries
+    // the same three textures the engine actually produced — a pass, a carry, a
+    // tackle — so the mix is what happened rather than what was considered.
+    if (options.actions) {
+      for (const event of match.events) {
+        if (event.type !== 'pass' && event.type !== 'carry' && event.type !== 'tackle') continue;
+        out.actions.set(event.type, (out.actions.get(event.type) ?? 0) + 1);
+      }
     }
-    simulateToCompletion(match, env);
 
     const result = match.result;
     if (!result) continue;
@@ -344,7 +346,7 @@ function reportDetail(title: string, note: string, s: Sample): void {
       .sort((a, b) => b[1] - a[1])
       .map(([kind, count]) => `${kind} ${percent(count, total, 0)}`)
       .join(' · ');
-    lines.push(`   actions chosen    ${mix}`);
+    lines.push(`   ordinary play     ${mix}`);
   }
 
   const spread = s.goalSpread.map((count, index) => `${SPREAD_LABELS[index]}:${percent(count, games, 0)}`).join('  ');
@@ -601,7 +603,7 @@ function main(): void {
       '',
       'Sunday Eleven 27 — match balance bench',
       `   ${options.games} seeded games a scenario · ${chosen.length} scenarios · ${options.games * chosen.length} matches`,
-      options.trace ? '   action mix read from the simulation trace' : '   action mix off (--no-actions)',
+      options.actions ? '   ordinary-play mix read from the record' : '   action mix off (--no-actions)',
     ].join('\n') + '\n',
   );
 

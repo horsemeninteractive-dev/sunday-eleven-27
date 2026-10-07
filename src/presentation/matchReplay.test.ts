@@ -4,7 +4,7 @@ import type { Match } from '@/domain/match';
 import { createTestGame } from '@/simulation/testSupport';
 import { matchEnvironment, prepareMatchday } from '@/simulation/matchday';
 import { cloneMatch } from '@/simulation/match/testHelpers';
-import { simulateToCompletion } from '@/simulation/match/engine';
+import { simulateMatchHeadless } from '@/simulation/match/matchEngine/engine';
 import { buildMatchRenderState } from './matchPresentation';
 import { buildReplay, replayAt } from './matchReplay';
 
@@ -19,6 +19,13 @@ import { buildReplay, replayAt } from './matchReplay';
  * change a line of it.
  */
 
+/**
+ * A match that was actually played.
+ *
+ * The authoritative engine runs it out to the whistle with nobody watching, so
+ * the record is the football a manager would have seen: the goals, the bookings,
+ * the ordinary play and the result. The replay reads only that record.
+ */
 function played(seed: string): { state: GameState; match: Match } {
   const { state } = createTestGame(seed);
   const fixture = Object.values(state.matches).find(
@@ -27,7 +34,7 @@ function played(seed: string): { state: GameState; match: Match } {
   prepareMatchday(state, fixture.matchday);
   const match = cloneMatch(state.matches[fixture.id]!);
   const env = matchEnvironment(state, match, { autoManageAllBenches: true });
-  simulateToCompletion(match, env);
+  simulateMatchHeadless(match, env);
   return { state, match };
 }
 
@@ -133,16 +140,22 @@ describe('a replay through the render contract', () => {
     expect(render.signals).toHaveLength(frame.revealed);
     expect(render.ball.x).toBeCloseTo(frame.x, 5);
     expect(render.ball.y).toBeCloseTo(frame.y, 5);
-    expect(render.players).toHaveLength(match.lineups.home.starting.length + match.lineups.away.starting.length);
+    // Both elevens are drawn — less anyone who was sent off, who is not on the
+    // pitch in a replay any more than he is in the live match.
+    const sentOff = [...match.lineups.home.starting, ...match.lineups.away.starting].filter(
+      (slot) => match.performances[slot.playerId]?.sentOff,
+    ).length;
+    expect(render.players).toHaveLength(
+      match.lineups.home.starting.length + match.lineups.away.starting.length - sentOff,
+    );
 
     // And it is fed from the record: no cue that has not been reached leaks in.
     const leaked = render.signals.length < match.events.length;
     expect(leaked).toBe(frame.revealed < match.events.length);
   });
 
-  it('stands everyone on the pitch, even for a match with no spatial state', () => {
-    const { state, match } = played('replay-no-spatial');
-    match.spatial = undefined;
+  it('stands everyone on the pitch even when the movement was never recorded', () => {
+    const { state, match } = played('replay-reconstruction');
     const replay = buildReplay(match)!;
     const frame = replayAt(replay, replay.duration * 0.4);
     const render = buildMatchRenderState(match, state, {

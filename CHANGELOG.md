@@ -10,6 +10,172 @@ move (any save from an older build is migrated forward on load). `1.0.0` means
 it is finished. This file is also the changelog inside the game, reachable from
 the main menu.
 
+## [0.9.0] - 2026-10-07 — a county worth believing in
+
+### Touchline, and the first boot
+
+The football simulation underneath the game has a name, and the game says it once.
+**Touchline** is this project's own match engine — one set of laws, one record the
+rest of the game reads — and it is introduced on a short startup sequence the first
+time the game is opened with nothing saved: the mark, the name, what it is, then the
+SE27 wordmark, then the menu.
+
+**It is a startup rather than a loading screen, and it cannot become one.** It is
+shown once and never again, it can be skipped with a button or dismissed with Escape,
+and a manager who already has a career saved does not see it at all — somebody with a
+season on disk has met the game already. Nothing is being loaded while it is on
+screen, and opening an existing career still goes through exactly the same
+save-loading screen it always did.
+
+**Touchline has a mark, and it is the thing itself.** The touchline — the side line
+of the pitch — runs the length of it and arrives at its corner, where the goal line
+turns up out of it and the corner arc curves into the field of play: one line, one
+corner, and the quarter circle that exists in no other game. No ball, no boot and no
+whistle, which is the point of it. It is drawn to the game’s own rule for a mark —
+three strokes, one weight, one colour, the same green as the icons and the wordmark —
+and the name is set in the game’s own type beneath it, so the two read as one lockup
+rather than as a logo with a caption.
+
+The credits gained a band of their own for it, between the game’s mark and the
+list of who did what: the mark, the name, and "Authoritative Football Simulation
+System". Touchline is this project’s own simulation rather than a third-party
+engine, and the credits say only that. With reduced motion on, the sequence holds for
+a beat with nothing moving, as everything else in the game does.
+
+### Forty worlds, and a county with room for one of them
+
+The seed line at world generation used to offer four worlds, all of them the same
+four. It now opens on a seed rolled for the visit, offers **nine** picked from a
+list of **forty**, and carries an **Another one** button that invents a fresh one
+and puts it straight in the box — a roller of its own, built from a local
+vocabulary of places, nouns and prefixes that is deliberately kept apart from the
+game's own name pools, so a seed never changes meaning when a name list does.
+
+A county has room for all of it: **18–24 towns instead of a dozen**, and
+**100–170 businesses** to fill them, with the trades weighted the way a place
+actually has them rather than drawn from a flat list. Club names gain real shapes
+— `{town} Working Men's Club`, `British Legion`, `FC {town}`, `{town} North End`,
+`St Aldhelm's` — and grounds, mottos, settlement descriptions and the
+abbreviations a team sheet prints all grew with them. A county can be read as a
+place in its own right: a county name, a region, a market town and eighteen
+others that do not rhyme with the last county you played in.
+
+### A county of strangers
+
+The pools behind a player stopped being a small cast with a few variations. There
+are now **340 first names, 1172 surnames, 99 nicknames and 174 day jobs**, with
+the place-name stems alone numbering 692. Measured on a generated county, a
+single world produces **more than 300 distinct first names and 600 distinct
+surnames** across its players — two counties built from two seeds shared almost
+nothing.
+
+### The kit, the crest and the colour
+
+**32 kit makers**, up from ten, over 46 change colours and 38 goalkeeper colours,
+with the pattern weights rebalanced. A new rule makes the away kit honest: when a
+club's colours are too close to play against the home side, the visitors are
+handed the strip furthest from the host rather than falling back on a
+goalkeeper's. All 35 shirt pairings now clear the minimum colour distance, and
+33 of 35 put the away side in its away strip.
+
+**48 badge devices**, up from 34, each with a drawing and the keyword that finds
+it, plus 24 generic devices for a club with no story to tell. **53 club colour
+pairs** — one of which was a literal duplicate of another, so one combination was
+never reachable; it is replaced, and the pool is now under a test that the pairs
+are all distinct.
+
+Crests were clustering, and the reason was worth finding: the plan read low bits
+of a club's id (`seed % n`, `seed >>> 9`), and those bits are correlated across
+forty sequential ids — so forty anonymous clubs wore fourteen different crests.
+Three independent hashes on the club's own key put that at twenty-plus.
+
+### News and commentary, said every way the facts allow
+
+Every news writer now has **three to six phrasings** of its headline and of its
+body, with sub-pools for the timescale, the scorers, the crowd, the opener, the
+closer, the reason and the rearrangement. Commentary has **22 phrasing pools**
+covering every event type, so a throw-in, a foul, a tackle, an offside, a save and
+a block are each said several ways across a match rather than once.
+
+**The prose is deterministic, and that is deliberate.** News and commentary are
+written more than once for the same fact — on a replay, and again on the way into
+the inbox — so each choice is a hash of the *identity of the fact* (the event's
+id, plus which slot it is filling) instead of a dice roll: same fact, same
+sentence, whenever it is read. The rule lives in one place, `src/simulation/prose.ts`.
+A template that asks for a fact it was not given now throws rather than writing a
+sentence that has quietly lost a number, and a headline is capitalised on the way
+out, which is how "a rolled ankle for Gaz Thorne" stopped leading the news.
+
+### The ledger news, and four things that were only going to get worse
+
+Each of these was found by measuring the generator rather than by reading it.
+
+- **Businesses repeated inside one town** — three "Mapside Social Club"s in a
+  place of eight thousand. A town now holds its own used set, and a name it has
+  already spent is refused and redrawn.
+- **Club backing collapsed** when the free-name window widened: pub- and
+  business-backed clubs fell to a quarter of the county, and the staff and
+  sponsorship tests caught it. Backing is a weighted draw again, at just over half
+  the clubs, with the chairmen who own their own club still a minority.
+- **A player's manager had no relationships.** The manager you take into a career
+  replaces the generated one at the moment the career starts — after the links had
+  already been made, and against a man who is no longer there — so your committee
+  began the season with no ties to you. It is linked at the point of replacement
+  now.
+- **Finance news printed `£-42.75`,** and a hand-written `£` in a template meant
+  the number carried its own sign. Money formats its own symbol, and the
+  templates stop adding one.
+
+### The team sheet, driven the way a manager drives it
+
+The team sheet was rebuilt around the pitch. The layout is now one column that
+answers to the window: the grass hugs the left of the content column and is drawn
+from its height, the substitutes' strip squares off against its right-hand edge
+with each man's surname at the size of a man on the pitch, and the squad list
+takes everything left over. A phone gets the pitch across the screen with the
+list as a sheet over it, and a window too short for a team sheet at all now keeps
+a usable pitch and scrolls instead of drawing one where eleven shirts sit on top
+of each other. The panel between the pitch and the list — and the heading and the
+two-line explanation that sat over twenty names — are gone.
+
+Dragging is the way a team is picked, and four things it could not do are fixed
+at the root: a press on a shirt was being eaten by the button around it (the dot
+being dragged is the dot now); a starter dropped on a full bench did nothing,
+when the substitution the manager writes down is exactly that; an overlay named
+`.pitch__box` was rendering two black rectangles over the penalty areas (the
+overlay is `.pitch__panel`, and a browser check pins it); and a click that
+followed a drag still opened the man's page.
+
+**Selection and Tactics now draw the same pitch.** The player markers on both
+screens come from one diagram helper, so the shirt, the name label and the
+position vocabulary cannot drift apart between two screens that mean the same
+thing — and the tactics diagram is driven by the instruction tabs themselves, so
+one control moves the picture and the settings together. The Manager screen lost
+its disclosures and its repeated dropdowns: identity is stated once in a hero
+band, and job, record and honours are real panels.
+
+### The header, and two hands on the clock
+
+The band of facts between the team sheet's heading and the pitch — *Starting XI*,
+*Substitutes*, *Captain*, *Problems*, the phone's *The squad* — is deleted, from
+the view and from the sheet. It was the only thing between the heading and the
+work, and on a phone it was two wrapped rows of chrome above a pitch that is
+supposed to be the screen. Nothing was lost: the eleven and the bench are counted
+by the dots, the strip says `Subs (n/5)`, and the state of the selection is the
+warning icon on the grass, where the manager is already looking. Formation,
+captain and *Ask the assistant to pick* are one row in the header's action slot,
+and the pitch gets the band's height back.
+
+**Continue and the calendar move time, and nothing else does.** *Go to the match*
+is gone from the team sheet and from the calendar dialog, where its whole job was
+a third way to lose days beside a day strip and a day jump that already reach the
+same Sunday. What is left is the calendar doing its own job: pick the matchday,
+`Go to this day`, and the clock lands on it — after which the command bar is
+showing `PLAY THE MATCH`, which is the whole route to a match now. Two source
+contracts in the tuning tests pin it: only the command actions and the calendar
+dialog may move the clock, and neither the calendar nor the team sheet may carry
+the shortcut.
+
 ## [0.8.0] - 2026-10-06 — two engines, one football
 
 ### Two ways to play a fixture

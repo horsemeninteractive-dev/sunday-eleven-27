@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { App } from './ui/App';
 import { bootStore, flushAutosave, useGameStore } from './state/gameStore';
 import { applyMotion, loadPreferences } from './state/preferences';
+import { initialise, resumeSlot } from './state/persistence';
 import { captureInstallPrompt, startServiceWorker } from './pwa';
 import './ui/styles.css';
 
@@ -47,7 +48,16 @@ if (!container) throw new Error('Root container missing from index.html');
 // afterwards would show the manager a menu claiming he has no careers, and then
 // contradict it a moment later — so the first frame waits on the database
 // instead, and the loading state it shows is honest about why.
-void bootStore().finally(() => {
+// The placeholder starts neutral. Only a real resume marker makes it a career
+// loader; first-boot branding is still decided by App after storage is ready.
+async function openApplication() {
+  await initialise();
+  const slot = await resumeSlot();
+  const note = document.querySelector('.booting__note');
+  if (slot && note) note.textContent = 'Opening your career…';
+  await bootStore();
+}
+void openApplication().finally(() => {
   // The placeholder in the document is only ever a placeholder: it is taken off
   // as the real screen arrives, so there is never a moment where both are shown
   // or neither is.

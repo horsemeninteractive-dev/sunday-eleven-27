@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { openMatchReport } from '../reportActions';
 import type { GameState } from '@/domain/game';
 import type { Match } from '@/domain/match';
 import { POSITIONS } from '@/domain/positions';
@@ -25,6 +26,7 @@ import { Button, ToneText } from '../components/primitives';
 import { Glyph } from '../components/icons';
 import { MatchStatsPanel } from './MatchStats';
 import { CommentaryTranscript } from './CommentaryTranscript';
+import { Dialog } from '../dialogs/Dialog';
 
 /**
  * Everything the manager can do during the match, in one fixed strip.
@@ -56,6 +58,16 @@ export function MatchControls({
   onOpenInterval?: () => void;
 }) {
   const [optionsOpen, setOptionsOpen] = useState(false);
+
+  const drawerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!drawer) return;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    drawerRef.current?.focus({ preventScroll: true });
+    const key = (event: KeyboardEvent) => { if (event.key === 'Escape' && !event.defaultPrevented) onDrawer(null); };
+    document.addEventListener('keydown', key);
+    return () => { document.removeEventListener('keydown', key); if (opener?.isConnected && !opener.closest('[inert]')) opener.focus({ preventScroll: true }); };
+  }, [drawer, onDrawer]);
   const fullTime = session.phase === 'full-time';
   const preMatch = session.phase === 'pre-match';
   const halfTime = session.phase === 'half-time';
@@ -80,7 +92,7 @@ export function MatchControls({
   return (
     <div className="matchbar">
       {drawer && (
-        <div className="matchbar__drawer" role="region" aria-label={`${drawer} panel`}>
+        <div ref={drawerRef} tabIndex={-1} className="matchbar__drawer" role="region" aria-label={`${drawer} panel`}>
           {drawer === 'tactics' && <TacticsPanel match={match} session={session} />}
           {drawer === 'subs' && (
             <SubsPanel match={match} session={session} playerById={playerById} onDone={() => onDrawer(null)} />
@@ -121,6 +133,7 @@ export function MatchControls({
                   type="button"
                   className={`chip${session.speed === speed && !session.paused ? ' chip--on' : ''}`}
                   onClick={() => gameActions().setMatchSpeed(speed)}
+                  aria-pressed={session.speed === speed}
                   title={MATCH_SPEED_LABEL[speed] ?? `${speed}×`}
                 >
                   {speed}×
@@ -130,13 +143,12 @@ export function MatchControls({
           )}
         </div>
 
-        <div className="matchbar__tabs" role="tablist" aria-label="Match panels">
+        <div className="matchbar__tabs" role="group" aria-label="Match panels">
           {tabs.map((tab) => (
             <button
               key={tab.id}
               type="button"
-              role="tab"
-              aria-selected={drawer === tab.id}
+              aria-expanded={drawer === tab.id}
               className={`tab${drawer === tab.id ? ' tab--active' : ''}`}
               onClick={() => onDrawer(drawer === tab.id ? null : tab.id)}
             >
@@ -151,20 +163,21 @@ export function MatchControls({
               <Button
                 variant="ghost"
                 ariaLabel="Match options"
+                aria-haspopup="dialog"
+                aria-expanded={optionsOpen}
                 title="Match options"
                 onClick={() => setOptionsOpen((open) => !open)}
               >
                 <Glyph name="settings" />
               </Button>
               {optionsOpen && (
-                <div className="match-options__menu" role="menu" aria-label="Match options">
-                  <p className="match-options__title">Match detail</p>
+                <Dialog title="Match detail" narrow onClose={() => setOptionsOpen(false)}>
+                  <div className="stack" role="group" aria-label="How much of the match to watch">
                   {VIEWING_MODES.map((mode) => (
                     <button
                       key={mode}
                       type="button"
-                      role="menuitemradio"
-                      aria-checked={session.viewingMode === mode}
+                      aria-pressed={session.viewingMode === mode}
                       className={`match-options__item${session.viewingMode === mode ? ' match-options__item--on' : ''}`}
                       onClick={() => {
                         gameActions().setViewingMode(mode);
@@ -175,7 +188,8 @@ export function MatchControls({
                       <span className="match-options__detail small muted">{VIEWING_MODE_DETAIL[mode]}</span>
                     </button>
                   ))}
-                </div>
+                  </div>
+                </Dialog>
               )}
             </div>
           )}
@@ -224,7 +238,7 @@ export function MatchControls({
                 variant="ghost"
                 onClick={() => {
                   gameActions().finishMatchSession();
-                  gameActions().setView('fixtures');
+                  openMatchReport(match.id);
                 }}
               >
                 Full report
@@ -311,7 +325,7 @@ function TacticsPanel({ match, session }: { match: Match; session: MatchSession 
         </select>
       </Field>
       <p className="drawer-note small muted">
-        {frozen ? 'The match is over.' : 'Changes take effect from the next minute.'}
+        {frozen ? 'The match is over.' : 'Changes are sent straight to Touchline for the next passage of play.'}
       </p>
     </div>
   );

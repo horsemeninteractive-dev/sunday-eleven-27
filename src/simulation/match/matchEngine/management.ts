@@ -2,6 +2,9 @@ import type { Match, PlayerPerformance } from '@/domain/match';
 import type { Player } from '@/domain/person';
 import type { PositionCode } from '@/domain/positions';
 import type { Rng } from '../../rng';
+// How many changes a side is allowed is a law of the game, shared with the
+// background resolution, which used to cap the same allowance with a constant.
+import { changesAllowed } from '../laws';
 import { defaultRoleFor } from '../roles';
 import { makePlayerForSlot, formationBase, invalidateIndex, refreshSlotGeometry } from './state';
 import type { DecisionWorld } from './decisions';
@@ -79,7 +82,7 @@ export function substitute(
 ): boolean {
   const match = world.match;
   const lineup = match.lineups[side];
-  if (match.substitutions[side] >= world.env.substitutionsAllowed) return false;
+  if (match.substitutions[side] >= changesAllowed(world.env.substitutionsAllowed)) return false;
 
   const slotIndex = lineup.starting.findIndex((slot) => slot.playerId === outgoingId);
   const benchIndex = lineup.bench.findIndex((slot) => slot.playerId === incomingId);
@@ -164,12 +167,15 @@ export function substitute(
  */
 export function refreshFormation(state: MatchEngineState, match: Match, side: Side): void {
   const formation = match.lineups[side].formation;
+  // The manager's own shape, when he has moved anybody: re-reading the name
+  // alone would drag a side he had just rearranged back to its 4-4-2.
+  const shape = match.lineups[side].tactics.shape;
   const starting = match.lineups[side].starting;
   for (const player of state.players) {
     if (player.side !== side || player.sentOff) continue;
     const slotIndex = starting.findIndex((slot) => slot.playerId === player.playerId);
     if (slotIndex < 0) continue;
-    const base = formationBase(side, formation, slotIndex);
+    const base = formationBase(side, formation, slotIndex, shape);
     player.slotIndex = slotIndex;
     player.baseX = base.x;
     player.baseY = base.y;
@@ -220,7 +226,7 @@ export function autoManageBench(
   // The human manages his own bench unless the match is being run out for him.
   if (env.userClubId === clubId && !env.autoManageAllBenches) return;
   if (match.lineups[side].bench.length === 0) return;
-  if (match.substitutions[side] >= env.substitutionsAllowed) return;
+  if (match.substitutions[side] >= changesAllowed(env.substitutionsAllowed)) return;
 
   // An injured man is answered first: he cannot run it off, so he comes off.
   const injured = state.players.find(

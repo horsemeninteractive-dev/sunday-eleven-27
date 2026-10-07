@@ -14,6 +14,8 @@ import { CLUB_MATTER_LIMIT, clubMatters, clubRoster } from '../clubMatters';
 import { moneyShort } from '../format';
 import { Button, EmptyState, FormPips, PageHeader, Pill } from '../components/primitives';
 import { ActionTile, MetricTile, Section, Tile, TileGrid } from '../components/hierarchy';
+import { ClubBadge } from '../components/Badge';
+import { StaffCard } from '../components/StaffCard';
 
 /**
  * Club.
@@ -56,7 +58,7 @@ export function ClubView() {
     <div className="stack">
       <PageHeader
         eyebrow="Club"
-        title={club.identity.name}
+        title={<span className="person-identity"><ClubBadge club={club} size={48} />{club.identity.name}</span>}
         subtitle={[town, CLUB_STRUCTURE_LABEL[club.structure], club.identity.nickname].filter(Boolean).join(' · ')}
         meta={
           <>
@@ -79,6 +81,7 @@ export function ClubView() {
         }
       />
 
+      <section className="club-home"><div><h2>{game.world.grounds[club.groundId]?.name ?? 'Home ground'}</h2><p className="small muted">{town} · {game.world.grounds[club.groundId]?.surface} · founded {club.identity.foundedYear}</p><p className="club-identity__motto">{club.identity.motto}</p></div><Button variant="ghost" onClick={() => gameActions().openProfile({ kind: 'club', id: club.id })}>Ground, squad and club profile</Button></section>
       <Section
         title="Who runs it"
         id="roster"
@@ -89,35 +92,55 @@ export function ClubView() {
           </span>
         }
       >
-        <ul className="tight-list">
-          {roster.map((person) => (
-            <li key={`${person.role}-${person.personId}`}>
-              <div className="row row--wrap">
-                <Pill tone="accent">{person.roleLabel}</Pill>
-                <strong>{person.name}</strong>
-                {!person.available && <Pill tone="warn">Away</Pill>}
-                {person.competence && <Pill tone="muted">{person.competence}</Pill>}
-                {!person.isManager && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    // The word on the button is the same for everybody, so the
-                    // name goes on the accessible one: a screen reader hearing
-                    // five buttons called "Message" learns nothing.
-                    ariaLabel={`Message ${person.name}`}
-                    title={`Start a conversation with ${person.name}`}
-                    onClick={() => gameActions().startConversationWith(person.personId)}
-                  >
-                    Message
-                  </Button>
-                )}
-              </div>
-              {/* The current issue, where there is one. This is the line the
-                  manager is looking for, so it is the only thing allowed under
-                  a name — not an attribute table. */}
-              {person.issue && <div className="small muted">{person.issue}</div>}
-            </li>
-          ))}
+        <ul className="staff-roster">
+          {roster.map((person) => {
+            // The committee is the same committee the Staff screen draws, so it
+            // is the same card: the office, the man, how he is, what is on him
+            // and the one action, in the same slots. `name` is already what to
+            // say when the post is empty — the roster works that out, not us.
+            const who = game.people[person.personId] ?? null;
+            return (
+              <StaffCard
+                key={`${person.role}-${person.personId}`}
+                office={person.roleLabel}
+                person={who}
+                vacant={person.name}
+                status={
+                  <>
+                    {/* Only once there is somebody in the post: availability is
+                        a fact about a person, and an empty office is neither
+                        around nor away. */}
+                    {who && (
+                      <Pill tone={person.available ? 'ok' : 'warn'}>{person.available ? 'Around' : 'Away'}</Pill>
+                    )}
+                    {person.competence && <Pill tone="muted">{person.competence}</Pill>}
+                  </>
+                }
+                action={
+                  person.isManager ? undefined : (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      // The word on the button is the same for everybody, so the
+                      // name goes on the accessible one: a screen reader hearing
+                      // five buttons called "Message" learns nothing.
+                      ariaLabel={`Message ${person.name}`}
+                      title={`Start a conversation with ${person.name}`}
+                      onClick={() => gameActions().startConversationWith(person.personId)}
+                    >
+                      Message
+                    </Button>
+                  )
+                }
+                detail={who ? `Age ${who.age} · ${who.occupation}` : 'This post is vacant'}
+                duty={who ? who.notes[who.notes.length - 1] : undefined}
+                // The current issue, where there is one. This is the line the
+                // manager is looking for, so it is the only thing allowed under
+                // a name — not an attribute table.
+                issue={person.issue}
+              />
+            );
+          })}
         </ul>
       </Section>
 
@@ -190,7 +213,7 @@ export function ClubView() {
         )}
       </Section>
 
-      <Section title="The rest of the club">
+      <details className="more"><summary>Club departments · staff, money, news and history</summary><Section>
         <TileGrid min={190}>
           <Tile label="Staff" onClick={() => gameActions().setView('staff')}>
             <span className="metric__value">{roster.length}</span>
@@ -211,7 +234,7 @@ export function ClubView() {
             <span className="metric__note">Founded {club.history.founded}</span>
           </Tile>
         </TileGrid>
-      </Section>
+      </Section></details>
 
       {board.events.length > 0 && (
         <Section title="Matters of record">

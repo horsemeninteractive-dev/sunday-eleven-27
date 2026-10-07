@@ -2,9 +2,8 @@ import type { GameState } from '@/domain/game';
 import { periodOf, type Match, type MatchBallState, type MatchPhase, type PlayerState } from '@/domain/match';
 import type { Side } from '@/domain/matchState';
 import type { PlayerId } from '@/domain/ids';
-import { getFormation, type PositionCode } from '@/domain/positions';
+import { formationSlots, type PositionCode } from '@/domain/positions';
 import { sampleRecording } from '@/domain/matchRecording';
-import { simulationAlpha } from '@/simulation/match/state';
 import type { MatchRenderState, RenderTeam } from './renderContract';
 import { signalOfEvent, type MatchSignal } from './matchSignals';
 
@@ -21,6 +20,14 @@ import { signalOfEvent, type MatchSignal } from './matchSignals';
  * and, where a match has no continuous state, lays teams out from their
  * formation so the picture is still sensible. It never advances the clock, moves
  * a player or changes possession: those belong to the simulation alone.
+ *
+ * There are exactly two things it may read, and each is somebody else's
+ * authority: the record the cursor reveals (a replay), and the match's own record
+ * ({@link phaseFromRecord}, {@link possessionFromRecord}) for a fixture nobody
+ * watched. It reads no dead state of its own — the phase used to come from the
+ * retired minute engine's `match.field`, which nothing fills in any more. A
+ * watched match does not come through here at all: it has an engine, and reads
+ * it through `matchEnginePresentation`.
  *
  * The one other reader is the replay (see `matchReplay`). A finished match has
  * no continuous state left to read — only its record — so a replay asks for the
@@ -148,11 +155,13 @@ function formationPlayers(match: Match, focus: { x: number; y: number }): Player
   const players: PlayerState[] = [];
   for (const side of ['home', 'away'] as const) {
     const lineup = match.lineups[side];
-    const formation = getFormation(lineup.tactics.formation);
+    // The manager's own shape when he has one: the picture before kick-off shows
+    // the eleven he set out, not the named formation he started from.
+    const formation = formationSlots(lineup.tactics.formation, lineup.tactics.shape);
     lineup.starting.forEach((slot, index) => {
       // A sent-off man is off the pitch, even in a reconstruction.
       if (match.performances[slot.playerId]?.sentOff) return;
-      const formationSlot = formation.slots[index] ?? formation.slots[0]!;
+      const formationSlot = formation[index] ?? formation[0]!;
       const baseX = side === 'home' ? formationSlot.x : 1 - formationSlot.x;
       const baseY = side === 'home' ? formationSlot.y : 1 - formationSlot.y;
       const x = Math.max(0.02, Math.min(0.98, baseX * 0.8 + ball.x * 0.2));
@@ -198,9 +207,11 @@ function rosterMeta(
   const meta = new Map<PlayerId, { side: Side; position: PositionCode; baseX: number; baseY: number }>();
   for (const side of ['home', 'away'] as const) {
     const lineup = match.lineups[side];
-    const formation = getFormation(lineup.tactics.formation);
+    // The manager's own shape when he has one: the picture before kick-off shows
+    // the eleven he set out, not the named formation he started from.
+    const formation = formationSlots(lineup.tactics.formation, lineup.tactics.shape);
     lineup.starting.forEach((slot, index) => {
-      const formationSlot = formation.slots[index] ?? formation.slots[0]!;
+      const formationSlot = formation[index] ?? formation[0]!;
       const baseX = side === 'home' ? formationSlot.x : 1 - formationSlot.x;
       const baseY = side === 'home' ? formationSlot.y : 1 - formationSlot.y;
       meta.set(slot.playerId, { side, position: slot.position, baseX, baseY });
@@ -329,6 +340,38 @@ function signalsOf(match: Match): MatchSignal[] {
   return match.events.map((event) => signalOfEvent(event, sideOfEvent(match, event.clubId)));
 }
 
+/**
+ * The phase of a match read from its record, for a picture that has no live
+ * state to read it from.
+ *
+ * A match with no continuous state — before kick-off, an unwatched fixture, or a
+ * save written before the pitch existed — has no phase of play to report, and the
+ * old code pretended otherwise: it read `match.field.phase`, which is the dead
+ * minute engine's state and is never written on a match the real engine played,
+ * so the phase silently fell back to `'kickoff'` every time. It reads the record
+ * now, which is the only authority such a match has: a match that is over is at
+ * full time, and one that has not been played is waiting for its kick-off. That
+ * is all a static picture can honestly know, and it says so rather than
+ * consulting a field nothing fills in.
+ */
+function phaseFromRecord(match: Match): MatchPhase {
+  return match.status === 'finished' ? 'full-time' : 'kickoff';
+}
+
+/**
+ * Who had the ball, read from the record the engine keeps.
+ *
+ * `possessionTicks` is written by the simulation alone (see
+ * `MatchEngine.drain`), so this is a reading of what Touchline decided rather
+ * than an inference about it. A match nobody has played yet has no ticks and no
+ * possession; a match that was played reports the side with more of the ball.
+ */
+function possessionFromRecord(match: Match): Side | null {
+  const ticks = match.possessionTicks;
+  if (!ticks || ticks.home === ticks.away) return null;
+  return ticks.home > ticks.away ? 'home' : 'away';
+}
+
 function teamOf(game: GameState, match: Match, side: Side): RenderTeam {
   const clubId = side === 'home' ? match.homeClubId : match.awayClubId;
   const club = game.clubs[clubId]!;
@@ -367,6 +410,18 @@ export interface MatchRenderCursor {
   players?: readonly PlayerState[];
   /** The ball read back from a recording, alongside {@link players}. */
   ball?: MatchBallState;
+  /**
+   * The phase of play at this instant, when the caller knows it.
+   *
+   * A recording stores movement and nothing else, so a replay has no phase of
+   * its own and the picture stands at kick-off. A caller that *does* hold the
+   * authoritative phase — replaying a recording alongside the state it was taken
+   * from — may name it here; the renderer still decides nothing, it draws what it
+   * was told.
+   */
+  phase?: MatchPhase;
+  /** Who had the ball, when the caller knows; otherwise the replay reads it. */
+  possession?: Side | null;
 }
 
 /**
@@ -383,7 +438,6 @@ export interface MatchRenderCursor {
  * still gets a sensible picture from its formations.
  */
 export function buildMatchRenderState(match: Match, game: GameState, cursor?: MatchRenderCursor): MatchRenderState {
-  const spatial = match.spatial;
   const teams: Record<Side, RenderTeam> = {
     home: teamOf(game, match, 'home'),
     away: teamOf(game, match, 'away'),
@@ -391,8 +445,8 @@ export function buildMatchRenderState(match: Match, game: GameState, cursor?: Ma
 
   if (cursor) {
     // The replay path: only the record, revealed up to the moment asked for,
-    // leaned toward where the ball is now. It ignores `match.spatial`, which is
-    // the end of a match already played and would spoil the ending.
+    // leaned toward where the ball is now. It never reads the finished match's own
+    // last state, which would spoil the ending.
     const revealedEvents = match.events.slice(0, Math.max(0, cursor.revealed));
     const signals = revealedEvents.map((event) => signalOfEvent(event, sideOfEvent(match, event.clubId)));
     const last = revealedEvents[revealedEvents.length - 1];
@@ -413,8 +467,11 @@ export function buildMatchRenderState(match: Match, game: GameState, cursor?: Ma
       minute: Math.max(0, Math.round(cursor.minute)),
       half: replayHalf,
       period: replayHalf === 1 ? 'first-half' : replayHalf === 2 ? 'second-half' : 'extra-first',
-      phase: match.field?.phase ?? 'kickoff',
-      possession: recordedPossession,
+      phase: cursor.phase ?? 'kickoff',
+      // The replay's own reading: the man carrying the ball, or the side the last
+      // revealed event belonged to. The record's final possession is deliberately
+      // *not* consulted here — a replay must not spoil its own ending.
+      possession: cursor.possession ?? recordedPossession,
       players: cursor.players ?? formationPlayers(match, cursor.focus),
       ball: cursor.ball ?? restingBall(cursor.focus.x, cursor.focus.y),
       actions: [],
@@ -429,29 +486,8 @@ export function buildMatchRenderState(match: Match, game: GameState, cursor?: Ma
 
   const signals = signalsOf(match);
 
-  if (spatial) {
-    return {
-      continuous: true,
-      clock: spatial.clock,
-      minute: match.minute,
-      half: match.half,
-      period: periodOf(match),
-      phase: spatial.context.phase,
-      possession: spatial.context.possession,
-      players: spatial.players,
-      ball: spatial.ball,
-      actions: spatial.actions,
-      celebration: spatial.celebration ?? null,
-      teams,
-      incidents: match.incidents,
-      signals,
-      revision: match.events.length,
-      alpha: () => simulationAlpha(spatial),
-    };
-  }
-
   const point = lastEventPoint(match);
-  const phase: MatchPhase = match.field?.phase ?? 'kickoff';
+  const phase: MatchPhase = phaseFromRecord(match);
   return {
     continuous: false,
     clock: 0,
@@ -459,7 +495,7 @@ export function buildMatchRenderState(match: Match, game: GameState, cursor?: Ma
     half: match.half,
     period: periodOf(match),
     phase,
-    possession: match.field?.ball.possessionSide ?? null,
+    possession: possessionFromRecord(match),
     players: formationPlayers(match, point),
     ball: restingBall(point.x, point.y),
     actions: [],

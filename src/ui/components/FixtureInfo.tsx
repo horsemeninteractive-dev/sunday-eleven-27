@@ -4,14 +4,15 @@ import type { Match } from '@/domain/match';
 import { PITCH_LABEL, WEATHER_LABEL } from '@/domain/match';
 import { isPlayer, type Official } from '@/domain/person';
 import { MENTALITY_LABEL, PRESSING_LABEL } from '@/domain/tactics';
-import { formatDate, formatKickOff } from '@/simulation/calendar';
+import { formatDate } from '@/simulation/calendar';
 import { expectedAttendanceFor } from '@/simulation/matchday';
 import { journeyDistanceKm, matchOpponent, matchVenueLabel } from '@/simulation/queries';
 import { ordinal } from '@/simulation/news';
 import { gameActions, useStandings } from '../hooks';
-import { fixtureLabel, playerName } from '../format';
+import { playerName } from '../format';
+import { FixtureCard } from './FixtureCard';
 import { Button, FormPips, Panel, Pill, Stat } from './primitives';
-import { ClubLink, CompetitionLink, PlayerLink } from './Links';
+import { PlayerLink } from './Links';
 import { CommentaryTranscript } from '../match/CommentaryTranscript';
 
 /**
@@ -51,15 +52,8 @@ export function NextFixturePanel({ state, match }: { state: GameState; match: Ma
   const unavailable = squad.filter((player) => player.availability.status !== 'available');
 
   return (
-    <Panel
-      title={`Next: ${opponent.identity.name} (${venue})`}
-      subtitle={
-        <>
-          {formatDate(match.date)} · {formatKickOff(match.kickOff)} · <CompetitionLink>{match.competitionName}</CompetitionLink>
-        </>
-      }
-      tone="accent"
-      actions={
+    <div className="stack">
+      <FixtureCard state={state} match={match} actions={
         <div className="row">
           <Button variant="primary" onClick={() => gameActions().startUserMatch()}>
             {isHome ? 'Turn up and play' : 'Travel and play'}
@@ -68,8 +62,8 @@ export function NextFixturePanel({ state, match }: { state: GameState; match: Ma
             Get someone else to text the result
           </Button>
         </div>
-      }
-    >
+      } />
+      <details className="more"><summary>Match preparation · conditions, opposition and availability</summary><Panel>
       <div className="stat-grid">
         <Stat label="Venue" value={ground?.name ?? 'Unknown'} hint={ground ? `${ground.surface}, capacity ${ground.capacity}` : undefined} />
         <Stat label="Weather" value={WEATHER_LABEL[match.conditions.weather]} hint={`${match.conditions.temperatureC}°C`} />
@@ -127,7 +121,8 @@ export function NextFixturePanel({ state, match }: { state: GameState; match: Ma
           {unavailable.length > 6 && <p className="muted small">…and {unavailable.length - 6} more.</p>}
         </div>
       </div>
-    </Panel>
+    </Panel></details>
+    </div>
   );
 }
 
@@ -135,14 +130,13 @@ export function MatchDetailPanel({ state, match }: { state: GameState; match: Ma
   const result = match.result;
   const home = state.clubs[match.homeClubId]!;
   const away = state.clubs[match.awayClubId]!;
-  const ground = state.world.grounds[match.groundId];
   const homePerf = Object.values(match.performances)
     .filter((performance) => performance.clubId === match.homeClubId)
     .sort((a, b) => b.rating - a.rating);
   const awayPerf = Object.values(match.performances)
     .filter((performance) => performance.clubId === match.awayClubId)
     .sort((a, b) => b.rating - a.rating);
-  const scorers = match.events.filter((event) => event.type === 'goal');
+  const scorers = match.events.filter((event) => event.type === 'goal' || event.type === 'penalty-scored');
   const cards = match.events.filter((event) => event.type === 'yellow-card' || event.type === 'red-card');
   const injuries = match.events.filter((event) => event.type === 'injury');
 
@@ -155,19 +149,8 @@ export function MatchDetailPanel({ state, match }: { state: GameState; match: Ma
   }
 
   return (
-    <Panel
-      title={fixtureLabel(home.identity.name, away.identity.name, result.homeGoals, result.awayGoals)}
-      subtitle={
-        <>
-          {formatDate(match.date)} · {ground?.name ?? 'Unknown'} · <CompetitionLink>{match.competitionName}</CompetitionLink>
-        </>
-      }
-    >
-      <div className="row row--wrap">
-        <ClubLink clubId={home.id} />
-        <span className="muted small">v</span>
-        <ClubLink clubId={away.id} />
-      </div>
+    <div className="stack match-report__body">
+      <FixtureCard state={state} match={match} />
       <div className="stat-grid">
         <Stat label="Possession" value={`${result.homePossession}% — ${result.awayPossession}%`} />
         <Stat label="Shots" value={`${result.homeShots} — ${result.awayShots}`} />
@@ -229,11 +212,10 @@ export function MatchDetailPanel({ state, match }: { state: GameState; match: Ma
         </div>
       </div>
 
-      <section className="details">
-        <h4 className="subhead">Commentary</h4>
-        <CommentaryTranscript match={match} compact />
-      </section>
-    </Panel>
+      <details className="more"><summary>Full commentary</summary>
+        <CommentaryTranscript match={match} />
+      </details>
+    </div>
   );
 }
 

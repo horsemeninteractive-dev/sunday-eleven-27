@@ -17,6 +17,7 @@ import { MatchStatsStrip } from '../match/MatchStats';
 import { FullTimePanel, HalfTimePanel, PreMatchPanel } from '../match/MatchPhases';
 import { matchMinuteMs } from '../matchPace';
 import { matchKitColours } from '../kit';
+import { openMatchReport } from '../reportActions';
 
 /**
  * Matchday, as a workspace rather than a page.
@@ -230,7 +231,7 @@ export function MatchView() {
           playerById={playerById}
           onReport={() => {
             gameActions().finishMatchSession();
-            gameActions().setView('fixtures');
+            openMatchReport(match.id);
           }}
           onContinue={() => {
             gameActions().finishMatchSession();

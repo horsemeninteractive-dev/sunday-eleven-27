@@ -15,15 +15,17 @@ import { Dialog } from './Dialog';
  */
 export function ProfilesDialog() {
   const [profiles, setProfiles] = useState<SavedProfile[]>(() => listProfiles());
+  const [pending, setPending] = useState<SavedProfile | null>(null);
   const today = new Date().toISOString().slice(0, 10);
 
   const forget = (id: string) => {
     forgetProfile(id);
     setProfiles(listProfiles());
+    setPending(null);
   };
 
   return (
-    <Dialog
+    <><Dialog
       title="Managers"
       subtitle={profiles.length === 1 ? '1 saved' : `${profiles.length} saved`}
       narrow
@@ -46,7 +48,7 @@ export function ProfilesDialog() {
                   {entry.savedAt.slice(0, 10)}
                 </div>
               </div>
-              <Button variant="ghost" size="sm" onClick={() => forget(entry.id)}>
+              <Button variant="ghost" size="sm" onClick={() => setPending(entry)}>
                 Forget
               </Button>
             </li>
@@ -58,5 +60,7 @@ export function ProfilesDialog() {
         means typing the details again next time.
       </p>
     </Dialog>
+    {pending && <Dialog title="Forget this manager profile?" narrow onClose={() => setPending(null)} footer={<><Button variant="ghost" onClick={() => setPending(null)}>Keep profile</Button><Button variant="danger" onClick={() => forget(pending.id)}>Forget profile</Button></>}><p>{pending.profile.firstName} {pending.profile.surname} will no longer appear as a setup shortcut. Their saved careers will not be deleted.</p></Dialog>}
+    </>
   );
 }

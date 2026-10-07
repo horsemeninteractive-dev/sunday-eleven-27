@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { ButtonHTMLAttributes, ReactNode } from 'react';
 import { attributeTone } from '../format';
 import { toggleSort, type SortState } from '../tableSort';
 import { UIGlyph } from './icons';
@@ -164,7 +164,9 @@ export function Button({
   type = 'button',
   size = 'md',
   block = false,
-}: {
+  className = '',
+  ...attributes
+}: Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children' | 'onClick' | 'type'> & {
   children: ReactNode;
   onClick?: () => void;
   variant?: 'default' | 'primary' | 'ghost' | 'danger';
@@ -178,11 +180,12 @@ export function Button({
 }) {
   return (
     <button
-      className={`btn btn--${variant} btn--${size}${block ? ' btn--block' : ''}`}
+      {...attributes}
+      className={`btn btn--${variant} btn--${size}${block ? ' btn--block' : ''}${className ? ` ${className}` : ''}`}
       onClick={onClick}
       disabled={disabled}
       title={title}
-      aria-label={ariaLabel}
+      aria-label={ariaLabel ?? attributes['aria-label']}
       type={type}
     >
       {children}

@@ -6,7 +6,7 @@ import { nextStop } from '@/simulation/schedule';
 import { gameActions, useGame, useNextFixture } from '../hooks';
 import { useCommandState } from '../commandActions';
 import { Button, Callout, Panel, Pill } from '../components/primitives';
-import { Glyph } from '../components/icons';
+import { Dialog } from '../dialogs/Dialog';
 import { ClubLink } from './Links';
 
 /**
@@ -66,32 +66,20 @@ export function PlannerModal() {
   };
 
   return (
-    <div className="overlay" role="dialog" aria-modal="true" aria-label="The calendar">
-      <div className="overlay__panel">
-        <div className="overlay__bar">
-          <span className="overlay__title">The calendar</span>
-          <div className="row row--tight">
-            <span className="muted small">
-              {game.season.label} · today is {formatDate(today)}
-            </span>
-            <button type="button" className="overlay__close" aria-label="Close" onClick={close}>
-              ✕
-            </button>
-          </div>
-        </div>
+    <Dialog title="The calendar" subtitle={`${game.season.label} · today is ${formatDate(today)}`} onClose={close}
+      footer={<><Button variant="ghost" onClick={() => advance(1)}>Advance a day</Button><Button variant="primary" onClick={continueOn}>{command.action.label}</Button></>}>
 
-        <div className="overlay__body">
           <div className="planner">
             <div className="stack">
               <div className="calendar">
                 <div className="calendar__head">
-                  <Button variant="ghost" size="sm" onClick={() => shiftMonth(-1)} aria-label="Previous month">
+                  <Button variant="ghost" size="sm" onClick={() => shiftMonth(-1)} ariaLabel="Previous month">
                     ‹
                   </Button>
                   <span className="calendar__month">
                     {MONTH_NAMES[month.month]} {month.year}
                   </span>
-                  <Button variant="ghost" size="sm" onClick={() => shiftMonth(1)} aria-label="Next month">
+                  <Button variant="ghost" size="sm" onClick={() => shiftMonth(1)} ariaLabel="Next month">
                     ›
                   </Button>
                 </div>
@@ -122,7 +110,8 @@ export function PlannerModal() {
                           .filter(Boolean)
                           .join(' ')}
                         onClick={() => setSelected(cell.date)}
-                        title={`${formatDate(cell.date)} — select`}
+                        aria-label={`${formatDate(cell.date)}${cell.isToday ? ', today' : ''}${cell.events.length ? `, ${cell.events.map((event) => event.label).join(', ')}` : ', no events'}`}
+                        aria-pressed={isSelected}
                       >
                         <span className="calendar__daynum">{cell.dayLabel}</span>
                         {training && (
@@ -152,6 +141,8 @@ export function PlannerModal() {
                       ]
                         .filter(Boolean)
                         .join(' ')}
+                      aria-pressed={entry.date === day}
+                      aria-label={`${formatDate(entry.date)}${entry.isTrainingDay ? ', training' : ''}${entry.isMatchday ? ', match' : ''}`}
                       onClick={() => setSelected(entry.date)}
                     >
                       <span className="planner__weekday-label">{entry.weekdayLabel}</span>
@@ -195,17 +186,9 @@ export function PlannerModal() {
                 )}
 
                 <div className="row row--wrap" style={{ marginTop: '12px' }}>
-                  <Button variant="ghost" onClick={() => advance(1)} title="Play out tomorrow, whatever it brings">
-                    One day
-                  </Button>
                   {daysToSelection > 0 && (
                     <Button variant="ghost" onClick={() => jump(day)} title="Run the calendar forward to this day">
                       Go to this day
-                    </Button>
-                  )}
-                  {fixture && (
-                    <Button variant="ghost" onClick={() => jump(fixture.date)}>
-                      Go to the match
                     </Button>
                   )}
                 </div>
@@ -223,15 +206,7 @@ export function PlannerModal() {
                       ? 'That is today. The clock will not pass it until you have dealt with it.'
                       : `${formatDate(stop.date)} · ${daysToStop} day${daysToStop === 1 ? '' : 's'} away.`}
                 </p>
-                <div className="row row--wrap">
-                  <Button variant="primary" onClick={continueOn} title={command.action.hint}>
-                    {command.action.label}
-                    <Glyph name="chevron" />
-                  </Button>
-                  <Button variant="default" onClick={() => advance(1)}>
-                    Advance a day
-                  </Button>
-                </div>
+
               </Panel>
 
               {fixture && (
@@ -246,15 +221,11 @@ export function PlannerModal() {
                 </Panel>
               )}
 
-              <Callout tone="info" title="How time works">
-                Every day is simulated, one at a time — players recover, injuries count down, money moves on the day it
-                moves, and other clubs get on with it. Continue runs the quiet days for you and stops the moment
-                something wants a decision.
-              </Callout>
+              <details className="more"><summary>How time works</summary><Callout tone="info">
+                Continue runs the quiet days and stops when you have a decision. Recovery, bills and the rest of the local game carry on each day.
+              </Callout></details>
             </div>
           </div>
-        </div>
-      </div>
-    </div>
+    </Dialog>
   );
 }

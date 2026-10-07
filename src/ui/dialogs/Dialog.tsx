@@ -1,21 +1,11 @@
-import { useEffect, type ReactNode } from 'react';
+import { useId, useRef, type ReactNode } from 'react';
+import { useGameStore } from '@/state/gameStore';
+import { Button } from '../components/primitives';
+import { useModalTarget, useModal } from '../components/useModal';
 
-/**
- * One dialog for everything that is not a screen.
- *
- * Settings, the changelog, the credits and the managers already saved are all
- * the same shape: something the manager asked to see, over whatever he was
- * doing, dismissed the same way. They share the overlay the rest of the game
- * already uses so that a dialog opened from the main menu and one opened
- * mid-season look like the same game.
- */
+/** Contextual information over the current screen, never a second application. */
 export function Dialog({
-  title,
-  subtitle,
-  onClose,
-  narrow = false,
-  children,
-  footer,
+  title, subtitle, onClose, narrow = false, children, footer, actions, className = '',
 }: {
   title: string;
   subtitle?: ReactNode;
@@ -23,32 +13,31 @@ export function Dialog({
   narrow?: boolean;
   children: ReactNode;
   footer?: ReactNode;
+  actions?: ReactNode;
+  className?: string;
 }) {
-  // Escape closes it, because that is what Escape means everywhere else here.
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [onClose]);
-
+  const ref = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  const error = useGameStore((state) => state.error);
+  const top = useModalTarget();
+  useModal(ref, onClose);
   return (
-    <div className="overlay" role="dialog" aria-modal="true" aria-label={title}>
-      {/* Clicking the dark outside closes it, but the panel itself does not. */}
+    <div className={`overlay ${className}`}>
       <div className="overlay__scrim" onClick={onClose} aria-hidden="true" />
-      <div className={`overlay__panel${narrow ? ' overlay__panel--narrow' : ''}`}>
-        <div className="overlay__bar">
-          <span className="overlay__title">{title}</span>
-          <div className="row row--tight">
-            {subtitle && <span className="muted small">{subtitle}</span>}
-            <button type="button" className="overlay__close" aria-label="Close" onClick={onClose}>
-              ✕
-            </button>
+      <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId}
+        className={`overlay__panel${narrow ? ' overlay__panel--narrow' : ''}`}>
+        <header className="overlay__bar">
+          <div className="overlay__heading">
+            <h2 id={titleId} className="overlay__title">{title}</h2>
+            {subtitle && <p className="muted small">{subtitle}</p>}
           </div>
-        </div>
-        <div className="overlay__body">{children}</div>
-        {footer && <div className="overlay__foot">{footer}</div>}
+          <div className="row row--tight">
+            {actions}
+            <button type="button" className="overlay__close" aria-label={`Close ${title.toLowerCase()}`} onClick={onClose}>✕</button>
+          </div>
+        </header>
+        <div className="overlay__body" tabIndex={0} role="region" aria-label={`${title} content`}>{error && top === ref.current && <div className="callout callout--bad" role="alert"><span>{error}</span><Button variant="ghost" size="sm" onClick={() => useGameStore.setState({ error: null })}>Dismiss</Button></div>}{children}</div>
+        {footer && <footer className="overlay__foot">{footer}</footer>}
       </div>
     </div>
   );

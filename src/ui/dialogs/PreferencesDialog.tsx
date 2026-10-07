@@ -56,13 +56,12 @@ export function PreferencesDialog() {
     >
       <div className="stack">
         <Panel title="Motion" subtitle="What the game is allowed to move">
-          <div className="choices choices--stacked" role="radiogroup" aria-label="Motion">
+          <div className="choices choices--stacked" role="group" aria-label="Motion">
             {MOTION_OPTIONS.map((option) => (
               <button
                 key={option.value}
                 type="button"
-                role="radio"
-                aria-checked={preferences.motion === option.value}
+                aria-pressed={preferences.motion === option.value}
                 className={`choice choice--wide${preferences.motion === option.value ? ' choice--on' : ''}`}
                 onClick={() => changeMotion(option.value)}
               >
@@ -98,13 +97,12 @@ export function PreferencesDialog() {
         </Panel>
 
         <Panel title="Matches" subtitle="The speed a match opens at">
-          <div className="choices choices--inline" role="radiogroup" aria-label="Default match speed">
+          <div className="choices choices--inline" role="group" aria-label="Default match speed">
             {MATCH_SPEEDS.map((speed) => (
               <button
                 key={speed}
                 type="button"
-                role="radio"
-                aria-checked={preferences.defaultMatchSpeed === speed}
+                aria-pressed={preferences.defaultMatchSpeed === speed}
                 className={`choice choice--compact${preferences.defaultMatchSpeed === speed ? ' choice--on' : ''}`}
                 onClick={() => gameActions().setPreferences({ defaultMatchSpeed: speed })}
               >
@@ -118,15 +116,14 @@ export function PreferencesDialog() {
         </Panel>
 
         <Panel title="Match view" subtitle="How the match is drawn">
-          <div className="choices choices--stacked" role="radiogroup" aria-label="Match view">
+          <div className="choices choices--stacked" role="group" aria-label="Match view">
             {(['2d', '3d'] as RendererPreference[]).map((kind) => {
               const option = MATCH_RENDERERS[kind];
               return (
                 <button
                   key={kind}
                   type="button"
-                  role="radio"
-                  aria-checked={preferences.renderer === kind}
+                  aria-pressed={preferences.renderer === kind}
                   disabled={!option.available}
                   className={`choice choice--wide${preferences.renderer === kind ? ' choice--on' : ''}`}
                   onClick={() => gameActions().setPreferences({ renderer: kind })}

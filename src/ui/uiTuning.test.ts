@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { useGameStore } from '@/state/gameStore';
 import { createTestGame } from '@/simulation/testSupport';
 import { gameActions } from './hooks';
@@ -111,6 +111,42 @@ describe('the two big buttons live in the header', () => {
   it('will not offer to take charge of nothing', () => {
     const view = source('src/ui/views/ClubSelectView.tsx');
     expect(view).toContain('disabled={!selectedClub}');
+  });
+});
+
+describe('the clock has exactly two hands', () => {
+  /** Every UI source that is not a test, so a new hand on the clock shows up. */
+  function uiSources(folder: string): string[] {
+    const found: string[] = [];
+    for (const entry of readdirSync(folder, { withFileTypes: true })) {
+      const path = `${folder}/${entry.name}`;
+      if (entry.isDirectory()) found.push(...uiSources(path));
+      else if (/\.tsx?$/.test(entry.name) && !entry.name.includes('.test.')) found.push(path);
+    }
+    return found;
+  }
+
+  it('lets only the command bar and the calendar move time', () => {
+    // Continue and the calendar. Anything else that can reach the clock is a
+    // third way to lose a day, and a manager who has not chosen to lose it.
+    const movers = uiSources('src/ui')
+      .filter((file) => /advanceDays|jumpToDate|continueGame/.test(source(file)))
+      .sort();
+    expect(movers).toEqual(['src/ui/commandActions.ts', 'src/ui/components/PlannerModal.tsx']);
+  });
+
+  it('keeps a shortcut to the match off the calendar and off the team sheet', () => {
+    // The calendar is the clock, so it moves the clock; it does not also start
+    // the match. The side is picked and the match is played from the command
+    // bar's own action once the day arrives.
+    const planner = source('src/ui/components/PlannerModal.tsx');
+    expect(planner).not.toContain('Go to the match');
+    expect(planner).not.toContain('startUserMatch');
+    expect(planner).toContain('Go to this day');
+
+    const view = source('src/ui/views/TeamSelectionView.tsx');
+    expect(view).not.toContain('Go to the match');
+    expect(view).not.toContain('startUserMatch');
   });
 });
 

@@ -37,6 +37,18 @@ export const POSITIONS: Record<PositionCode, PositionDefinition> = {
   ST: { code: 'ST', label: 'Striker', group: 'FWD', base: { x: 0.78, y: 0.5 } },
 };
 
+/**
+ * The goalkeeper's own line, and how far across his goal he may stand.
+ *
+ * He is the one member of the side with no zone to adapt to — a dot dropped in
+ * his box does not make anybody a goalkeeper — so he is not moved to a zone but
+ * along his line. Both clamps are named here rather than written into the pitch
+ * and the rule separately, because a drawing and a rule that disagree is how a
+ * dot ends up somewhere the manager did not put it.
+ */
+export const KEEPER_LINE = POSITIONS.GK.base.x;
+export const KEEPER_ACROSS: readonly [number, number] = [0.26, 0.74];
+
 export const ALL_POSITION_CODES = Object.keys(POSITIONS) as PositionCode[];
 
 /**
@@ -277,6 +289,79 @@ export function getFormation(id: FormationId): FormationDefinition {
 
 export function formationPositions(id: FormationId): PositionCode[] {
   return getFormation(id).slots.map((s) => s.position);
+}
+
+/** A side is eleven. A stored shape that is not eleven is not a shape. */
+const SHAPE_LENGTH = 11;
+
+/**
+ * A shape of the manager's own, kept under a name.
+ *
+ * Once it is applied it is a formation like any other; the difference is where
+ * it came from. `base` is the named formation it was built from, which is what
+ * a player's familiarity with the system is measured against — a manager who
+ * moves a full back five yards has not asked his squad to learn a new game.
+ */
+export interface CustomFormation {
+  id: string;
+  name: string;
+  base: FormationId;
+  slots: FormationSlot[];
+}
+
+/**
+ * The eleven positions a side is set up in.
+ *
+ * A manager who has moved anybody on the preparation pitch has a shape of his
+ * own, and that shape is what the side plays — the named formation is only what
+ * it was built from. Everything that needs to know where a side lines up (the
+ * picture before kick-off, the assistant's auto-pick, the engine's own anchors)
+ * reads it through here, so a custom shape cannot take effect on one screen and
+ * be quietly replaced by a 4-4-2 in the match.
+ */
+export function formationSlots(formation: string, shape?: readonly FormationSlot[]): FormationSlot[] {
+  return shape && shape.length === SHAPE_LENGTH ? [...shape] : getFormation(formation as FormationId).slots;
+}
+
+/** Whether a shape is still exactly the named formation it was built from. */
+export function isNamedShape(formation: FormationId, shape?: readonly FormationSlot[]): boolean {
+  if (!shape || shape.length !== SHAPE_LENGTH) return true;
+  const named = getFormation(formation).slots;
+  return shape.every((slot, index) => {
+    const other = named[index]!;
+    return (
+      slot.position === other.position &&
+      Math.abs(slot.x - other.x) < 0.005 &&
+      Math.abs(slot.y - other.y) < 0.005
+    );
+  });
+}
+
+/**
+ * The position a man takes when he is dropped here.
+ *
+ * This is the rule that makes free positioning mean something. The pitch is the
+ * manager's — a dot goes wherever he puts it — but the game's football has a
+ * fixed vocabulary of positions, and a man dropped in a zone *becomes* the
+ * position that zone is for: the nearest position's own spot wins. Drop a
+ * centre half on the left touchline and he is a left back.
+ *
+ * `outfieldOnly` is for the outfield slots: nobody becomes a goalkeeper because
+ * a dot was dragged into the six-yard box.
+ */
+export function positionForPoint(x: number, y: number, options: { outfieldOnly?: boolean } = {}): PositionCode {
+  let best: PositionCode = options.outfieldOnly ? 'CB' : 'GK';
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const code of ALL_POSITION_CODES) {
+    if (options.outfieldOnly && code === 'GK') continue;
+    const base = POSITIONS[code].base;
+    const distance = (base.x - x) ** 2 + (base.y - y) ** 2;
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = code;
+    }
+  }
+  return best;
 }
 
 /** Where an outfield position sits vertically (0 = own goal, 1 = opposition goal). */

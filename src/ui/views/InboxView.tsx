@@ -45,7 +45,7 @@ export function InboxView() {
   return (
     <div className={`inbox${conversation ? ' inbox--reading' : ''}`}>
       <InboxList unread={unread} />
-      {conversation && <ConversationPane conversation={conversation} />}
+      {conversation && <ConversationPane key={conversation.id} conversation={conversation} />}
     </div>
   );
 }
@@ -82,7 +82,7 @@ function InboxList({ unread }: { unread: number }) {
       {rows.length === 0 ? (
         <EmptyState>{empty.title}</EmptyState>
       ) : (
-        <ul className="inbox__rows">
+        <ul className="inbox__rows" tabIndex={0} aria-label="Message threads">
           {rows.map((row) => (
             <Row key={row.conversationId} row={row} open={row.conversationId === openId} />
           ))}
@@ -102,6 +102,7 @@ function Row({ row, open }: { row: InboxRow; open: boolean }) {
         type="button"
         className={`inbox__row${unread ? ' inbox__row--unread' : ''}${open ? ' inbox__row--open' : ''}`}
         aria-current={open ? 'true' : undefined}
+        data-conversation={row.conversationId}
         onClick={() => gameActions().openConversation(row.conversationId)}
       >
         <span className="inbox__row-main">
@@ -147,7 +148,12 @@ function Row({ row, open }: { row: InboxRow; open: boolean }) {
 
 function ConversationPane({ conversation }: { conversation: Conversation }) {
   const game = useGame();
-  const close = () => gameActions().closeConversation();
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => { headingRef.current?.focus({ preventScroll: true }); }, [conversation.id]);
+  const close = () => {
+    gameActions().closeConversation();
+    window.requestAnimationFrame(() => document.querySelector<HTMLButtonElement>(`[data-conversation="${CSS.escape(conversation.id)}"]`)?.focus());
+  };
   if (!game) return null;
 
   const messages = threadMessages(game, conversation.id);
@@ -164,7 +170,7 @@ function ConversationPane({ conversation }: { conversation: Conversation }) {
         <button type="button" className="inbox__back" onClick={close} aria-label="Back to messages">
           <span aria-hidden="true">‹</span> Messages
         </button>
-        <h2 className="inbox__thread-name">{name}</h2>
+        <h2 ref={headingRef} tabIndex={-1} className="inbox__thread-name">{name}</h2>
         {kind && <span className="inbox__thread-kind">{kind}</span>}
         {others.length > 1 && (
           <p className="inbox__thread-people">{others.map((id) => personName(game, id)).join(', ')}</p>
@@ -203,7 +209,7 @@ function MessageLog({
   }
 
   return (
-    <div className="inbox__log" ref={scroller}>
+    <div className="inbox__log" ref={scroller} tabIndex={0} role="region" aria-label="Message content">
       {messages.map((message) => (
         <div key={message.id}>
           {message.startsDay && <p className="inbox__day">{message.dayLabel}</p>}

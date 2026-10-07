@@ -17,16 +17,31 @@ interface Row {
   homeShare: number;
 }
 
-function rowsFrom(stats: Stats): Row[] {
-  const rows: Row[] = [
-    {
+/**
+ * Whether the record actually carries possession.
+ *
+ * `matchStats` gives both sides half the ball when there are no possession
+ * ticks at all, which is the right default for the *model* and the wrong thing
+ * to print: a 50/50 bar shown because nothing was recorded is exactly the kind
+ * of invented number this panel promises not to display. So the figure is only
+ * offered when the ticks behind it exist.
+ */
+function hasPossession(match: Match): boolean {
+  const ticks = match.possessionTicks;
+  return Boolean(ticks && ticks.home + ticks.away > 0);
+}
+
+function rowsFrom(stats: Stats, possession: boolean): Row[] {
+  const rows: Row[] = [];
+  if (possession) {
+    rows.push({
       key: 'possession',
       label: 'Possession',
       home: `${Math.round(stats.home.possession * 100)}%`,
       away: `${Math.round(stats.away.possession * 100)}%`,
       homeShare: stats.home.possession,
-    },
-  ];
+    });
+  }
 
   const add = (key: string, label: string, home: number, away: number) => {
     if (home === 0 && away === 0) return;
@@ -95,12 +110,17 @@ export function MatchStatsStrip({
   };
 
   const pairs: Array<{ label: string; home: number | string; away: number | string; homeShare: number }> = [
-    {
-      label: 'Possession',
-      home: `${Math.round(stats.home.possession * 100)}%`,
-      away: `${Math.round(stats.away.possession * 100)}%`,
-      homeShare: stats.home.possession,
-    },
+    // Possession is offered only when the record has the ticks to support it,
+    // for the same reason the detailed panel omits it: a bar resting at halfway
+    // because nothing was recorded is not a 50/50 afternoon.
+    ...(hasPossession(match)
+      ? [{
+          label: 'Possession',
+          home: `${Math.round(stats.home.possession * 100)}%`,
+          away: `${Math.round(stats.away.possession * 100)}%`,
+          homeShare: stats.home.possession,
+        }]
+      : []),
     { label: 'Shots', home: stats.home.shots, away: stats.away.shots, homeShare: share(stats.home.shots, stats.away.shots) },
     {
       label: 'On target',
@@ -154,18 +174,39 @@ export function MatchStatsStrip({
 
 export function MatchStatsPanel({ match }: { match: Match }) {
   const stats = matchStats(match);
-  const rows = rowsFrom(stats);
+  const rows = rowsFrom(stats, hasPossession(match));
+  if (rows.length === 0) {
+    return (
+      <div className="stats">
+        <div className="stats__head">
+          <h3>Match stats</h3>
+        </div>
+        <p className="empty small">
+          Nothing has been recorded yet. This panel only reports what the match has actually produced.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="stats">
       <div className="stats__head">
         <h3>Match stats</h3>
-        <span className="small muted">Last {stats.pressureWindow} minutes</span>
+        {/* The window belongs to the pressure bar and to nothing else. It used
+            to be the note beside "Match stats", where it read as a claim about
+            every row underneath — and the shots, passes and possession below
+            are whole-match figures, so that was simply wrong. */}
+        <span className="small muted">Whole match so far</span>
       </div>
 
-      <div className="pressure" aria-label="Recent pressure">
-        <span className="pressure__side pressure__side--home" style={{ flexGrow: 0.2 + stats.pressure.home }} />
-        <span className="pressure__side pressure__side--away" style={{ flexGrow: 0.2 + stats.pressure.away }} />
+      <div className="stats__pressure">
+        <span className="small muted">Pressure · last {stats.pressureWindow} minutes</span>
+        {/* A picture of a share, so it is named as one: a bare `aria-label` on a
+            plain div is prohibited, and the bar carries no text of its own. */}
+        <div className="pressure" role="img" aria-label={`Recent pressure over the last ${stats.pressureWindow} minutes`}>
+          <span className="pressure__side pressure__side--home" style={{ flexGrow: 0.2 + stats.pressure.home }} />
+          <span className="pressure__side pressure__side--away" style={{ flexGrow: 0.2 + stats.pressure.away }} />
+        </div>
       </div>
 
       <dl className="stats__rows">

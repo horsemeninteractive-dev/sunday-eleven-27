@@ -7,12 +7,13 @@ import { MATCH_SPEED_LABEL, MATCH_SPEEDS } from '@/state/preferences';
 import { buildMatchRenderState, recordedFrame } from '@/presentation/matchPresentation';
 import { resolveRenderer } from '@/presentation/matchRenderers';
 import { buildReplay, replayAt } from '@/presentation/matchReplay';
-import { spatialSecondsPerRealSecond } from '../matchPace';
+import { matchSecondsPerRealSecond } from '../matchPace';
 import { minuteLabel } from '../matchFeed';
 import { MatchIncidentBanner } from '../match/MatchIncidentBanner';
 import { MatchStatsStrip } from '../match/MatchStats';
 import { matchKitColours } from '../kit';
 import { Button } from '../components/primitives';
+import { ClubBadge } from '../components/Badge';
 
 /**
  * Watching a match back.
@@ -60,7 +61,7 @@ export function ReplayView() {
   // replay runs at the pace the manager chose and never at the frame rate.
   useEffect(() => {
     if (!playing || !replay) return;
-    const rate = spatialSecondsPerRealSecond(speed);
+    const rate = matchSecondsPerRealSecond(speed);
     let frame = 0;
     let last = performance.now();
     // The clock advances every frame, by the real time that actually passed, so
@@ -135,7 +136,7 @@ export function ReplayView() {
       <div className="replayhead">
         <div className="replayhead__team replayhead__team--home">
           <span className="replayhead__badge">Replay</span>
-          <strong>{home.identity.shortName}</strong>
+          <ClubBadge club={home} size={36} /><strong>{home.identity.shortName}</strong>
         </div>
         <div className="replayhead__score">
           {score.home} — {score.away}
@@ -145,7 +146,7 @@ export function ReplayView() {
           </span>
         </div>
         <div className="replayhead__team replayhead__team--away">
-          <strong>{away.identity.shortName}</strong>
+          <strong>{away.identity.shortName}</strong><ClubBadge club={away} size={36} />
           <Button variant="ghost" size="sm" onClick={() => useGameStore.getState().closeReplay()}>
             Close
           </Button>
@@ -181,7 +182,7 @@ export function ReplayView() {
               >
                 {playing ? '❚❚' : '▶'}
               </button>
-              <button type="button" className="chip" onClick={() => setSeconds(0)} title="Start again">
+              <button type="button" className="chip" onClick={() => setSeconds(0)} title="Start again" aria-label="Restart replay">
                 ↺
               </button>
               <div className="speed" role="group" aria-label="Replay speed">
@@ -190,6 +191,7 @@ export function ReplayView() {
                     key={value}
                     type="button"
                     className={`chip${speed === value ? ' chip--on' : ''}`}
+                    aria-pressed={speed === value}
                     onClick={() => setSpeed(value)}
                     title={MATCH_SPEED_LABEL[value] ?? `${value}×`}
                   >
@@ -217,6 +219,7 @@ export function ReplayView() {
       </div>
 
       <div className="matchday__stats">
+        <p className="small muted replay-stats-label">Full-match totals · the score and pitch above follow the replay clock</p>
         <MatchStatsStrip match={match} homeColour={kitColours.home} awayColour={kitColours.away} />
       </div>
     </div>

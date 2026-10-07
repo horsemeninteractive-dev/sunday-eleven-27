@@ -51,7 +51,8 @@ const LEDGER_SORT: SortAccessors<LedgerEntry, LedgerSortKey> = {
 function OutstandingSubRow({ row }: { row: OutstandingSub }) {
   const [entry, setEntry] = useState(String(row.owed));
   const parsed = Number(entry);
-  const amount = Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, row.owed) : row.owed;
+  const valid = entry.trim() !== '' && Number.isFinite(parsed) && parsed > 0 && parsed <= row.owed;
+  const amount = valid ? parsed : 0;
   const full = amount >= row.owed;
 
   return (
@@ -74,10 +75,12 @@ function OutstandingSubRow({ row }: { row: OutstandingSub }) {
             max={row.owed}
             step={0.5}
             value={entry}
+            aria-label={`Payment from ${row.name}`}
+            aria-invalid={!valid}
             onChange={(event) => setEntry(event.target.value)}
           />
         </label>
-        <Button size="sm" variant={full ? 'primary' : 'default'} onClick={() => gameActions().collectSubs(row.personId, amount)}>
+        <Button size="sm" disabled={!valid} variant={full ? 'primary' : 'default'} onClick={() => gameActions().collectSubs(row.personId, amount)}>
           {full ? 'Collect in full' : 'Take part payment'}
         </Button>
       </div>
@@ -128,6 +131,7 @@ export function FinancesView() {
       <PageHeader
         eyebrow="Club"
         title="Finances"
+        subtitle={`${club.identity.shortName}'s treasurer's book · money held, money due and the weeks ahead`}
         meta={
           <>
             <span className="small muted">{CLUB_STRUCTURE_LABEL[club.structure]}</span>
@@ -176,6 +180,8 @@ export function FinancesView() {
           note={`Matchday subs · ${treasurer.outstanding.length} outstanding`}
           tone={treasurer.outstandingTotal > 0 ? 'warn' : 'ok'}
         />
+      </TileGrid>
+      <details className="more"><summary>A typical week · income, outgoings and net</summary><TileGrid min={185}>
         <MetricTile
           label="In"
           value={money(weeklyIn)}
@@ -183,7 +189,7 @@ export function FinancesView() {
         />
         <MetricTile label="Out" value={money(-weeklyOut)} note="Pitch, insurance, training" />
         <MetricTile label="Net" value={money(net)} note="Typical week" tone={net < 0 ? 'bad' : 'ok'} />
-      </TileGrid>
+      </TileGrid></details>
 
       {/*
         What is wrong and what is coming, together, because they are the same
@@ -317,7 +323,7 @@ export function FinancesView() {
         />
       </Section>
 
-      <Section title="The ledger">
+      <details className="more"><summary>The ledger · {finances.ledger.length} entries</summary><Section>
         <Panel level="quiet" flush subtitle="Newest first">
           {ledger.length === 0 && <p className="empty">No money has moved yet.</p>}
           <div className="table-wrapper">
@@ -354,7 +360,7 @@ export function FinancesView() {
             </table>
           </div>
         </Panel>
-      </Section>
+      </Section></details>
     </div>
   );
 }

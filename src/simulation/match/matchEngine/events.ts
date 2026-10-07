@@ -29,6 +29,14 @@ export interface EmitSpec {
  *
  * It goes on the match's own log — the record the whole game reads — and onto
  * the engine's pending feed, which a running match drains one step at a time.
+ *
+ * The point is a point *on the pitch*. A shot is resolved where the ball ended
+ * up, and a shot that goes in ended up a fraction beyond the goal line, so the
+ * engine's own coordinates can fall outside the field by a hundredth or two. The
+ * record keeps the place the thing happened — the line itself — rather than a
+ * coordinate off the edge of the field every reader draws, which is what the map
+ * strip, the replay and a future 3D view all assume. Nothing about the football
+ * changes: it is the same event, filed where it can be shown.
  */
 export function emitEvent(state: MatchEngineState, match: Match, spec: EmitSpec): MatchEvent {
   // The minute is the one the clock *reads*, not the raw count of seconds: the
@@ -42,8 +50,8 @@ export function emitEvent(state: MatchEngineState, match: Match, spec: EmitSpec)
     playerId: spec.playerId ?? null,
     secondaryPlayerId: spec.secondaryPlayerId ?? null,
     text: spec.text,
-    x: spec.x,
-    y: spec.y,
+    x: Math.max(0, Math.min(1, spec.x)),
+    y: Math.max(0, Math.min(1, spec.y)),
     importance: spec.importance,
     scoreAfter: spec.scoreAfter ?? { ...state.score },
   });

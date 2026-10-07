@@ -1,27 +1,18 @@
 import type { ClubId, PlayerId } from '@/domain/ids';
-import type {
-  FieldZone,
-  Match,
-  MatchEvent,
-  MatchEventType,
-  MatchPhase,
-  PlayerPerformance,
-} from '@/domain/match';
+import type { Match, MatchEvent, MatchEventType, PlayerPerformance } from '@/domain/match';
 import type { Player } from '@/domain/person';
 import type { Tactics } from '@/domain/tactics';
 import { stream, type Rng } from '../rng';
-import * as C from './commentary';
 import { computeTeamStrength, type TeamStrength } from './teamStrength';
 import { tacticalProfile, type TacticalProfile } from './tacticsModel';
 
 /**
  * The pieces every part of the match simulation shares.
  *
- * The engine, the possession model, the set-piece routines and the shot model
- * all need the same handful of things: which side is which, how the minute's
- * random stream is read, how an event is written down, and how strong each team
- * is right now. Those live here so the newer modules can use them without
- * importing the engine back — the engine imports them, not the other way round.
+ * Touchline needs the same handful of things whichever resolution is playing: which
+ * side is which, how it is named, how an event is written down, and how strong
+ * each team is right now. Those live here so the two resolutions can share them
+ * without importing each other.
  *
  * Nothing here decides any football. It is vocabulary, not judgement.
  */
@@ -59,35 +50,6 @@ export interface MatchEnvironment {
    */
   tacticalFamiliarity?: (clubId: ClubId) => number;
   cohesion?: (clubId: ClubId) => number;
-  /**
-   * A developer-only hook for watching the simulation think.
-   *
-   * When supplied, every decision the possession model makes — the action it
-   * weighed, the one it chose, the pass it played, the duel it lost — is handed
-   * to this callback in plain English. It exists so a balance problem can be
-   * read rather than guessed at, and it is never wired up for a normal player:
-   * an ordinary match passes nothing here and pays nothing for it.
-   */
-  trace?: (entry: SimTraceEntry) => void;
-}
-
-export interface MinuteResult {
-  minute: number;
-  events: MatchEvent[];
-  halfTime: boolean;
-  finished: boolean;
-}
-
-/** One line of the developer trace. Prose first; the numbers are the detail. */
-export interface SimTraceEntry {
-  minute: number;
-  half: 1 | 2 | 3;
-  phase: MatchPhase;
-  side: Side | null;
-  playerId: PlayerId | null;
-  zone: FieldZone | null;
-  message: string;
-  detail?: Record<string, number | string | null>;
 }
 
 export function otherSide(side: Side): Side {
@@ -129,14 +91,6 @@ export function stoppageMinutes(match: Match, half: 1 | 2): number {
   return stream(match.seed, 'stoppage', half).int(half === 1 ? 1 : 2, half === 1 ? 5 : 7);
 }
 
-export function halfEndMinute(match: Match, half: 1 | 2 | 3): number {
-  if (half === 1) return 45 + stoppageMinutes(match, 1);
-  if (half === 2) return 90 + stoppageMinutes(match, 1) + stoppageMinutes(match, 2);
-  // Extra time is fifteen a period with nothing added on top: the whole point of
-  // it is that it is short and every leg in it is heavy.
-  return half === 3 ? 105 : 120;
-}
-
 /**
  * Which side is attacking toward x = 1.
  *
@@ -146,6 +100,29 @@ export function halfEndMinute(match: Match, half: 1 | 2 | 3): number {
  */
 export function homeAttacksRight(match: Match): boolean {
   return match.half !== 2;
+}
+
+/**
+ * Pitch coordinates for a loose action by `side`, used where no exact point exists.
+ *
+ * The abstract resolution places the ordinary moments of a match — a chance, the
+ * build-up before it — on the pitch without ever knowing where anybody is
+ * standing, and this is where it puts them: in front of the side that is
+ * attacking, at the right end for the half.
+ */
+export function attackingCoordinates(
+  match: Match,
+  side: Side,
+  rng: Rng,
+  depth: 'chance' | 'build' = 'chance',
+): { x: number; y: number } {
+  const attackingHome = homeAttacksRight(match) ? side === 'home' : side === 'away';
+  const dir = attackingHome ? 1 : -1;
+  const reach = depth === 'chance' ? rng.float(0.16, 0.44) : rng.float(0.02, 0.2);
+  return {
+    x: Math.max(0.02, Math.min(0.98, 0.5 + dir * reach)),
+    y: Math.max(0.06, Math.min(0.94, rng.float(0.1, 0.9))),
+  };
 }
 
 /** Human-facing minute label, e.g. "45+2". */
@@ -250,72 +227,3 @@ export function makeEvent(
   };
 }
 
-export function pushEvent(match: Match, event: MatchEvent, sink: MatchEvent[]): void {
-  match.events.push(event);
-  sink.push(event);
-}
-
-/**
- * Turn a point in the simulation's fixed frame into the event log's frame.
- *
- * The simulation always has the home side attacking toward x = 1, because that
- * is the simplest thing to reason about. The event log, and the little map strip
- * that reads it, keeps the old convention of flipping at half time so that the
- * "home" half of the pitch is the one being attacked in each period. This is the
- * single place the two meet.
- */
-export function eventCoords(match: Match, x: number, y: number): { x: number; y: number } {
-  const attackingRight = homeAttacksRight(match);
-  return {
-    x: Math.max(0.02, Math.min(0.98, attackingRight ? x : 1 - x)),
-    y: Math.max(0.04, Math.min(0.96, y)),
-  };
-}
-
-/** Pitch coordinates for a loose action by `side`, used where no exact point exists. */
-export function attackingCoordinates(
-  match: Match,
-  side: Side,
-  rng: Rng,
-  depth: 'chance' | 'build' = 'chance',
-): { x: number; y: number } {
-  const attackingHome = homeAttacksRight(match) ? side === 'home' : side === 'away';
-  const dir = attackingHome ? 1 : -1;
-  const reach = depth === 'chance' ? rng.float(0.16, 0.44) : rng.float(0.02, 0.2);
-  return {
-    x: Math.max(0.02, Math.min(0.98, 0.5 + dir * reach)),
-    y: Math.max(0.06, Math.min(0.94, rng.float(0.1, 0.9))),
-  };
-}
-
-export function textContext(
-  env: MatchEnvironment,
-  match: Match,
-  side: Side,
-  rng: Rng,
-  extras: { player?: Player | null; partner?: Player | null; quality?: number; score?: string } = {},
-): C.CommentaryContext {
-  const opponent = otherSide(side);
-  const score = currentScore(match);
-  return {
-    player: extras.player ?? null,
-    partner: extras.partner ?? null,
-    teamName: env.clubShortName(sideClubId(match, side)),
-    opponentName: env.clubShortName(sideClubId(match, opponent)),
-    minute: match.minute,
-    score: extras.score ?? `${score.home}-${score.away}`,
-    quality: extras.quality,
-    rngPick: <T,>(items: readonly T[]) => rng.pick(items),
-  };
-}
-
-/** The number of goals, as the match currently stands, for a given side. */
-export function goalsFor(match: Match, side: Side): number {
-  const score = currentScore(match);
-  return side === 'home' ? score.home : score.away;
-}
-
-export function goalsAgainst(match: Match, side: Side): number {
-  const score = currentScore(match);
-  return side === 'home' ? score.away : score.home;
-}

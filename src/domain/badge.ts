@@ -60,7 +60,21 @@ export type BadgeDevice =
   | 'bolt'
   | 'laurel'
   | 'cross'
-  | 'trowel';
+  | 'trowel'
+  | 'gate'
+  | 'well'
+  | 'beehive'
+  | 'fish'
+  | 'arrow'
+  | 'lamp'
+  | 'hammer'
+  | 'mallet'
+  | 'mitre'
+  | 'chalice'
+  | 'vine'
+  | 'millstone'
+  | 'spade'
+  | 'sword';
 
 /** What a manager decided about his own club's badge, if he decided anything. */
 export interface BadgeChoice {

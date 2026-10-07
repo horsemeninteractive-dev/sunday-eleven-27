@@ -1,4 +1,4 @@
-import type { FormationId } from './positions';
+import type { FormationId, FormationSlot } from './positions';
 
 export type Mentality = 'very-defensive' | 'defensive' | 'balanced' | 'attacking' | 'very-attacking';
 export type PassingStyle = 'short' | 'mixed' | 'direct';
@@ -13,7 +13,32 @@ export type AttackingFocus = 'wide' | 'balanced' | 'central';
  * additional optional fields — nothing here assumes these are the only knobs.
  */
 export interface Tactics {
+  /**
+   * The named formation this side is built from.
+   *
+   * It stays the *name* even when the manager has moved people, because it is
+   * what his squad's familiarity with the system is measured against. Where the
+   * eleven actually stand is `shape`.
+   */
   formation: FormationId;
+  /**
+   * The eleven positions, when the manager has moved anybody himself.
+   *
+   * Absent means "as the named formation says", which is every side until
+   * somebody drags a dot. It is carried on the tactics rather than looked up
+   * from the career because the match engine and the renderer are handed a
+   * fixture's tactics and nothing else — a shape that lived anywhere further
+   * away would apply on the selection screen and vanish at kick-off.
+   */
+  shape?: FormationSlot[];
+  /**
+   * The saved shape this came from, if it is one of the manager's own.
+   *
+   * It is a reference and not a copy: editing a saved shape leaves this in
+   * place and the screen says "edited", so a manager can see that the thing on
+   * the pitch is no longer quite the thing in the book.
+   */
+  shapeId?: string;
   mentality: Mentality;
   passingStyle: PassingStyle;
   tempo: Tempo;

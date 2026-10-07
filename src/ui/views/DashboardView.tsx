@@ -25,8 +25,12 @@ import { moneyShort } from '../format';
 import { gameActions, useGame, useNextFixture } from '../hooks';
 import { openMatter, runCommand, useCommandState } from '../commandActions';
 import { isScreenIntent } from '../commandState';
-import { Button, FormPips, PageHeader, Pill } from '../components/primitives';
-import { ClubLink, CompetitionLink } from '../components/Links';
+import { Button, FormPips, PageHeader } from '../components/primitives';
+import { ClubLink } from '../components/Links';
+import { FixtureCard } from '../components/FixtureCard';
+import { ClubBadge } from '../components/Badge';
+import { openMatchReport } from '../reportActions';
+import { AdaptivePanels } from '../components/AdaptivePanels';
 import { ActionTile, FixtureTile, MetricTile, NewsTile, Section, Tile, TileGrid } from '../components/hierarchy';
 
 /**
@@ -71,15 +75,14 @@ export function DashboardView() {
 
   const opponentId = next ? matchOpponent(next, club.id) : null;
   const opponent = opponentId ? game.clubs[opponentId] : null;
-  const venue = next ? matchVenueLabel(next, club.id) : null;
   const selectionProblems = next ? selectionErrors(game, next, club.id) : [];
 
   return (
     <div className="stack">
       <PageHeader
-        eyebrow="Club"
-        title={club.identity.name}
-        subtitle={command.lines.filter(Boolean).join(' · ')}
+        eyebrow={`${game.season.label} · ${command.eyebrow}`}
+        title={<span className="person-identity"><ClubBadge club={club} size={40} />{club.identity.name}</span>}
+        subtitle={command.title}
         meta={
           <>
             <span className="small muted">{formatDate(game.date)}</span>
@@ -108,51 +111,11 @@ export function DashboardView() {
 
       <Section title="Next match">
         {next && opponent ? (
-          <TileGrid min={215}>
-            <Tile level="primary" label="Kick-off">
-              <span className="next-match__club">
-                {venue === 'Home' ? (
-                  <>
-                    <ClubLink clubId={club.id}>{club.identity.shortName}</ClubLink>
-                    <span className="muted">v</span>
-                    <ClubLink clubId={opponent.id}>{opponent.identity.name}</ClubLink>
-                  </>
-                ) : (
-                  <>
-                    <ClubLink clubId={opponent.id}>{opponent.identity.name}</ClubLink>
-                    <span className="muted">v</span>
-                    <ClubLink clubId={club.id}>{club.identity.shortName}</ClubLink>
-                  </>
-                )}
-              </span>
-              <span className="tile__meta">
-                <Pill tone={venue === 'Home' ? 'accent' : 'muted'}>{venue === 'Home' ? 'HOME' : 'AWAY'}</Pill>
-                <span className="muted small">
-                  {formatShortDate(next.date)} · <CompetitionLink>{next.competitionName}</CompetitionLink>
-                </span>
-              </span>
-            </Tile>
-
-            <MetricTile
-              label="Availability"
-              value={`${breakdown.available.length} available`}
-              note={`${breakdown.doubtful.length} doubtful · ${breakdown.unavailable.length} out`}
-              tone={breakdown.available.length < 14 ? 'warn' : 'ok'}
-            />
-
-            <ActionTile
-              label="Selection"
-              title="Pick the team"
-              meta={
-                selectionProblems.length > 0
-                  ? `${selectionProblems.length} problem${selectionProblems.length === 1 ? '' : 's'} to fix`
-                  : `${breakdown.available.length} of ${squad.length} in contention`
-              }
-              tone={selectionProblems.length > 0 ? 'bad' : 'accent'}
-              primary
-              onClick={() => gameActions().setView('team')}
-            />
-          </TileGrid>
+          <FixtureCard state={game} match={next} actions={<>
+            <span className={`small ${selectionProblems.length ? 'tone tone--warn' : 'muted'}`}>{selectionProblems.length ? `${selectionProblems.length} selection problems` : 'Selection ready'}</span>
+            <Button variant="primary" onClick={() => gameActions().setView('team')}>Pick the team</Button>
+            <Button variant="ghost" onClick={() => gameActions().openPlanner()}>The week ahead</Button>
+          </>} />
         ) : (
           <Tile label="Next match">
             <span className="tone tone--muted">No fixture scheduled.</span>
@@ -191,8 +154,8 @@ export function DashboardView() {
         />
       </TileGrid>
 
-      {matters.length > 0 && (
-        <Section
+      <AdaptivePanels name="home" panels={[
+        { id: 'decisions', label: 'Club decisions', wide: true, content: <Section
           title="Worth dealing with"
           action={
             moreMatters ? (
@@ -202,7 +165,8 @@ export function DashboardView() {
             ) : undefined
           }
         >
-          <TileGrid min={230}>
+          {matters.length === 0 && <p className="empty">Nothing needs your attention right now.</p>}
+          <TileGrid min={230} className="diary-decisions">
             {matters.map((matter) => (
               <ActionTile
                 key={matter.id}
@@ -215,10 +179,8 @@ export function DashboardView() {
               />
             ))}
           </TileGrid>
-        </Section>
-      )}
-
-      <Section
+        </Section> },
+        { id: 'results', label: 'Recent results', content: <Section
         title="Recent results"
         action={
           <Button variant="ghost" size="sm" onClick={() => gameActions().setView('fixtures')}>
@@ -227,7 +189,7 @@ export function DashboardView() {
         }
       >
         {results.length > 0 ? (
-          <TileGrid min={200}>
+          <TileGrid min={200} className="diary-results">
             {results.map((match) => (
               <FixtureTile
                 key={match.id}
@@ -237,7 +199,7 @@ export function DashboardView() {
                 outcome={outcomeFor(match, club.id)}
                 score={scoreFor(match, club.id)}
                 action="Report"
-                onAction={() => gameActions().setView('fixtures')}
+                onAction={() => openMatchReport(match.id)}
               />
             ))}
           </TileGrid>
@@ -246,9 +208,8 @@ export function DashboardView() {
             <span className="tone tone--muted">No matches played yet this season.</span>
           </Tile>
         )}
-      </Section>
-
-      <Section
+      </Section> },
+      { id: 'news', label: 'Club news', content: <Section
         title="Around the club"
         action={
           <Button variant="ghost" size="sm" onClick={() => gameActions().setView('news')}>
@@ -261,13 +222,13 @@ export function DashboardView() {
             <span className="tone tone--muted">Nothing to report yet.</span>
           </Tile>
         ) : (
-          <TileGrid min={260}>
+          <TileGrid min={260} className="diary-news">
             {game.news.slice(0, 3).map((item) => (
               <NewsTile
                 key={item.id}
                 category={item.category}
                 headline={item.headline}
-                summary={item.body}
+
                 date={formatShortDate(item.date)}
                 tone={item.category === 'Squad' ? 'accent' : item.importance === 3 ? 'warn' : 'default'}
                 onClick={() => gameActions().setView('news')}
@@ -275,7 +236,8 @@ export function DashboardView() {
             ))}
           </TileGrid>
         )}
-      </Section>
+      </Section> },
+      ]} />
     </div>
   );
 }

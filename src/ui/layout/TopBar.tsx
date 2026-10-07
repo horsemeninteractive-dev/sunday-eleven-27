@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import type { GameState } from '@/domain/game';
 import type { Match } from '@/domain/match';
 import { formatDate, formatDayMonth, formatKickOff } from '@/simulation/calendar';
@@ -14,6 +14,7 @@ import { Glyph } from '../components/icons';
 import { StripeField } from '../components/StripeField';
 import { CompetitionLink, ClubLink } from '../components/Links';
 import { UtilityMenu } from './UtilityMenu';
+import { Dialog } from '../dialogs/Dialog';
 
 /**
  * The command bar.
@@ -87,7 +88,8 @@ function NextMatchBlock({ game, command }: { game: GameState; command: CommandSt
   );
 }
 
-function SearchBox({ game }: { game: GameState }) {
+function SearchBox({ game, onChoose }: { game: GameState; onChoose?: () => void }) {
+  const resultId = useId();
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
 
@@ -115,7 +117,7 @@ function SearchBox({ game }: { game: GameState }) {
   const hasResults = results.clubs.length > 0 || results.players.length > 0;
 
   return (
-    <div className="topbar__search">
+    <div className="topbar__search" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false); }} onKeyDown={(event) => { if (event.key === 'Escape') { event.stopPropagation(); setOpen(false); } if (event.key === 'ArrowDown') { const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('.searchresults__item')]; const index = buttons.indexOf(document.activeElement as HTMLButtonElement); if (buttons.length) { event.preventDefault(); buttons[(index + 1) % buttons.length]?.focus(); } } }}>
       <Glyph name="search" className="topbar__search-icon" />
       <input
         type="search"
@@ -127,10 +129,10 @@ function SearchBox({ game }: { game: GameState }) {
           setOpen(true);
         }}
         onFocus={() => setOpen(true)}
-        onBlur={() => window.setTimeout(() => setOpen(false), 150)}
+        aria-controls={open && query.trim().length >= 2 ? resultId : undefined}
       />
       {open && query.trim().length >= 2 && (
-        <div className="searchresults" role="listbox" aria-label="Search results">
+        <div className="searchresults" id={resultId} role="region" aria-label="Search results">
           {!hasResults && <p className="searchresults__empty">Nothing found for “{query}”.</p>}
           {results.clubs.map((club) => (
             <button
@@ -141,6 +143,7 @@ function SearchBox({ game }: { game: GameState }) {
                 gameActions().openProfile({ kind: 'club', id: club.id });
                 setQuery('');
                 setOpen(false);
+                onChoose?.();
               }}
             >
               <span className="searchresults__kind">{club.identity.shortName}</span>
@@ -157,6 +160,7 @@ function SearchBox({ game }: { game: GameState }) {
                 gameActions().openProfile({ kind: 'player', id: player.id });
                 setQuery('');
                 setOpen(false);
+                onChoose?.();
               }}
             >
               <span className="searchresults__kind">{player.preferredPosition}</span>
@@ -231,6 +235,7 @@ export function DesktopTopBar({ game, command }: { game: GameState; command: Com
 }
 
 export function MobileTopBar({ game, command }: { game: GameState; command: CommandState }) {
+  const [searchOpen, setSearchOpen] = useState(false);
   const club = game.clubs[game.userClubId]!;
   return (
     <header className="mobilebar on-club" style={colours(game)}>
@@ -251,8 +256,10 @@ export function MobileTopBar({ game, command }: { game: GameState; command: Comm
         </span>
       </button>
       <div className="mobilebar__tools">
+        <button type="button" className="topbar__icon" aria-label="Find a club or player" onClick={() => setSearchOpen(true)}><Glyph name="search" /></button>
         <UtilityMenu icon compact />
       </div>
+      {searchOpen && <Dialog title="Find a club or player" narrow onClose={() => setSearchOpen(false)}><SearchBox game={game} onChoose={() => setSearchOpen(false)} /><p className="small muted">Type at least two letters. Use Tab or the down arrow to reach results.</p></Dialog>}
     </header>
   );
 }

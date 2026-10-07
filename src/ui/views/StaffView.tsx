@@ -11,8 +11,9 @@ import { GOVERNANCE_STANDING_LABEL, governanceStandingRank } from '@/domain/gove
 import { formatShortDate } from '@/simulation/calendar';
 import { clubRoster } from '../clubMatters';
 import { gameActions, useGame } from '../hooks';
-import { Button, Callout, PageHeader, Pill } from '../components/primitives';
+import { Button, Callout, PageHeader, Panel, Pill } from '../components/primitives';
 import { MetricTile, Section, TileGrid } from '../components/hierarchy';
+import { StaffCard } from '../components/StaffCard';
 
 /**
  * Staff.
@@ -79,7 +80,7 @@ export function StaffView() {
         {members.length === 0 && (
           <p className="empty">Nobody is on the committee yet. You are running this club on your own.</p>
         )}
-        <ul className="tight-list">
+        <ul className="staff-roster">
           {members.map((member) => {
             const person = game.people[member.personId];
             const official = isOfficial(person) ? person : null;
@@ -88,28 +89,26 @@ export function StaffView() {
             const competence = official ? staffCompetence(official, member.role) : null;
             const relationship = relationships.get(member.personId);
             const duty = person ? person.notes[person.notes.length - 1] : null;
+            // The Club screen draws this same card for the same committee, so
+            // the office, the man, how he is, what is on him and the one action
+            // sit in the same slots on both screens.
             return (
-              <li key={`${member.role}-${member.personId}`}>
-                <div className="row row--wrap">
-                  <Pill tone="accent">{STAFF_ROLE_LABEL[member.role]}</Pill>
-                  {person ? (
-                    player ? (
-                      <>
-                        <strong>{personDisplayName(player)}</strong>
-                        <Pill tone="muted">also a player</Pill>
-                      </>
-                    ) : (
-                      <strong>{personDisplayName(official!)}</strong>
-                    )
-                  ) : (
-                    <strong className="muted">vacant</strong>
-                  )}
-                  {available !== null && (
-                    <Pill tone={available ? 'ok' : 'warn'}>{available ? 'Around' : 'Unavailable'}</Pill>
-                  )}
-                  {competence !== null && <Pill tone="muted">{competenceLabel(competence)}</Pill>}
-                  {relationship && <span className="muted small">{relationship.summary.label}</span>}
-                  {person && member.personId !== club.managerId && (
+              <StaffCard
+                key={`${member.role}-${member.personId}`}
+                office={STAFF_ROLE_LABEL[member.role]}
+                person={person}
+                identityExtra={player ? <Pill tone="muted">also a player</Pill> : undefined}
+                status={
+                  <>
+                    {available !== null && (
+                      <Pill tone={available ? 'ok' : 'warn'}>{available ? 'Around' : 'Unavailable'}</Pill>
+                    )}
+                    {competence !== null && <Pill tone="muted">{competenceLabel(competence)}</Pill>}
+                    {relationship && <span className="muted small">{relationship.summary.label}</span>}
+                  </>
+                }
+                action={
+                  person && member.personId !== club.managerId ? (
                     <Button
                       size="sm"
                       variant="ghost"
@@ -121,20 +120,16 @@ export function StaffView() {
                     >
                       Message
                     </Button>
-                  )}
-                </div>
-                <div className="muted small">
-                  {official ? `Age ${official.age} · ${official.occupation}` : 'Doubles up on the pitch'}
-                  {duty ? ` · ${duty}` : ''}
-                </div>
-                {/* Only where there is one: the single thing this office is
-                    carrying right now, or the fact that they are away. */}
-                {issues.get(member.personId) && (
-                  <div className="small tone tone--warn">{issues.get(member.personId)}</div>
-                )}
-              </li>
+                  ) : undefined
+                }
+                detail={`${person ? `Age ${person.age} · ${person.occupation}` : 'This role is vacant'}${player ? ' · Also a player' : ''}`}
+                duty={duty}
+                // Only where there is one: the single thing this office is
+                // carrying right now, or the fact that they are away.
+                issue={issues.get(member.personId)}
+              />
             );
-          }        )}
+          })}
         </ul>
         <p className="small">
           {book.role === 'none'
@@ -145,8 +140,9 @@ export function StaffView() {
         </p>
       </Section>
 
+      <div className="staff-workspace">
       {board.chairman && (
-        <Section title="The chairman" id="chairman">
+        <Panel title="The chairman" id="chairman" className="workspace-panel">
           <div className="row row--wrap">
             <strong>{board.chairmanName}</strong>
             <Pill
@@ -210,7 +206,7 @@ export function StaffView() {
           )}
 
           {board.events.length > 0 && (
-            <>
+            <details className="more"><summary>Committee record</summary>
               <p className="small"><strong>Matters of record</strong></p>
               <ul className="tight-list">
                 {board.events.slice(0, 4).map((event) => (
@@ -221,7 +217,7 @@ export function StaffView() {
                   </li>
                 ))}
               </ul>
-            </>
+            </details>
           )}
 
           {club.finances.balance < 0 && (
@@ -235,10 +231,10 @@ export function StaffView() {
               The committee has the grounds to make a change. Results over the next few weeks are the answer.
             </Callout>
           )}
-        </Section>
+        </Panel>
       )}
 
-      <Section title="The secretary's desk" id="secretary-desk">
+      <Panel title="The secretary's desk" id="secretary-desk" className="workspace-panel">
         <p className="small">
           {desk.identity.personId
             ? `${desk.identity.name} keeps the club's paperwork`
@@ -279,10 +275,10 @@ export function StaffView() {
             </ul>
           </>
         )}
-      </Section>
+      </Panel>
 
       {advice.available && (
-        <Section title={`What ${advice.assistantName} makes of it`}>
+        <Panel title={`${advice.assistantName}'s football report`} className="workspace-panel">
           <ul className="tight-list">
             {advice.lines.map((line, index) => (
               <li key={index}>
@@ -291,19 +287,19 @@ export function StaffView() {
               </li>
             ))}
           </ul>
-        </Section>
+        </Panel>
       )}
 
       {!advice.available && advice.assistantName && (
-        <Section title="No assistant this week">
+        <Panel title="No assistant this week" className="workspace-panel">
           <p className="muted small">
             {advice.assistantName} is not around, so you are on your own with the football.
           </p>
-        </Section>
+        </Panel>
       )}
 
       {physio.assessments.length > 0 && (
-        <Section title={physio.physioName ? `On ${physio.physioName}'s list` : 'The walking wounded'}>
+        <Panel title={physio.physioName ? `On ${physio.physioName}'s list` : 'The walking wounded'} className="workspace-panel">
           <ul className="tight-list">
             {physio.assessments.map((row) => (
               <li key={row.personId}>
@@ -323,10 +319,11 @@ export function StaffView() {
               ? 'Your physio’s read — an estimate, not a certainty.'
               : 'No physio at the club, so these are the figures as you see them.'}
           </p>
-        </Section>
+        </Panel>
       )}
+      </div>
 
-      <Section title="Who is not here">
+      <Section title="Unfilled roles">
         <p className="small">
           A Sunday club gets by without half of the roles a professional one has. You are doing without:{' '}
           <strong>{missing.length > 0 ? missing.map((role) => STAFF_ROLE_LABEL[role]).join(', ') : 'nothing — the committee is complete'}</strong>.

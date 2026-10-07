@@ -9,6 +9,7 @@ import { PageHeader, Panel, Pill, SortTh, Stat } from '../components/primitives'
 import { MetricTile, Section, TileGrid } from '../components/hierarchy';
 import { ClubLink, PlayerLink } from '../components/Links';
 import { applySort, UNSORTED, type SortAccessors, type SortState } from '../tableSort';
+import { ClubBadge } from '../components/Badge';
 
 type ClubSortKey =
   | 'club'
@@ -40,6 +41,9 @@ function clubSort(game: GameState): SortAccessors<Club, ClubSortKey> {
 export function WorldView() {
   const game = useGame();
   const [clubId, setClubId] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [townId, setTownId] = useState('');
+  const [limit, setLimit] = useState(12);
   const [sort, setSort] = useState<SortState<ClubSortKey>>(UNSORTED);
   if (!game) return null;
 
@@ -48,6 +52,7 @@ export function WorldView() {
   const grounds = Object.values(game.world.grounds);
   const businesses = Object.values(game.world.businesses);
   const selected = clubId ? game.clubs[clubId] : null;
+  const visibleClubs = clubs.filter((club) => (!townId || club.townId === townId) && `${club.identity.name} ${club.identity.nickname}`.toLowerCase().includes(query.trim().toLowerCase()));
 
   return (
     <div className="stack">
@@ -64,6 +69,12 @@ export function WorldView() {
       />
 
       <Section title={`${game.world.regionName}, ${game.world.countyName}`}>
+        <div className="row row--wrap"><label className="field"><span className="field__label">Find a club</span><input className="input" type="search" value={query} onChange={(event) => { setQuery(event.target.value); setLimit(12); }} placeholder="Club or nickname" /></label><label className="field"><span className="field__label">Town or village</span><select className="input" value={townId} onChange={(event) => { setTownId(event.target.value); setLimit(12); }}><option value="">Every town</option>{towns.map((town) => <option key={town.id} value={town.id}>{town.name}</option>)}</select></label></div>
+        <ul className="club-directory">{visibleClubs.slice(0, limit).map((club) => <li key={club.id}><ClubBadge club={club} size={44} /><div className="club-directory__text"><ClubLink clubId={club.id}>{club.identity.name}</ClubLink><span className="small muted">{game.world.towns[club.townId]?.name} · {club.identity.nickname}{club.id === game.userClubId ? ' · Your club' : ''}</span><span className="small muted">{game.world.grounds[club.groundId]?.name}</span></div></li>)}</ul>
+        {visibleClubs.length > limit && <button type="button" className="btn btn--ghost" onClick={() => setLimit((value) => value + 12)}>More local clubs · {limit} of {visibleClubs.length} shown</button>}
+        {visibleClubs.length === 0 && <p className="empty">No local clubs match that search. Try another name or town.</p>}
+      </Section>
+      <details className="more"><summary>The county in numbers</summary><Section>
         <TileGrid min={170}>
           <MetricTile label="Clubs" value={clubs.length} tone="accent" />
           <MetricTile label="Towns and villages" value={towns.length} />
@@ -71,7 +82,7 @@ export function WorldView() {
           <MetricTile label="Pubs and businesses" value={businesses.length} />
           <MetricTile label="Population covered" value={towns.reduce((sum, town) => sum + town.population, 0).toLocaleString('en-GB')} />
         </TileGrid>
-      </Section>
+      </Section></details>
 
       <details className="more">
         <summary className="small muted">Towns and grounds</summary>
@@ -126,7 +137,7 @@ export function WorldView() {
       </div>
       </details>
 
-      <Section title="Clubs in the local game">
+      <details className="more"><summary>Compare all clubs · sortable full directory</summary><Section title="Clubs in the local game">
       <Panel flush>
         <div className="table-wrapper">
         <table className="table table--stack">
@@ -150,14 +161,13 @@ export function WorldView() {
               return (
                 <tr
                   key={club.id}
-                  className={`table__row--clickable${club.id === game.userClubId ? ' table__row--mine' : ''}`}
-                  onClick={() => setClubId(club.id)}
+                  className={club.id === game.userClubId ? ' table__row--mine' : undefined}
                 >
                   <td>
                     <span className="swatch" style={{ background: club.identity.colours.primary }} />
                     <ClubLink clubId={club.id}>{club.identity.name}</ClubLink>
                     {club.id === game.userClubId && <Pill tone="accent">yours</Pill>}
-                    <div className="muted small">{club.identity.nickname}</div>
+                    <div className="muted small">{club.identity.nickname}</div><button type="button" className="link" onClick={() => setClubId(club.id)}>Compare {club.identity.shortName}</button>
                   </td>
                   <td data-label="Town">{game.world.towns[club.townId]?.name}</td>
                   <td className="muted small" data-label="Ground">
@@ -184,7 +194,7 @@ export function WorldView() {
         </table>
         </div>
       </Panel>
-      </Section>
+      </Section></details>
 
       {selected && (
         <Panel

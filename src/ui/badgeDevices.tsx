@@ -512,4 +512,170 @@ export const BADGE_DEVICE_SHAPES: Record<BadgeDevice, (colours: DeviceColours) =
       <path d="M16 10.6 V5" stroke={c.field} strokeWidth={1.1} />
     </>
   ),
+
+  /** A portcullis: the Gate, the Gatehouse, any town that kept its own gate. */
+  gate: (c) => (
+    <>
+      <path d="M4.6 8.6 H27.4 V23.4 L16 29.8 L4.6 23.4 Z" fill={c.ink} />
+      <g stroke={c.field} strokeWidth={1.7} strokeLinecap="round">
+        <path d="M10.4 10.8 V25.4" />
+        <path d="M16 10.8 V28.4" />
+        <path d="M21.6 10.8 V25.4" />
+        <path d="M6 15 H26" />
+        <path d="M6 20 H26" />
+      </g>
+    </>
+  ),
+
+  /** The village well: Ashwell, Thornwell, the Spring, the Fountain. */
+  well: (c) => (
+    <>
+      <path d="M16 4.4 L26.6 11.8 H5.4 Z" fill={c.ink} />
+      <rect x={9.4} y={11.4} width={13.2} height={3.4} rx={1.1} fill={c.ink} />
+      <path d="M8.2 15.6 H23.8 L21.8 28.8 H10.2 Z" fill={c.ink} />
+      <path d="M12.2 18.2 H19.8 L18.8 25 H13.2 Z" fill={c.field} />
+      <rect x={14.4} y={19.2} width={3.2} height={3.4} rx={0.9} fill={c.accent} />
+    </>
+  ),
+
+  /** The Beehive, the Bees, the Honey Pot. */
+  beehive: (c) => (
+    <>
+      <path
+        d="M16 5.6 C22.6 5.6 26.8 10.6 26.8 17.8 C26.8 24.6 22.2 29.6 16 29.6 C9.8 29.6 5.2 24.6 5.2 17.8 C5.2 10.6 9.4 5.6 16 5.6 Z"
+        fill={c.ink}
+      />
+      <g stroke={c.field} strokeWidth={1.5} fill="none">
+        <path d="M5.9 13.4 H26.1" />
+        <path d="M5.3 19.4 H26.7" />
+        <path d="M8.2 25 H23.8" />
+      </g>
+      <rect x={13} y={26} width={6} height={4} rx={1.2} fill={c.ink} />
+    </>
+  ),
+
+  /** The Fisherman's Arms, the Trout, anywhere named after the river. */
+  fish: (c) => (
+    <>
+      <path
+        d="M3.6 16 C8.2 10.2 14.2 8.6 19.8 11 L26.4 6.4 L24.6 13.2 L28.6 16 L24.6 18.8 L26.4 25.6 L19.8 21 C14.2 23.4 8.2 21.8 3.6 16 Z"
+        fill={c.ink}
+      />
+      <circle cx={9} cy={14.4} r={1.2} fill={c.field} />
+      <path d="M13.4 12.6 C15.6 14.6 15.6 17.4 13.4 19.4" fill="none" stroke={c.field} strokeWidth={1.1} />
+    </>
+  ),
+
+  /** The Archers, the Arrows, the Fletcher's Arms. */
+  arrow: (c) => (
+    <g transform="rotate(-45 16 16)">
+      <rect x={14.4} y={8.4} width={3.2} height={18.6} rx={1.2} fill={c.ink} />
+      <path d="M16 2.4 L22.2 12.6 H9.8 Z" fill={c.ink} />
+      <path d="M11 25.4 L9.4 30.8 L16 27.8 L22.6 30.8 L21 25.4 Z" fill={c.accent} />
+    </g>
+  ),
+
+  /** The Beacon, the Lamp, the Lantern. */
+  lamp: (c) => (
+    <>
+      <path d="M9.8 12.4 L11.4 4.4 H20.6 L22.2 12.4 Z" fill={c.ink} />
+      <rect x={14.6} y={12.2} width={2.8} height={12.4} rx={1.1} fill={c.ink} />
+      <path d="M8.4 29.8 H23.6 L21.2 25.4 H10.8 Z" fill={c.ink} />
+      <rect x={12.2} y={7.2} width={7.6} height={3.6} rx={0.9} fill={c.accent} />
+    </>
+  ),
+
+  /** The Hammers, and the trades that worked the forge's other side. */
+  hammer: (c) => (
+    <g transform="rotate(-32 16 16)">
+      <rect x={14.6} y={9.4} width={2.8} height={19.6} rx={1.1} fill={c.ink} />
+      <rect x={7.4} y={4.4} width={17.2} height={5.6} rx={1.6} fill={c.ink} />
+      <path d="M7.4 10 L5.4 14.6 L9.6 11.6 Z" fill={c.ink} />
+    </g>
+  ),
+
+  /** The Joiners Arms, the Carpenters Arms. */
+  mallet: (c) => (
+    <g transform="rotate(-24 16 16)">
+      <rect x={14.6} y={10.6} width={2.8} height={18.4} rx={1.1} fill={c.ink} />
+      <rect x={7.6} y={5.4} width={16.8} height={8.2} rx={1.8} fill={c.ink} />
+      <g stroke={c.field} strokeWidth={1.1}>
+        <path d="M10.8 7.6 V11.4" />
+        <path d="M21.2 7.6 V11.4" />
+      </g>
+    </g>
+  ),
+
+  /** The Bishop's Mitre, and the clubs named after the men who wore one. */
+  mitre: (c) => (
+    <>
+      <path d="M16 4.4 C20.8 10.6 22.2 16.6 22.2 21.4 H9.8 C9.8 16.6 11.2 10.6 16 4.4 Z" fill={c.ink} />
+      <path d="M16 4.4 C17.6 8.6 17.2 12.8 16 15.8 C14.8 12.8 14.4 8.6 16 4.4 Z" fill={c.field} />
+      <rect x={8.2} y={21.2} width={15.6} height={3.4} rx={1} fill={c.ink} />
+      <path d="M10.4 24.8 H21.6 L20.2 29 H11.8 Z" fill={c.ink} />
+    </>
+  ),
+
+  /** The Chalice, the Cup, the Grail, the Tankard. */
+  chalice: (c) => (
+    <>
+      <path d="M8.2 5.4 H23.8 C23.8 13 20.8 17.6 16 17.6 C11.2 17.6 8.2 13 8.2 5.4 Z" fill={c.ink} />
+      <rect x={14.6} y={17.4} width={2.8} height={5} fill={c.ink} />
+      <path d="M9.2 22.4 H22.8 L20.6 27.2 H11.4 Z" fill={c.ink} />
+      <rect x={10.6} y={7.2} width={10.8} height={1.5} rx={0.7} fill={c.accent} />
+      <path d="M11.8 9.6 H20.2" stroke={c.field} strokeWidth={1.1} />
+    </>
+  ),
+
+  /** The Vine, the Vineyard, anywhere the grapes came from. */
+  vine: (c) => (
+    <>
+      <path
+        d="M16 4.4 C21.8 6.6 24.2 10.8 23.4 15.2 C22.8 18.8 19.8 21.2 16 21.2 C12.2 21.2 9.2 18.8 8.6 15.2 C7.8 10.8 10.2 6.6 16 4.4 Z"
+        fill={c.ink}
+      />
+      <path d="M16 6.4 V20.4" stroke={c.field} strokeWidth={1.2} />
+      <g fill={c.accent}>
+        <circle cx={11.4} cy={24.2} r={2.7} />
+        <circle cx={16} cy={26.6} r={2.7} />
+        <circle cx={20.6} cy={24.2} r={2.7} />
+        <circle cx={16} cy={21.4} r={2.7} />
+      </g>
+    </>
+  ),
+
+  /** The Miller's stone: Stoneleigh, the Milestone, anywhere the corn was ground. */
+  millstone: (c) => (
+    <>
+      <circle cx={16} cy={16} r={12.4} fill={c.ink} />
+      <circle cx={16} cy={16} r={8.6} fill="none" stroke={c.field} strokeWidth={0.9} />
+      <circle cx={16} cy={16} r={4.2} fill={c.field} />
+      <g stroke={c.field} strokeWidth={1.5} strokeLinecap="round">
+        <path d="M16 4.6 V11" />
+        <path d="M16 21 V27.4" />
+        <path d="M4.6 16 H11" />
+        <path d="M21 16 H27.4" />
+      </g>
+    </>
+  ),
+
+  /** The Gardeners Arms, the Allotment, the Diggers. */
+  spade: (c) => (
+    <g transform="rotate(-18 16 16)">
+      <rect x={14.4} y={6.4} width={3.2} height={13} rx={1.2} fill={c.ink} />
+      <path d="M8.6 19.2 H23.4 C23.4 25.4 20.4 29.6 16 29.6 C11.6 29.6 8.6 25.4 8.6 19.2 Z" fill={c.ink} />
+      <rect x={11.4} y={3.2} width={9.2} height={3.2} rx={1.2} fill={c.ink} />
+      <path d="M16 22 V26.8" stroke={c.field} strokeWidth={1.1} />
+    </g>
+  ),
+
+  /** The Sword, the Blades, the Cutlers Arms. */
+  sword: (c) => (
+    <g transform="rotate(-45 16 16)">
+      <path d="M16 2.6 L18.6 8.6 V20.6 H13.4 V8.6 Z" fill={c.ink} />
+      <rect x={8.4} y={20.4} width={15.2} height={2.8} rx={1} fill={c.ink} />
+      <rect x={14.6} y={22.6} width={2.8} height={5.6} rx={1} fill={c.accent} />
+      <circle cx={16} cy={29} r={1.8} fill={c.ink} />
+    </g>
+  ),
 };

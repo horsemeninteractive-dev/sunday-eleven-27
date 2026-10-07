@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { CommentaryEvent } from '@/domain/match';
-import { inkForColour, withAlpha } from '../colour';
+import { withAlpha } from '../colour';
 import { BASE_MINUTE_MS } from '../matchPace';
 
 /**
@@ -150,13 +150,14 @@ export function CurrentCommentary({
 
   const primary =
     current.side === 'home' ? homeColour : current.side === 'away' ? awayColour : null;
-  // The whole bar is tinted with the club's colour from the left and carries its
-  // stripe, so whose passage this is reads before the sentence does.
+  // The whole bar is tinted with the club's colour and carries its stripe, so
+  // whose passage this is reads before the sentence does. The tint is flat: a
+  // fade to transparent inside a bar this wide left the colour as a patch in
+  // its left third rather than as a state the bar was in.
   const barStyle = primary
     ? ({
-        '--c-bar': withAlpha(primary, 0.22),
+        '--c-bar': withAlpha(primary, 0.14),
         '--c-line': primary,
-        '--c-ink': inkForColour(primary),
       } as CSSProperties)
     : undefined;
   const goal = isGoalLine(current);

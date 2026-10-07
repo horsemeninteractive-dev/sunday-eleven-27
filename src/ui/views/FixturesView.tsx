@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useGameStore } from '@/state/gameStore';
 import type { Competition } from '@/domain/competition';
 import type { GameState } from '@/domain/game';
 import type { Match } from '@/domain/match';
@@ -6,6 +7,7 @@ import { formatDayMonth, formatKickOff } from '@/simulation/calendar';
 import { cupRoundName, cupRoundOf, isPostponed } from '@/simulation/cup';
 import { clubMatches, matchVenueLabel } from '@/simulation/queries';
 import { NextFixturePanel } from '../components/FixtureInfo';
+import { ClubBadge } from '../components/Badge';
 import { MatchReportModal } from '../components/MatchReportModal';
 import { gameActions, useGame, useNextFixture } from '../hooks';
 import { Button, PageHeader, Panel, Pill } from '../components/primitives';
@@ -68,6 +70,10 @@ export function FixturesView() {
   const game = useGame();
   const nextFixture = useNextFixture();
   const [reportId, setReportId] = useState<string | null>(null);
+  const focus = useGameStore((state) => state.focus);
+  useEffect(() => {
+    if (focus?.startsWith('report:')) { setReportId(focus.slice(7)); useGameStore.setState({ focus: null }); }
+  }, [focus]);
 
   if (!game) return null;
   const club = game.clubs[game.userClubId]!;
@@ -116,21 +122,17 @@ export function FixturesView() {
             column that made the list itself read two-up. */}
         {nextFixture && <NextFixturePanel state={game} match={nextFixture} />}
 
+        <nav className="fixture-months" aria-label="Season months">{months.map(({ label }) => <button type="button" className="tab" key={label} onClick={() => { const node = document.getElementById(`month-${label}`) as HTMLDetailsElement | null; if (node) { node.open = true; node.scrollIntoView({ block: 'start' }); } }}>{label.replace(/ \d{4}$/, '')}</button>)}</nav>
         {months.map(({ label, matches: monthMatches }) => {
           const monthPlayed = monthMatches.filter((match) => match.played).length;
           const monthToCome = monthMatches.length - monthPlayed;
           return (
+            <details className="more fixture-month" id={`month-${label}`} key={label} open={label === monthInHand}>
+              <summary>{label} · {monthPlayed} played · {monthToCome} to come</summary>
             <Panel
               key={label}
               level={label === monthInHand ? 'primary' : 'default'}
-              title={label}
-              subtitle={
-                monthToCome === 0
-                  ? `${monthPlayed} played`
-                  : monthPlayed === 0
-                    ? `${monthToCome} to come`
-                    : `${monthPlayed} played · ${monthToCome} to come`
-              }
+
             >
               <ul className="fixture-list">
                 {monthMatches.map((match) => (
@@ -144,6 +146,7 @@ export function FixturesView() {
                 ))}
               </ul>
             </Panel>
+            </details>
           );
         })}
       </div>
@@ -189,10 +192,10 @@ function FixtureRow({
         <span className="muted small">{formatKickOff(match.kickOff)}</span>
       </span>
       <span className="fixture__teams">
-        <strong>
+        <span className="person-identity"><ClubBadge club={opponent} size={30} /><strong>
           {venue === 'Home' ? 'v ' : 'at '}
           {opponent.identity.name}
-        </strong>
+        </strong></span>
         <span className="muted small">
           {venue} · {ground?.name}
           {isCurrent ? ' · next up' : ''}

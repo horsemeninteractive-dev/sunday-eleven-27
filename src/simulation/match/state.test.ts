@@ -1,324 +1,174 @@
 import { describe, expect, it } from 'vitest';
-import type { GameState } from '@/domain/game';
-import type { Match } from '@/domain/match';
-import type { MatchAction, MatchState } from '@/domain/matchState';
-import { createTestGame } from '../testSupport';
-import { matchEnvironment, prepareMatchday } from '../matchday';
-import { advanceMinute } from './engine';
-import { cloneMatch } from './testHelpers';
-import { SPATIAL_STEP_SECONDS, advanceSpatial, ensureSpatial, stepSpatial } from './spatial';
 import {
+  ARRIVAL_RADIUS,
+  RESTING_SPEED,
   SIMULATION_STEP_SECONDS,
-  actionProgress,
-  advanceSimulationSteps,
-  beginAction,
-  clearActions,
-  resolveAction,
-  resolveDueActions,
+  advanceMovement,
   simulationAlpha,
+  type MovementState,
 } from './state';
 
 /**
- * The continuous match-state contract.
+ * The rules that move a footballer, and the reading a renderer interpolates with.
  *
- * Two things are being pinned here. First, the clock: simulation time advances
- * in fixed steps whatever the frame rate, because that is the only reason the
- * same match can be replayed identically on two machines. Second, the action:
- * something a player does is a thing with a beginning, a duration and a
- * resolution, not an instant that a renderer has to reconstruct afterwards.
- * Neither of these can change the football, and a test that let them would be
- * testing the wrong layer.
+ * Both are pure, and both are shared with the engine: `MatchEngine` walks every
+ * man on the pitch through `advanceMovement`, one fixed step at a time, and hands
+ * a renderer `simulationAlpha` so it can draw between those steps without ever
+ * running football of its own. Neither can decide anything — there is no ball, no
+ * player and no random stream in this file — which is the property these tests
+ * pin: the same mover, mark and `dt` always produce the same answer, a man never
+ * travels further in a step than his legs allow, and a man who has arrived stays
+ * arrived.
  */
 
-function userMatch(state: GameState): Match {
-  const fixture = Object.values(state.matches).find(
-    (candidate) => candidate.homeClubId === state.userClubId || candidate.awayClubId === state.userClubId,
-  )!;
-  prepareMatchday(state, fixture.matchday);
-  return cloneMatch(state.matches[fixture.id]!);
+const STEP = SIMULATION_STEP_SECONDS;
+/** An ordinary outfield pace: 0.036 of the pitch a second, which is a run. */
+const SPEED = 0.036;
+
+function mover(patch: Partial<MovementState> = {}): MovementState {
+  return { x: 0.5, y: 0.5, tx: 0.5, ty: 0.5, speed: SPEED, vx: 0, vy: 0, ...patch };
 }
 
-function staged(seed: string): { state: GameState; match: Match; env: ReturnType<typeof matchEnvironment> } {
-  const { state } = createTestGame(seed);
-  const match = userMatch(state);
-  const env = matchEnvironment(state, match, { autoManageAllBenches: true });
-  return { state, match, env };
-}
-
-/** A contract state with no football in it, for testing the mechanics alone. */
-function bareState(): MatchState {
-  return {
-    clock: 0,
-    stepSeconds: SIMULATION_STEP_SECONDS,
-    residual: 0,
-    players: [
-      {
-        playerId: 'p1',
-        side: 'home',
-        position: 'CM',
-        baseX: 0.5,
-        baseY: 0.5,
-        x: 0.5,
-        y: 0.5,
-        px: 0.5,
-        py: 0.5,
-        tx: 0.5,
-        ty: 0.5,
-        speed: 0.02,
-        vx: 0,
-        vy: 0,
-        action: 'shape',
-        actionKind: null,
-        actionStartedAt: null,
-        actionEndsAt: null,
-        possession: false,
-      },
-    ],
-    ball: {
-      x: 0.5,
-      y: 0.5,
-      px: 0.5,
-      py: 0.5,
-      status: 'loose',
-      ownerId: null,
-      targetId: null,
-      tx: 0.5,
-      ty: 0.5,
-      speed: 0,
-      height: 0,
-      touchedAt: 0,
-      lastTouchId: null,
-    },
-    actions: [],
-    context: { possession: null, phase: 'kickoff', eventCount: 0 },
-  };
-}
-
-describe('the simulation clock', () => {
-  it('turns real time into whole steps and carries the remainder', () => {
-    const state = bareState();
-    const plan = advanceSimulationSteps(state, 0.1);
-
-    expect(plan.steps).toBe(3);
-    expect(plan.spent).toBeCloseTo(0.1, 10);
-    // The leftover is a fraction of a step, never a whole one.
-    expect(state.residual).toBeGreaterThanOrEqual(0);
-    expect(state.residual).toBeLessThan(state.stepSeconds);
-    expect(simulationAlpha(state)).toBeCloseTo(state.residual / state.stepSeconds, 10);
+describe('simulation time', () => {
+  it('reads the fraction of the next step the simulation has reached', () => {
+    expect(simulationAlpha({ stepSeconds: STEP, residual: STEP / 2 })).toBeCloseTo(0.5, 10);
+    expect(simulationAlpha({ stepSeconds: STEP, residual: 0 })).toBe(0);
+    expect(simulationAlpha({ stepSeconds: STEP, residual: STEP })).toBe(1);
+    // A state that has not declared its step falls back to the fixed one rather
+    // than dividing by zero, and a residual outside the step is clamped.
+    expect(simulationAlpha({ stepSeconds: 0, residual: STEP / 2 })).toBeCloseTo(0.5, 10);
+    expect(simulationAlpha({ stepSeconds: STEP, residual: -1 })).toBe(0);
+    expect(simulationAlpha({ stepSeconds: STEP, residual: STEP * 3 })).toBe(1);
   });
 
-  it('takes the same number of steps however the frames are delivered', () => {
-    const fine = bareState();
-    const coarse = bareState();
-    for (let i = 0; i < 100; i += 1) advanceSimulationSteps(fine, 0.01);
-    for (let i = 0; i < 10; i += 1) advanceSimulationSteps(coarse, 0.1);
-
-    // Both spent exactly one second of football, in the same number of steps.
-    expect(fine.residual).toBeCloseTo(coarse.residual, 10);
-    expect(simulationAlpha(fine)).toBeCloseTo(simulationAlpha(coarse), 10);
-  });
-
-  it('caps a frame rather than replaying minutes nobody watched', () => {
-    const state = bareState();
-    const plan = advanceSimulationSteps(state, 600, { maxCatchUpSeconds: 9 });
-    expect(plan.spent).toBeLessThanOrEqual(9 + 1e-9);
-    expect(state.residual).toBeLessThan(state.stepSeconds);
-  });
-
-  it('honours a hard step ceiling, and ignores time that is not there', () => {
-    const state = bareState();
-    const capped = advanceSimulationSteps(state, 5, { maxSteps: 10 });
-    expect(capped.steps).toBe(10);
-
-    expect(advanceSimulationSteps(bareState(), 0).steps).toBe(0);
-    expect(advanceSimulationSteps(bareState(), -1).steps).toBe(0);
+  it('gives the same fraction however finely the frame is drawn', () => {
+    // Ten small frames and one big one are the same slice of football: the clock
+    // is the simulation's, so what the renderer interpolates with cannot depend
+    // on how often it happens to draw.
+    const fine = { stepSeconds: STEP, residual: 0 };
+    const coarse = { stepSeconds: STEP, residual: 0 };
+    for (let frame = 0; frame < 10; frame += 1) fine.residual += STEP / 10;
+    coarse.residual += STEP;
+    expect(simulationAlpha(fine)).toBeCloseTo(simulationAlpha(coarse), 6);
   });
 });
 
-describe('a timed action', () => {
-  it('begins at the simulation time, with a duration and a target', () => {
-    const state = bareState();
-    state.clock = 12.5;
-    const action = beginAction(state, { kind: 'pass', playerId: 'p1', targetPlayerId: 'p2', duration: 3 });
-
-    expect(action.startedAt).toBe(12.5);
-    expect(action.duration).toBe(3);
-    expect(action.status).toBe('active');
-    expect(action.targetPlayerId).toBe('p2');
-    expect(state.actions).toContain(action);
-    expect(actionProgress(action, 12.5)).toBe(0);
-    expect(actionProgress(action, 14)).toBeCloseTo(0.5, 10);
-    expect(actionProgress(action, 99)).toBe(1);
+describe('moving a player', () => {
+  it('sets off from a standstill rather than teleporting', () => {
+    const man = mover({ tx: 0.9 });
+    advanceMovement(man, STEP);
+    const moved = man.x - 0.5;
+    expect(moved).toBeGreaterThan(0);
+    // One step is one step: he has not crossed the pitch in a frame.
+    expect(moved).toBeLessThan(man.speed * STEP);
   });
 
-  it('keeps the player\u2019s own action fields in step with the authoritative list', () => {
-    const state = bareState();
-    const action = beginAction(state, { kind: 'carry', playerId: 'p1', duration: 4 });
-
-    expect(state.players[0]!.actionKind).toBe('carry');
-    expect(state.players[0]!.actionStartedAt).toBe(0);
-    expect(state.players[0]!.actionEndsAt).toBe(4);
-
-    resolveAction(state, action);
-    expect(state.actions).toHaveLength(0);
-    expect(state.players[0]!.actionKind).toBeNull();
-    expect(state.players[0]!.actionEndsAt).toBeNull();
-  });
-
-  it('records what it came to when it resolves, and leaves the active list', () => {
-    const state = bareState();
-    const action = beginAction(state, { kind: 'shot', playerId: 'p1', duration: 2 });
-    const resolved = resolveAction(state, action, 'goal');
-
-    expect(resolved.status).toBe('resolved');
-    expect(resolved.outcome).toBe('goal');
-    expect(state.actions).toHaveLength(0);
-  });
-
-  it('resolves only the actions whose time is up', () => {
-    const state = bareState();
-    const early = beginAction(state, { kind: 'carry', playerId: 'p1', duration: 1 });
-    state.actions.push({
-      ...early,
-      id: 'late',
-      kind: 'pass',
-      startedAt: 0,
-      duration: 5,
-    });
-    state.clock = 2;
-
-    const due = resolveDueActions(state, (action) => (action.kind === 'carry' ? 'completed' : null));
-    expect(due).toHaveLength(1);
-    expect(due[0]!.outcome).toBe('completed');
-    expect(state.actions.map((action) => action.id)).toEqual(['late']);
-  });
-
-  it('cancels everything when a new minute takes the pitch', () => {
-    const state = bareState();
-    beginAction(state, { kind: 'carry', playerId: 'p1', duration: 4 });
-    beginAction(state, { kind: 'shot', playerId: 'p1', duration: 2 });
-    clearActions(state);
-
-    expect(state.actions).toHaveLength(0);
-    expect(state.players[0]!.actionKind).toBeNull();
-  });
-
-  it('gives two actions at the same instant distinct ids', () => {
-    const state = bareState();
-    const a = beginAction(state, { kind: 'carry', playerId: 'p1', duration: 1 });
-    const b = beginAction(state, { kind: 'carry', playerId: 'p1', duration: 1 });
-    expect(a.id).not.toBe(b.id);
-  });
-});
-
-describe('the contract on the pitch', () => {
-  it('gives a fresh spatial state the whole contract', () => {
-    const { match, env } = staged('state-shape');
-    const spatial = ensureSpatial(match, env);
-
-    expect(spatial.stepSeconds).toBe(SIMULATION_STEP_SECONDS);
-    expect(Array.isArray(spatial.actions)).toBe(true);
-    expect(spatial.context.phase).toBe('kickoff');
-    expect(spatial.context.eventCount).toBe(match.events.length);
-    expect(spatial.players.every((node) => typeof node.possession === 'boolean')).toBe(true);
-    expect(spatial.players.every((node) => node.actionKind === null)).toBe(true);
-    expect(spatial.ball.touchedAt).toBe(0);
-    expect(spatial.ball.lastTouchId).toBeNull();
-  });
-
-  it('grows the contract onto a state written before it existed', () => {
-    const { match, env } = staged('state-normalise');
-    const spatial = ensureSpatial(match, env);
-
-    // Strip exactly the fields a v9 save would not have had.
-    const legacy = JSON.parse(JSON.stringify(spatial)) as Record<string, unknown>;
-    delete legacy.stepSeconds;
-    delete legacy.actions;
-    delete legacy.context;
-    for (const node of legacy.players as Array<Record<string, unknown>>) {
-      delete node.actionKind;
-      delete node.actionStartedAt;
-      delete node.actionEndsAt;
-      delete node.possession;
+  it('never exceeds his top speed, however long he runs', () => {
+    const man = mover({ tx: 0.98 });
+    for (let step = 0; step < 600; step += 1) {
+      advanceMovement(man, STEP);
+      expect(Math.sqrt(man.vx * man.vx + man.vy * man.vy)).toBeLessThanOrEqual(man.speed + 1e-9);
     }
-    const legacyBall = legacy.ball as Record<string, unknown>;
-    delete legacyBall.touchedAt;
-    delete legacyBall.lastTouchId;
-    match.spatial = legacy as never;
-
-    const revived = ensureSpatial(match, env);
-    expect(revived.stepSeconds).toBe(SIMULATION_STEP_SECONDS);
-    expect(revived.actions).toEqual([]);
-    expect(revived.context).toBeTruthy();
-    expect(revived.players.every((node) => typeof node.possession === 'boolean')).toBe(true);
-    expect(revived.ball.touchedAt).toBe(0);
   });
 
-  it('reads possession, phase and the event cursor from one place', () => {
-    const { match, env } = staged('state-context');
-    const spatial = ensureSpatial(match, env);
-    advanceMinute(match, env);
-    stepSpatial(match, env, SPATIAL_STEP_SECONDS);
-
-    const owner = spatial.ball.ownerId;
-    const ownerSide = owner ? spatial.players.find((node) => node.playerId === owner)?.side ?? null : null;
-    expect(spatial.context.possession).toBe(ownerSide);
-    expect(spatial.context.eventCount).toBe(match.events.length);
-    expect(spatial.players.every((node) => node.possession === (node.playerId === owner))).toBe(true);
+  it('arrives, stands on his mark, and comes to rest', () => {
+    const man = mover({ tx: 0.62 });
+    for (let step = 0; step < 400; step += 1) advanceMovement(man, STEP);
+    expect(man.x).toBeCloseTo(0.62, 9);
+    expect(man.y).toBeCloseTo(0.5, 9);
+    // Arriving is an event, not an asymptote: he is not still creeping.
+    expect(Math.abs(man.vx)).toBeLessThanOrEqual(RESTING_SPEED);
   });
 
-  it('records the move as timed actions, and resolves them as it is played', () => {
-    const { state } = createTestGame('state-actions');
-    const match = userMatch(state);
-    const env = matchEnvironment(state, match, { autoManageAllBenches: true });
-    match.spatial = undefined;
-    advanceMinute(match, env); // kick-off, which puts the pitch in place
-    const spatial = match.spatial!;
+  it('is a fixed point while his mark has not moved', () => {
+    const man = mover({ x: 0.37, y: 0.61, tx: 0.37, ty: 0.61, vx: 0.01, vy: -0.01 });
+    for (let step = 0; step < 120; step += 1) advanceMovement(man, STEP);
+    expect(man.x).toBe(0.37);
+    expect(man.y).toBe(0.61);
+    expect(man.vx).toBe(0);
+    expect(man.vy).toBe(0);
+  });
 
-    const seen = new Map<string, MatchAction>();
-    let resolvedAtLeastOne = false;
+  it('does not vibrate when his mark barely moves', () => {
+    // Once a man has settled, his mark is a function of where the ball is and
+    // drifts by a hair every step. He does travel the last few inches onto it —
+    // slowly, because the arrival ramp scales his pace with the ground left — but
+    // what must never happen is the picture vibrating: reversing direction every
+    // frame or two over a man who has not gone anywhere.
+    const man = mover({ tx: 0.5 });
+    advanceMovement(man, STEP);
+    expect(man.x).toBe(0.5);
 
-    outer: for (let minute = 0; minute < 20; minute += 1) {
-      if (minute > 0) advanceMinute(match, env);
-      for (let step = 0; step < 240; step += 1) {
-        const before = new Set(spatial.actions.map((action) => action.id));
-        stepSpatial(match, env, SPATIAL_STEP_SECONDS);
-        for (const action of spatial.actions) seen.set(action.id, action);
-        const after = new Set(spatial.actions.map((action) => action.id));
-        for (const id of before) if (!after.has(id)) resolvedAtLeastOne = true;
-        if (match.status === 'finished') break outer;
-      }
-      if (seen.size > 0 && resolvedAtLeastOne) break;
+    man.tx = 0.5 + 0.004;
+    let previous = man.x;
+    let reversals = 0;
+    for (let step = 0; step < 400; step += 1) {
+      advanceMovement(man, STEP);
+      if (man.x < previous - 1e-12) reversals += 1;
+      previous = man.x;
     }
-
-    expect(seen.size).toBeGreaterThan(0);
-    const actions = [...seen.values()];
-    // Only the actions the present simulation actually plays out are produced.
-    expect(actions.every((action) => ['carry', 'pass', 'shot'].includes(action.kind))).toBe(true);
-    expect(actions.every((action) => action.duration > 0)).toBe(true);
-    expect(actions.every((action) => action.playerId !== null)).toBe(true);
-    // A pass names the man it was played to.
-    expect(actions.filter((action) => action.kind === 'pass').every((action) => action.targetPlayerId !== null)).toBe(true);
-    expect(resolvedAtLeastOne).toBe(true);
+    expect(reversals).toBe(0);
+    expect(man.x).toBeGreaterThanOrEqual(0.5);
+    expect(man.x).toBeLessThanOrEqual(man.tx);
   });
 
-  it('produces the same football however the frames are delivered', () => {
-    const a = staged('state-frames');
-    ensureSpatial(a.match, a.env);
-    advanceMinute(a.match, a.env);
+  it('does set off when his mark actually goes somewhere', () => {
+    const man = mover({ tx: 0.5 });
+    advanceMovement(man, STEP);
+    man.tx = 0.6;
+    for (let step = 0; step < 60; step += 1) advanceMovement(man, STEP);
+    expect(man.x).toBeGreaterThan(0.5);
+  });
 
-    const b = staged('state-frames');
-    ensureSpatial(b.match, b.env);
-    advanceMinute(b.match, b.env);
+  it('slows into his mark instead of running through it', () => {
+    // Just inside the arrival radius, a man at full pace is already being held
+    // back: the ramp scales his speed with the ground left, so he eases onto the
+    // mark rather than overshooting it and turning round.
+    const man = mover({ x: 0.5, tx: 0.5 + ARRIVAL_RADIUS * 0.08, vx: SPEED });
+    advanceMovement(man, STEP);
+    expect(man.vx).toBeLessThan(SPEED);
+  });
 
-    // The same two seconds of football, as small frames and as big ones.
-    for (let i = 0; i < 200; i += 1) advanceSpatial(a.match, a.env, 0.01);
-    for (let i = 0; i < 20; i += 1) advanceSpatial(b.match, b.env, 0.1);
+  it('takes the last of his stride and stands on the mark', () => {
+    // A mark within one stride is taken rather than walked towards: the ramp
+    // alone would leave him sliding at an inch out for several seconds.
+    const man = mover({ x: 0.5, tx: 0.509, speed: 0.3 });
+    advanceMovement(man, STEP);
+    expect(man.x).toBe(man.tx);
+  });
 
-    expect(a.match.spatial!.clock).toBeCloseTo(b.match.spatial!.clock, 6);
-    expect(a.match.spatial!.ball).toEqual(b.match.spatial!.ball);
-    expect(a.match.spatial!.players.map((node) => [node.x, node.y, node.px, node.py])).toEqual(
-      b.match.spatial!.players.map((node) => [node.x, node.y, node.px, node.py]),
-    );
+  it('stands still for as long as he has been told to', () => {
+    const man = mover({ x: 0.3, tx: 0.9, vx: 0.01, restUntil: 10 });
+    for (let clock = 0; clock < 10; clock += STEP) advanceMovement(man, STEP, clock);
+    expect(man.x).toBe(0.3);
+    expect(man.vx).toBe(0);
+    // And then the pause ends, because it always does.
+    advanceMovement(man, STEP, 10);
+    expect(man.vx).toBeGreaterThan(0);
+  });
+
+  it('never walks off the pitch, however far away his mark is', () => {
+    const man = mover({ tx: 1.5, ty: 1.5, speed: 0.1 });
+    for (let step = 0; step < 200; step += 1) advanceMovement(man, STEP);
+    expect(man.x).toBeLessThanOrEqual(0.98);
+    expect(man.y).toBeLessThanOrEqual(0.97);
+    expect(man.x).toBeGreaterThanOrEqual(0.02);
+    expect(man.y).toBeGreaterThanOrEqual(0.03);
+  });
+
+  it('gives the same afternoon for the same mover', () => {
+    const a = mover({ tx: 0.9 });
+    const b = mover({ tx: 0.9 });
+    for (let step = 0; step < 200; step += 1) {
+      advanceMovement(a, STEP);
+      advanceMovement(b, STEP);
+    }
+    expect(a).toEqual(b);
+  });
+
+  it('does nothing at all for a step of no time', () => {
+    const man = mover({ tx: 0.9, vx: 0.02 });
+    advanceMovement(man, 0);
+    expect(man).toEqual(mover({ tx: 0.9, vx: 0.02 }));
   });
 });

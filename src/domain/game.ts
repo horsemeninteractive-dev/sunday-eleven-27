@@ -9,6 +9,7 @@ import type { ManagerProfile } from './manager';
 import type { Match } from './match';
 import type { NewsItem } from './news';
 import type { Person } from './person';
+import type { CustomFormation } from './positions';
 import type { RecruitmentStore } from './recruitment';
 import type { RelationshipStore } from './relationship';
 import type { SponsorshipState } from './sponsorship';
@@ -67,8 +68,13 @@ import type { StandingRow } from './club';
  *     weekly financial modifier. Version 14 saves are given an empty deal log,
  *     because an agreement that was never signed should not be invented, and
  *     the clubs that already had a backing business will sign one in play.
+ * 16 — shapes. A manager can move anybody on the preparation pitch and keep the
+ *     result under a name, so a career carries the formations he has built as
+ *     well as the ones it was born with. A version 15 save is given an empty
+ *     book: nobody had built one, and inventing a shape would put a manager's
+ *     name on a formation he never chose.
  */
-export const GAME_STATE_VERSION = 15;
+export const GAME_STATE_VERSION = 16;
 
 export type GamePhase = 'preseason' | 'season' | 'complete';
 
@@ -124,6 +130,11 @@ export interface GameState {
   people: Record<PersonId, Person>;
   /** The social layer: Person → Relationship → Club. */
   relationships: RelationshipStore;
+  /**
+   * The shapes the manager has built on the preparation pitch, under his own
+   * names, for as long as the career lasts.
+   */
+  customFormations: CustomFormation[];
   /** What the manager knows about people he might bring in, and how he found them. */
   recruitment: RecruitmentStore;
   /** Thursday nights: the week's plan, what happened, and what it has built. */

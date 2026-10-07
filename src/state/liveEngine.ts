@@ -1,8 +1,11 @@
 import type { Match, MatchEvent } from '@/domain/match';
 import type { MatchEnvironment } from '@/simulation/match/core';
-import { createMatchEngine, MatchEngine } from '@/simulation/match/matchEngine';
-import { commentaryFor } from '@/simulation/match/matchEngine/narrate';
-import { recordCommentary } from '@/simulation/match/passages';
+// The engine is obtained from Touchline's boundary rather than from the
+// resolution's own directory — see `TOUCHLINE_ARCHITECTURE.md` §"Presentation
+// boundary". Nothing here decides football; it creates the engine, drives it and
+// relays what it already decided.
+import { createMatchEngine, MatchEngine } from '@/simulation/touchline';
+import { commentaryFor, recordCommentary } from '@/simulation/match/matchEngine/narrate';
 import { recordEngineKeyframe } from '@/simulation/match/recording';
 import { buildTimeline, type MatchTimeline } from '@/presentation/matchTimeline';
 
@@ -31,9 +34,10 @@ export interface LivePlayback {
  * the match it is playing stay in step.
  *
  * Nothing here decides football. It creates the engine, hands it the real time
- * the match view has spent, drains the events it produced into the commentary
- * transcript, and mirrors its possession clock onto the match so the statistics
- * read the engine rather than a second account of it.
+ * the match view has spent, and drains the events it produced into the
+ * commentary transcript. It writes nothing onto the match's record: the engine
+ * is the sole author of what happened, including the possession clock, which the
+ * drain brings level with the engine's own (see `MatchEngine.drain`).
  */
 
 let live: {
@@ -119,22 +123,6 @@ export function livePlayback(): LivePlayback | null {
 /** Replace the presentation state. Presentation only; it never touches the football. */
 export function setLivePlayback(playback: LivePlayback): void {
   if (live) live.playback = playback;
-}
-
-/**
- * Keep the match's possession ticks level with the engine's own clock.
- *
- * The stats panel reads `match.possessionTicks`, which the old minute engine
- * incremented a minute at a time. The new engine counts possession in seconds,
- * so this converts the running total to whole ticks once per drain. Ticks only
- * ever increase, so the two cannot drift backwards.
- */
-export function syncEnginePossession(match: Match, engine: MatchEngine): void {
-  const stats = engine.getState().stats;
-  const home = Math.round(stats.home.possessionSeconds);
-  const away = Math.round(stats.away.possessionSeconds);
-  match.possessionTicks.home = Math.max(match.possessionTicks.home, home);
-  match.possessionTicks.away = Math.max(match.possessionTicks.away, away);
 }
 
 /**

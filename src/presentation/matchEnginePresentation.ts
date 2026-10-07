@@ -1,9 +1,11 @@
 import type { GameState } from '@/domain/game';
 import type { Celebration, Match, MatchPhase } from '@/domain/match';
 import type { Side } from '@/domain/matchState';
-import { simulationAlpha } from '@/simulation/match/state';
-import type { MatchEngine } from '@/simulation/match/matchEngine';
-import { specFor } from '@/simulation/match/matchEngine/periods';
+// The simulation is reached only through its boundary. `TOUCHLINE_ARCHITECTURE.md`
+// §"Presentation boundary": a reader imports Touchline and nothing deeper, so the
+// surface it may use is one reviewed list rather than whatever a deep path happens
+// to export today.
+import { simulationAlpha, specFor, type MatchEngine } from '@/simulation/touchline';
 import type { MatchRenderState, RenderTeam } from './renderContract';
 import { signalOfEvent, type MatchSignal } from './matchSignals';
 

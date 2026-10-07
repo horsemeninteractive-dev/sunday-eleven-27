@@ -1,19 +1,10 @@
-import type {
-  BallState,
-  FieldZone,
-  LineHeights,
-  Match,
-  MatchFieldState,
-  MatchPhase,
-  TeamShape,
-} from '@/domain/match';
+import type { FieldZone, LineHeights, TeamShape } from '@/domain/match';
 import type { MatchContext, Side } from './core';
-import { otherSide } from './core';
 
 /**
  * The football pitch, as the simulation understands it.
  *
- * Not a picture — the watched match has its own, much richer, spatial state for
+ * Not a picture — the watched match has its own, much richer, engine state for
  * that. This is the small working model the *decisions* are made from: where the
  * ball is, how each side is standing, and how hard each is pressing. A pass is
  * risky because of where it is going and who is closing, and that has to be
@@ -122,37 +113,6 @@ export function zoneOf(side: Side, x: number): FieldZone {
   if (progress < 0.66) return 'middle';
   if (progress < 0.84) return 'final-third';
   return 'box';
-}
-
-/** The phase a side in possession is in, read straight off where the ball is. */
-export function phaseForZone(zone: FieldZone): MatchPhase {
-  switch (zone) {
-    case 'own-box':
-    case 'own-third':
-      return 'build-up';
-    case 'middle':
-      return 'progression';
-    case 'final-third':
-      return 'final-third';
-    case 'box':
-      return 'chance';
-  }
-}
-
-/** Roughly how much a field position is worth: own box is dangerous, the box is not. */
-export function dangerOf(zone: FieldZone): number {
-  switch (zone) {
-    case 'own-box':
-      return 0.85;
-    case 'own-third':
-      return 0.45;
-    case 'middle':
-      return 0.15;
-    case 'final-third':
-      return 0.3;
-    case 'box':
-      return 0.95;
-  }
 }
 
 /** Which third of the pitch the ball is in, as a key into the shape. */
@@ -387,90 +347,3 @@ export function urgencyFor(side: Side, options: { minute: number; goalDifference
   return 0;
 }
 
-export function createBall(x = 0.5, y = 0.5): BallState {
-  return { x, y, possessionSide: null, possessionPlayerId: null };
-}
-
-/**
- * Build the field state from what the match already holds.
- *
- * A save written before the simulation kept a field is given one the first time
- * it is needed — a centre ball and two shapes read off the tactics — so nothing
- * has to be versioned for it.
- */
-export function ensureField(match: Match, context: MatchContext): MatchFieldState {
-  if (match.field) return match.field;
-  const energy = (side: Side): number => {
-    let total = 0;
-    let count = 0;
-    for (const slot of match.lineups[side].starting) {
-      const performance = match.performances[slot.playerId];
-      if (!performance) continue;
-      total += performance.energy;
-      count += 1;
-    }
-    return count === 0 ? 100 : total / count;
-  };
-  const field: MatchFieldState = {
-    ball: createBall(),
-    homeShape: shapeFor(context, 'home', { inPossession: false, energy: energy('home'), urgency: 0 }),
-    awayShape: shapeFor(context, 'away', { inPossession: false, energy: energy('away'), urgency: 0 }),
-    pressure: { home: 0.5, away: 0.5 },
-    phase: 'kickoff',
-    counterPress: { home: 0, away: 0 },
-  };
-  match.field = field;
-  return field;
-}
-
-export function shapeForSide(field: MatchFieldState, side: Side): TeamShape {
-  return side === 'home' ? field.homeShape : field.awayShape;
-}
-
-export function setShape(field: MatchFieldState, side: Side, shape: TeamShape): void {
-  if (side === 'home') field.homeShape = shape;
-  else field.awayShape = shape;
-}
-
-/** Where the ball is, and who has it. Coordinates are the fixed frame. */
-export function placeBall(field: MatchFieldState, side: Side | null, playerId: string | null, x: number, y: number): void {
-  field.ball.possessionSide = side;
-  field.ball.possessionPlayerId = playerId;
-  field.ball.x = clamp(x, 0.01, 0.99);
-  field.ball.y = clamp(y, 0.02, 0.98);
-}
-
-export function setPossession(field: MatchFieldState, side: Side | null, playerId: string | null): void {
-  field.ball.possessionSide = side;
-  field.ball.possessionPlayerId = playerId;
-}
-
-export function setPhase(field: MatchFieldState, phase: MatchPhase): void {
-  field.phase = phase;
-}
-
-/** Everything a caller needs to know about the moment a decision is being made in. */
-export interface TeamMoment {
-  side: Side;
-  opponent: Side;
-  progress: number;
-  zone: FieldZone;
-  phase: MatchPhase;
-  /** 0..1 how hard the defending side is pressing the ball. */
-  pressure: number;
-  inPossession: boolean;
-}
-
-export function momentFor(field: MatchFieldState, side: Side, playerPressure: number): TeamMoment {
-  const opponent = otherSide(side);
-  const zone = zoneOf(side, field.ball.x);
-  return {
-    side,
-    opponent,
-    progress: progressOf(side, field.ball.x),
-    zone,
-    phase: field.phase,
-    pressure: clamp01(playerPressure),
-    inPossession: field.ball.possessionSide === side,
-  };
-}

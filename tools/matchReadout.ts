@@ -14,9 +14,10 @@
  * feet; it can write a foul three quarters of a pitch away from the players it
  * is about. Every one of those is a scoreline that looks fine.
  *
- * This walks the spatial clock — the same fixed step the browser's frame loop
- * pumps — and measures the continuous state directly, so the two layers can be
- * compared against each other and against football. Everything below is a
+ * This walks the engine's own clock — one fixed step of `MatchEngineState` at a
+ * time, the same step the browser's frame loop pumps — and measures the
+ * authoritative continuous state directly, so the two layers can be compared
+ * against each other and against football. Everything below is a
  * measurement of the engine as it stands today. It changes no simulation code,
  * asserts nothing, and is not part of the test suite: it exists to make the
  * weirdness *specific* before anybody tries to fix it, because "the passing
@@ -31,11 +32,15 @@
  *    Isolated carriers — nobody on his own side within 0.4 pitch-lengths — are
  *    counted against the frames the ball was actually under control, so this is
  *    a rate, not a raw total that just tracks how long the match was.
- *  - **Shot entry.** Where shots are struck from, binned across the pitch. A
- *    shot taken in the shooter's own half is not football; there should be none,
- *    and the histogram says how many there are and how far out they are.
+ *  - **Shot entry.** Where shots are struck from, binned across the pitch. The
+ *    strikes are read from the engine's own record — its shot events — and
+ *    located at the shooter's own position in the frame the event was written
+ *    against, because an event's own coordinates are in the log's
+ *    half-time-flipped frame and so could not answer "was he in his own half?".
+ *    A shot taken in the shooter's own half is not football; there should be
+ *    none, and the histogram says how many there are and how far out they are.
  *  - **Event placement.** For fouls, corners, throw-ins and penalties: the ball's
- *    status and position in the nearest spatial frame to the event being
+ *    status and position in the frame the engine had reached when the event was
  *    written. A foul should have a defender and an attacker standing on it, and
  *    a throw-in should be written while the ball is out of play.
  *  - **Carry stutter.** A carrier whose destination jumps while he stands
@@ -50,10 +55,10 @@
 
 import type { Club } from '@/domain/club';
 import type { GameState } from '@/domain/game';
-import type { Match, MatchEventType } from '@/domain/match';
-import type { PlayerState } from '@/domain/matchState';
-import { advanceMinute, beginMatch } from '@/simulation/match/engine';
-import { SPATIAL_SECONDS_PER_MINUTE, advanceSpatial, ensureSpatial } from '@/simulation/match/spatial';
+import type { MatchEventType } from '@/domain/match';
+import type { BallStatus } from '@/domain/matchState';
+import { createMatchEngine } from '@/simulation/match/matchEngine';
+import { SIMULATION_STEP_SECONDS } from '@/simulation/match/state';
 import { matchEnvironment, prepareMatchday } from '@/simulation/matchday';
 import { createTestGame } from '@/simulation/testSupport';
 
@@ -91,7 +96,7 @@ function parseArgs(argv: readonly string[]): Options {
  * trace is taken at the same resolution: anything smaller would see frames the
  * game never draws, and anything larger would miss motion inside a frame.
  */
-const STEP = 1 / 30;
+const STEP = SIMULATION_STEP_SECONDS;
 
 /** A carrier further than this from his nearest teammate has nobody to pass to. */
 const ISOLATED = 0.4;
@@ -125,13 +130,13 @@ const SHOT_BINS = 20;
 
 // --- The trace -------------------------------------------------------------
 
-/** One spatial frame, flattened: everything a measure needs, nothing more. */
+/** One engine frame, flattened: everything a measure needs, nothing more. */
 interface Frame {
   x: number;
   y: number;
-  status: Match['spatial'] extends null ? never : string;
+  status: BallStatus;
   ownerId: string | null;
-  /** [playerId, x, y, side, tx, ty] per player, in the spatial order. */
+  /** [playerId, x, y, side, tx, ty] per player, in the engine's own order. */
   players: Array<[string, number, number, 'home' | 'away', number, number]>;
 }
 
@@ -162,6 +167,10 @@ interface GameTrace {
   /** Isolated carriers, and how far their nearest teammate was. */
   isolatedDistances: number[];
   shots: ShotMark[];
+  /** Shot events whose striker was not on the pitch in that frame. */
+  shotsUnlocated: number;
+  /** The engine's own tally for the match, to read the trace against. */
+  tally: { home: number; away: number };
   events: EventMark[];
   stutters: number;
   carriedFrames: number;
@@ -180,6 +189,8 @@ function emptyTrace(): GameTrace {
     isolated: 0,
     isolatedDistances: [],
     shots: [],
+    shotsUnlocated: 0,
+    tally: { home: 0, away: 0 },
     events: [],
     stutters: 0,
     carriedFrames: 0,
@@ -195,12 +206,28 @@ function distance(ax: number, ay: number, bx: number, by: number): number {
 }
 
 /**
- * Play one match and record every spatial step.
+ * The record's own account of a strike at goal.
  *
- * The match is driven the way the browser drives it — a fixed step of the
- * spatial clock at a time, with a minute decided whenever the pitch has played
- * out what it was given — rather than through `simulateToCompletion`, which
- * skips the continuous state entirely and so could not answer any of this.
+ * An own goal is deliberately absent: the man named on it is a defender putting
+ * the ball into his own net, so his position describes a clearance rather than a
+ * shot, and the own-half measure below would read it as a striker shooting from
+ * the wrong end.
+ */
+const SHOT_EVENTS: ReadonlySet<MatchEventType> = new Set([
+  'goal',
+  'penalty-scored',
+  'penalty-missed',
+  'shot-saved',
+  'shot-blocked',
+  'shot-off-target',
+]);
+
+/**
+ * Play one match and record every step the engine takes.
+ *
+ * The match is driven the way the browser drives it — one fixed step of the
+ * engine's own clock at a time — rather than through `runToCompletion`, which
+ * takes hundreds of steps between two reads and so could not answer any of this.
  */
 function traceMatch(seed: string, index: number): GameTrace {
   const { state, draft } = createTestGame(seed);
@@ -220,31 +247,42 @@ function traceMatch(seed: string, index: number): GameTrace {
   match.seed = 7000 + index * 17;
 
   const env = matchEnvironment(state, match, { autoManageAllBenches: true });
-  match.spatial = undefined;
-  ensureSpatial(match, env);
-  beginMatch(match, env);
-  const spatial = match.spatial!;
+  // The engine's constructor *is* the kick-off: it puts the ball down on the
+  // centre spot and writes the kick-off event, so nothing is begun by hand here.
+  const engine = createMatchEngine(match, env);
 
   const trace = emptyTrace();
   let previous: Frame | null = null;
   let seenEvents = match.events.length;
-  let seenActions = new Set(spatial.actions.map((action) => action.id));
   let guard = 0;
 
   // A whole match is 90 minutes of football at 1/30 of a second a step. The
   // guard is a backstop against a clock that stops advancing rather than a
   // limit: a runaway would otherwise run until the tool was killed.
-  while (match.half === 1 || (match.half === 2 && !match.result) || !match.result) {
-    if (guard++ > 400_000) break;
-    advanceSpatial(match, env, STEP);
+  while (!engine.finished && guard++ < 400_000) {
+    // The interval is the one moment the engine stops of its own accord, because
+    // a watched match waits there for the manager. Nobody is watching this one.
+    if (engine.getState().phase === 'half-time') {
+      engine.startSecondHalf();
+      continue;
+    }
+    engine.step(STEP);
 
-    const ball = spatial.ball;
+    const engineState = engine.getState();
+    const ball = engineState.ball;
     const frame: Frame = {
       x: ball.x,
       y: ball.y,
       status: ball.status,
       ownerId: ball.ownerId,
-      players: spatial.players.map((p: PlayerState) => [p.playerId, p.x, p.y, p.side, p.tx, p.ty]),
+      players: engineState.players.map((player) => [
+        player.playerId,
+        player.x,
+        player.y,
+        player.side,
+        player.tx,
+        player.ty,
+      ]),
     };
     trace.frames += 1;
 
@@ -266,23 +304,13 @@ function traceMatch(seed: string, index: number): GameTrace {
       }
     }
 
-    // --- Shot entry: where was the ball struck from? ----------------------
-    for (const action of spatial.actions) {
-      if (seenActions.has(action.id)) continue;
-      seenActions.add(action.id);
-      if (action.kind !== 'shot' || !action.playerId) continue;
-      const shooter = frame.players.find((entry) => entry[0] === action.playerId);
-      if (!shooter) continue;
-      trace.shots.push({ side: shooter[3], playerId: action.playerId, x: shooter[1], y: shooter[2] });
-    }
-
     // --- Carry stutter, and dead ball -------------------------------------
     if (previous) {
-      // Matched by id, never by position in the array: `spatial.players` is
-      // rebuilt whenever the spatial state syncs to the match, and comparing
-      // frame N to frame N+1 by index would silently compare two different
-      // men — which reads as everyone standing still and would make the dead
-      // ball figure meaningless.
+      // Matched by id, never by position in the array: the engine rebuilds its
+      // player list whenever the pitch changes — a substitution, a sending off —
+      // and comparing frame N to frame N+1 by index would silently compare two
+      // different men, which reads as everyone standing still and would make the
+      // dead ball figure meaningless.
       const before = new Map(previous.players.map((entry) => [entry[0], entry]));
       let anyoneMoved = false;
       let furthest = 0;
@@ -309,7 +337,8 @@ function traceMatch(seed: string, index: number): GameTrace {
     }
     if (ball.status === 'out-of-play') trace.outOfPlayFrames += 1;
 
-    // --- Events: the frame the nearest one was written against ------------
+    // --- Events: the frame each one was written against, and the strikes the
+    // record says were made ------------------------------------------------
     if (match.events.length > seenEvents) {
       for (const event of match.events.slice(seenEvents)) {
         trace.events.push({
@@ -320,23 +349,29 @@ function traceMatch(seed: string, index: number): GameTrace {
           frame,
           frameIndex: trace.frames,
         });
+        if (!SHOT_EVENTS.has(event.type)) continue;
+        // Where the man the record names was standing: the event's own `x`/`y`
+        // are written in the log's half-time-flipped frame, so they cannot
+        // answer the own-half question the histogram exists to ask.
+        const shooter = event.playerId
+          ? frame.players.find((entry) => entry[0] === event.playerId)
+          : undefined;
+        if (shooter) {
+          trace.shots.push({ side: shooter[3], playerId: event.playerId, x: shooter[1], y: shooter[2] });
+        } else {
+          trace.shotsUnlocated += 1;
+        }
       }
       seenEvents = match.events.length;
     }
 
     previous = frame;
-
-    // The store's own rule for owing the match another minute: when the pitch
-    // has spent what it was given, or has fallen a minute behind.
-    const decided = match.footballSeconds ?? 0;
-    const spent = !spatial.plan && (spatial.pending?.length ?? 0) === 0;
-    if (
-      spatial.clock >= decided + SPATIAL_SECONDS_PER_MINUTE ||
-      (spent && decided - spatial.clock < SPATIAL_SECONDS_PER_MINUTE)
-    ) {
-      advanceMinute(match, env);
-    }
   }
+
+  // The engine's own tally for the same match, so the trace can be read against
+  // the numbers the engine says it produced.
+  const final = engine.getState();
+  trace.tally = { home: final.stats.home.shots, away: final.stats.away.shots };
 
   // Anything written in the last tick, after the loop's final frame.
   for (const event of match.events.slice(seenEvents)) {
@@ -440,6 +475,7 @@ function report(options: Options, traces: readonly GameTrace[], sides: string[])
   const shots = traces.flatMap((t) => t.shots);
   const events = traces.flatMap((t) => t.events);
   const stutters = traces.reduce((sum, t) => sum + t.stutters, 0);
+  const shotsUnlocated = traces.reduce((sum, t) => sum + t.shotsUnlocated, 0);
   const dead = traces.reduce((sum, t) => sum + t.deadBall, 0);
   const outOfPlay = traces.reduce((sum, t) => sum + t.outOfPlayFrames, 0);
   const moved = traces.reduce((sum, t) => sum + t.moved, 0);
@@ -450,7 +486,7 @@ function report(options: Options, traces: readonly GameTrace[], sides: string[])
   console.log('══════════════════════════════════════════════════════════════════════════');
   console.log(line('seed', options.seed));
   console.log(line('games', `${games}   sides ${sides.join(' v ')}`));
-  console.log(line('spatial steps', `${frames.toLocaleString()}   (${mean(frames, games, 0)} a match)`));
+  console.log(line('engine steps', `${frames.toLocaleString()}   (${mean(frames, games, 0)} a match)`));
 
   console.log(heading('SUPPORT — a carrier with nobody to pass to'));
   console.log(line('frames ball controlled', `${controlled.toLocaleString()}`));
@@ -474,7 +510,16 @@ function report(options: Options, traces: readonly GameTrace[], sides: string[])
   }
 
   console.log(heading('SHOT ENTRY — where shots are struck from'));
-  console.log(line('shots traced', `${shots.length}`));
+  console.log(line('shots on the record', `${shots.length}`));
+  console.log(
+    line(
+      "engine's own shot tally",
+      `${traces.reduce((sum, t) => sum + t.tally.home + t.tally.away, 0)}   ` +
+        `home ${traces.reduce((sum, t) => sum + t.tally.home, 0)} · ` +
+        `away ${traces.reduce((sum, t) => sum + t.tally.away, 0)}`,
+    ),
+  );
+  if (shotsUnlocated > 0) console.log(line('strikers not in that frame', `${shotsUnlocated}`));
   if (shots.length > 0) {
     const bins = new Array<number>(SHOT_BINS).fill(0);
     for (const shot of shots) {

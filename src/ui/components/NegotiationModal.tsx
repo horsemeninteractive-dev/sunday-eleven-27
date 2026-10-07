@@ -14,6 +14,7 @@ import { candidateOf } from '@/simulation/recruitment/store';
 import { useGame, gameActions } from '../hooks';
 import { Button, Panel, Pill } from './primitives';
 import { ClubLink, PlayerLink } from './Links';
+import { Dialog } from '../dialogs/Dialog';
 
 /**
  * Talking terms.
@@ -34,22 +35,12 @@ export function NegotiationModal({ personId }: { personId: string }) {
 
   if (!person || !isPlayer(person) || !record) {
     return (
-      <div className="overlay" role="dialog" aria-modal="true" aria-label="Talk terms">
-        <div className="overlay__panel overlay__panel--narrow">
-          <div className="overlay__bar">
-            <span className="overlay__title">Talk terms</span>
-            <button type="button" className="overlay__close" aria-label="Close" onClick={() => gameActions().closeNegotiation()}>
-              ✕
-            </button>
-          </div>
-          <div className="overlay__body">
+      <Dialog title="Talk terms" narrow onClose={() => gameActions().closeNegotiation()}>
             <p className="empty">
               There is no conversation to have here. Recruitment in this game starts with somebody putting a name to
               you — through the squad, five-a-side, or an open session.
             </p>
-          </div>
-        </div>
-      </div>
+      </Dialog>
     );
   }
 
@@ -61,19 +52,8 @@ export function NegotiationModal({ personId }: { personId: string }) {
   const latestQuote = record.interestHints[record.interestHints.length - 1];
 
   return (
-    <div className="overlay" role="dialog" aria-modal="true" aria-label={`Talk terms with ${personDisplayName(person)}`}>
-      <div className="overlay__panel overlay__panel--narrow">
-        <div className="overlay__bar">
-          <span className="overlay__title">
-            Talk terms — {person.firstName} {person.surname}
-          </span>
-          <div className="row row--tight">
-            <Pill tone="muted">{CANDIDATE_STATUS_LABEL[record.status]}</Pill>
-            <button type="button" className="overlay__close" aria-label="Close" onClick={() => gameActions().closeNegotiation()}>
-              ✕
-            </button>
-          </div>
-        </div>
+    <Dialog title={`Talk terms · ${personDisplayName(person)}`} subtitle={`${person.preferredPosition} · ${person.age} · ${CANDIDATE_STATUS_LABEL[record.status]}`} onClose={() => gameActions().closeNegotiation()}
+      footer={<><Button variant="ghost" onClick={() => gameActions().closeNegotiation()}>{settled ? 'Close' : 'Leave it for now'}</Button>{!settled && <Button variant="primary" onClick={() => gameActions().offerToJoin(personId)}>Offer him a place</Button>}</>}>
 
         <div className="negotiation">
           <div className="negotiation__say">
@@ -105,14 +85,6 @@ export function NegotiationModal({ personId }: { personId: string }) {
                 </p>
               ) : (
                 <div className="profile-actions">
-                  <Button
-                    variant="primary"
-                    block
-                    onClick={() => gameActions().offerToJoin(personId)}
-                    title="Register him with the club"
-                  >
-                    Offer him a place
-                  </Button>
                   <Button variant="default" block onClick={() => gameActions().approachCandidate(personId)}>
                     Ask him whether he fancies it
                   </Button>
@@ -134,7 +106,7 @@ export function NegotiationModal({ personId }: { personId: string }) {
 
           <div className="negotiation__side stack">
             <Panel title="Profile" level="default">
-              <div className="facts">
+              <dl className="facts">
                 <div className="facts__row">
                   <dt>Player</dt>
                   <dd>
@@ -165,7 +137,7 @@ export function NegotiationModal({ personId }: { personId: string }) {
                   <dt>Day job</dt>
                   <dd>{person.occupation}</dd>
                 </div>
-              </div>
+              </dl>
               <p className="muted small">
                 Fits your shape at {suitabilityFor(person, person.preferredPosition)}/100 in his own position.
               </p>
@@ -173,7 +145,7 @@ export function NegotiationModal({ personId }: { personId: string }) {
 
             <Panel title="Approach" level="default" subtitle={DISCOVERY_SOURCE_LABEL[record.discoveredVia]}>
               <p className="small">{record.sourceNote}</p>
-              <div className="facts">
+              <dl className="facts">
                 <div className="facts__row">
                   <dt>On the list since</dt>
                   <dd>{formatShortDate(record.discoveredOn)}</dd>
@@ -186,13 +158,13 @@ export function NegotiationModal({ personId }: { personId: string }) {
                   <dt>Status</dt>
                   <dd>{CANDIDATE_STATUS_LABEL[record.status]}</dd>
                 </div>
-              </div>
+              </dl>
               <p className="small">
                 <strong>{joiningProspect(game, personId)}</strong>
               </p>
             </Panel>
 
-            <Panel title="How likely is a yes?" level="quiet" subtitle="The reasons, in his words">
+            <details className="more"><summary>Why he might join</summary><Panel title="How likely is a yes?" level="quiet" subtitle="The reasons, in his words">
               {assessment.reasons.length === 0 && <p className="muted small">Nothing is known about his situation.</p>}
               <ul className="tight-list">
                 {assessment.reasons.map((reason, index) => (
@@ -205,9 +177,9 @@ export function NegotiationModal({ personId }: { personId: string }) {
                   </li>
                 ))}
               </ul>
-            </Panel>
+            </Panel></details>
 
-            <Panel title="What you know" level="quiet" subtitle="Second hand, unless it says otherwise">
+            <details className="more"><summary>Scouting notes</summary><Panel title="What you know" level="quiet" subtitle="Second hand, unless it says otherwise">
               {knowledge.length === 0 && <p className="muted small">Nothing much yet. Watch him, or get him down.</p>}
               <ul className="tight-list">
                 {knowledge.slice(0, 8).map((line) => (
@@ -228,27 +200,10 @@ export function NegotiationModal({ personId }: { personId: string }) {
                   ))}
                 </ul>
               )}
-            </Panel>
+            </Panel></details>
           </div>
         </div>
 
-        <div className="negotiation__bar">
-          {settled ? (
-            <Button variant="ghost" onClick={() => gameActions().closeNegotiation()}>
-              Close
-            </Button>
-          ) : (
-            <>
-              <Button variant="ghost" onClick={() => gameActions().closeNegotiation()}>
-                Leave it for now
-              </Button>
-              <Button variant="primary" onClick={() => gameActions().offerToJoin(personId)}>
-                Offer him a place
-              </Button>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
+    </Dialog>
   );
 }

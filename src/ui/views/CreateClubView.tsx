@@ -271,18 +271,17 @@ export function CreateClubView() {
     <div className="create-club">
       <SceneBackdrop />
       <PageHeader
-        eyebrow="Create a club"
+        eyebrow="New club · step 2 of 2"
         title="Design your club"
         subtitle={`${draft.leagueName} · seed “${draft.seed}”. Your club takes the place of ${replaced.identity.name}.`}
         actions={
-          <Button variant="ghost" onClick={() => gameActions().abandonDraft()}>
-            Back
-          </Button>
+          <><Button variant="ghost" onClick={() => gameActions().abandonDraft()}>Back</Button><Button variant="primary" onClick={submit} disabled={!affordable || name.trim().length < 3 || !townId}>Register {name.trim() || 'your club'}</Button></>
         }
       />
 
       <div className="create-club__grid">
-        <Panel title="Identity" subtitle="What the club is called and how it introduces itself">
+        <div className="create-club__column">
+        <Panel title="Identity" subtitle="Name, colours and the club's character">
           <div className="create-club__preview">
             <ClubBadge club={previewClub} size={64} />
             <div>
@@ -331,7 +330,7 @@ export function CreateClubView() {
           </div>
         </Panel>
 
-        <Panel title="Ground and running" subtitle="Where you play and how the club is organised">
+        <Panel title="Ground and running" subtitle="Your home in the local game">
           <label className="field">
             <span className="field__label">Town</span>
             <select className="input" value={townId} onChange={(e) => setTownId(e.target.value)}>
@@ -374,6 +373,8 @@ export function CreateClubView() {
           </div>
         </Panel>
 
+        </div>
+        <div className="create-club__column">
         <Panel
           className="create-club__badge-panel"
           title="Badge"
@@ -561,10 +562,11 @@ export function CreateClubView() {
             </>
           )}
         </Panel>
+        </div>
       </div>
 
       <div className="create-club__submit">
-        <Button variant="primary" onClick={submit} disabled={!affordable}>
+        <Button variant="primary" onClick={submit} disabled={!affordable || name.trim().length < 3 || !townId}>
           Take charge of {name.trim() || 'your club'}
         </Button>
         {!affordable && (
@@ -573,7 +575,8 @@ export function CreateClubView() {
             cheaper standard.
           </p>
         )}
-        {affordable && error && <p className="tone tone--bad small">{error}</p>}
+        {name.trim().length < 3 && <p className="small muted">Give the club a name of at least three characters to register.</p>}
+        {affordable && error && <p className="tone tone--bad small" role="alert">{error}</p>}
       </div>
     </div>
   );

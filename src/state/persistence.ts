@@ -228,6 +228,10 @@ function enqueueWrite<T>(slot: string, work: () => Promise<T>): Promise<T> {
  *    weekly figure and no deal, so they are given an empty log rather than an
  *    invented agreement; the clubs that were already backed by a business sign
  *    a real one in play, and the season review offers the rest.
+ *  - version 16 predates the manager's own shapes. A career that never built
+ *    one is given an empty book, and the sides it already had keep the named
+ *    formations they were picked in: `Tactics.shape` is optional, so a lineup
+ *    saved before this still means "as the formation says".
  */
 function migrateSave(file: SaveFile): SaveFile {
   const state = file.state as GameState & {
@@ -393,6 +397,11 @@ function migrateSave(file: SaveFile): SaveFile {
     if (match.replacedByMatchId === undefined) match.replacedByMatchId = null;
     if (match.lateCallMade === undefined) match.lateCallMade = false;
   }
+
+  // A save written before a manager could build a shape of his own has an
+  // empty book. It is not seeded with the named formations: those are not his,
+  // and a list of somebody else's shapes under his name is worse than none.
+  if (!Array.isArray(state.customFormations)) state.customFormations = [];
 
   rebuildRelationshipIndex(state);
   pruneCandidates(state);

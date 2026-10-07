@@ -98,6 +98,14 @@ describe('a generated kit', () => {
     }
   });
 
+  it('has a wardrobe big enough for a whole county', () => {
+    // Thirty-odd clubs, three strips each and a new set every summer: a short
+    // list of firms and colours turns the division into a uniform.
+    expect(new Set(KIT_MAKERS.map((maker) => maker.id)).size).toBe(KIT_MAKERS.length);
+    expect(new Set(KIT_MAKERS.map((maker) => maker.name)).size).toBe(KIT_MAKERS.length);
+    expect(KIT_MAKERS.length).toBeGreaterThanOrEqual(20);
+  });
+
   it('is made by a real kit firm, and only ever by one of them', () => {
     for (const clubId of ['club_1', 'club_2', 'club_3', 'club_4', 'club_5']) {
       const kit = kitPlanFor(request('makers', clubId));
@@ -199,20 +207,28 @@ describe('a club’s kit in a career', () => {
     // strip must be painted white, not brown.
     const { state, clubId } = createTestGame('match-kit-colours');
     const others = Object.keys(state.clubs).filter((id) => id !== clubId);
-    const awayId = others[0]!;
-    const kits = matchKits(state, clubId, awayId);
-    const colours = matchKitColours(state, clubId, awayId);
+    const homeColour = state.clubs[clubId]!.identity.colours.primary;
 
-    // Home plays in the club's own colours; the visitors play in the away strip,
-    // which is a different thing from their identity colour whenever the club
-    // has one.
-    expect(kits.home!.primary).toBe(state.clubs[clubId]!.identity.colours.primary);
-    expect(kits.away!.role).toBe('away');
-    expect(colours.home).toBe(state.clubs[clubId]!.identity.colours.primary);
-    expect(colours.away).toBe(kits.away!.primary);
-    // Never the away club's identity colour by accident: it is the strip, or the
-    // spare set if the two clash, but always a strip.
-    expect(['away', 'goalkeeper']).toContain(kits.away!.role);
+    // Home plays in the club's own colours, whoever is visiting.
+    expect(matchKits(state, clubId, others[0]!).home!.primary).toBe(homeColour);
+
+    // And every visitor in the division is painted in the strip he turned out
+    // in rather than the colour in the club's identity — and, whichever of his
+    // two strips that is, in one a spectator can tell from the home shirt.
+    // Which of the thirty-five pairings this seed happens to make a clash is
+    // not the point, so all of them are walked.
+    let awayStrips = 0;
+    for (const awayId of others) {
+      const kits = matchKits(state, clubId, awayId);
+      const colours = matchKitColours(state, clubId, awayId);
+      expect(['away', 'goalkeeper']).toContain(kits.away!.role);
+      expect(colours.away).toBe(kits.away!.primary);
+      expect(colourDistance(kits.home!.primary, kits.away!.primary)).toBeGreaterThanOrEqual(MIN_KIT_DISTANCE);
+      if (kits.away!.role === 'away') awayStrips += 1;
+    }
+    // The ordinary case is still the ordinary case: most visitors wear the strip
+    // they own, and the spare set is for the few that clash.
+    expect(awayStrips).toBeGreaterThan(others.length / 2);
   });
 
   it('changes the visitors in when the two first colours would clash', () => {

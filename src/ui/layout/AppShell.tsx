@@ -27,14 +27,18 @@ import { NegotiationModal } from '../components/NegotiationModal';
  */
 export function AppShell({ game, view, children }: { game: GameState; view: ViewId; children: ReactNode }) {
   const notice = useGameStore((state) => state.notice);
-  const error = useGameStore((state) => state.error);
   const session = useGameStore((state) => state.session);
   const plannerOpen = useGameStore((state) => state.plannerOpen);
   const profile = useGameStore((state) => state.profile);
   const negotiationId = useGameStore((state) => state.negotiationId);
-  const dialog = useGameStore((state) => state.dialog);
   const focus = useGameStore((state) => state.focus);
   const [moreOpen, setMoreOpen] = useState(false);
+  // Whether the desktop navigation is open or an icon rail. Held here because
+  // it is the frame's own first column that changes width, and because this
+  // component is not re-mounted when a screen changes — a nav that owned this
+  // itself would have to survive the navigation it just caused.
+  const [navOpen, setNavOpen] = useState(false);
+  const handleNavOpenChange = useCallback((open: boolean) => setNavOpen(open), []);
   const mainRef = useRef<HTMLElement | null>(null);
   const command = useCommandState();
 
@@ -62,31 +66,43 @@ export function AppShell({ game, view, children }: { game: GameState; view: View
    * re-arranged without every caller having to be updated.
    */
   useEffect(() => {
-    if (!focus) return;
-    const handle = window.setTimeout(() => {
+    if (!focus || focus.startsWith('report:')) return;
+    const observer = new MutationObserver(() => arrive());
+    const arrive = () => {
       const node = document.getElementById(focus);
       if (!node) return;
-      const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
-      node.scrollIntoView({ block: 'start', behavior: reduced ? 'auto' : 'smooth' });
+      observer.disconnect();
+      // A contextual destination can live inside a disclosure.
+      let parent = node.parentElement;
+      while (parent) { if (parent instanceof HTMLDetailsElement) parent.open = true; parent = parent.parentElement; }
+      node.scrollIntoView({ block: 'start', behavior: 'auto' });
       if (!node.hasAttribute('tabindex')) node.setAttribute('tabindex', '-1');
       node.focus({ preventScroll: true });
-    }, 0);
-    return () => window.clearTimeout(handle);
+    };
+    if (mainRef.current) observer.observe(mainRef.current, { childList: true, subtree: true });
+    arrive();
+    return () => observer.disconnect();
   }, [view, focus]);
 
-  // Escape closes whatever is on top, innermost first.
+  // Every navigation path, including contextual links, lands at the screen's top.
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      if (dialog) gameActions().closeDialog();
-      else if (negotiationId) gameActions().closeNegotiation();
-      else if (profile) gameActions().closeProfile();
-      else if (plannerOpen) gameActions().closePlanner();
-      else if (moreOpen) setMoreOpen(false);
+    if (focus) return;
+    mainRef.current?.scrollTo({ top: 0, behavior: 'auto' });
+    const main = mainRef.current;
+    let arrived = false;
+    const observer = new MutationObserver(() => arrive());
+    const arrive = () => {
+      const heading = main?.querySelector<HTMLElement>('h1');
+      if (!heading || arrived) return;
+      arrived = true;
+      observer.disconnect();
+      heading.tabIndex = -1;
+      heading.focus({ preventScroll: true });
     };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [moreOpen, plannerOpen, profile, negotiationId, dialog]);
+    arrive();
+    if (main && !arrived) observer.observe(main, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [view, focus]);
 
   return (
     <div className="app" style={clubStyle(game.clubs[game.userClubId]!.identity.colours)}>
@@ -96,21 +112,15 @@ export function AppShell({ game, view, children }: { game: GameState; view: View
       {command && <DesktopTopBar game={game} command={command} />}
       {command && <MobileTopBar game={game} command={command} />}
 
-      <div className="app__body">
-        <SideNav view={view} hasSession={Boolean(session)} onNavigate={navigate} />
+      <div className={`app__body${navOpen ? ' app__body--nav-open' : ''}`}>
+        <SideNav
+          view={view}
+          hasSession={Boolean(session)}
+          onNavigate={navigate}
+          onOpenChange={handleNavOpenChange}
+        />
 
-        <main className="app__main" id="main" ref={mainRef}>
-          {/* Errors stay in the page: something that has gone wrong is not a
-              passing remark, and it should not take itself away before it has
-              been read. Notices live in the footer instead. */}
-          {error && (
-            <div className="banner banner--error" role="alert">
-              <span>{error}</span>
-              <button type="button" className="link" onClick={() => gameActions().setNotice(null)}>
-                dismiss
-              </button>
-            </div>
-          )}
+        <main className="app__main" id="main" ref={mainRef} data-view={view} tabIndex={-1}>
           {children}
         </main>
       </div>

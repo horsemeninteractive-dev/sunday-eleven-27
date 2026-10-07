@@ -83,6 +83,23 @@ export const BADGE_DEVICES: BadgeDevice[] = [
   'laurel',
   'cross',
   'trowel',
+  // The second wave: things a local club is genuinely named after and the
+  // library had no symbol for. Appended rather than inserted, so no club in an
+  // existing career wakes up wearing a different crest because the library grew.
+  'gate',
+  'well',
+  'beehive',
+  'fish',
+  'arrow',
+  'lamp',
+  'hammer',
+  'mallet',
+  'mitre',
+  'chalice',
+  'vine',
+  'millstone',
+  'spade',
+  'sword',
 ];
 
 /**
@@ -109,43 +126,87 @@ export const BADGE_DEVICES: BadgeDevice[] = [
 const ARC_SPAN = 2.4;
 
 const DEVICE_WORDS: Array<[BadgeDevice, string[]]> = [
-  ['stag', ['hart', 'stag', 'deer', 'buck']],
-  ['keys', ['key']],
-  ['rose', ['rose']],
-  ['barrels', ['tun', 'barrel', 'cask']],
+  ['stag', ['hart', 'stag', 'deer', 'buck', 'roebuck', 'doe']],
+  ['keys', ['key', 'latch', 'lock', 'lockyer']],
+  ['rose', ['rose', 'rosette', 'briar']],
+  ['barrels', ['tun', 'barrel', 'cask', 'cooper', 'coopers']],
   ['sheaf', ['wheat', 'barley', 'sheaf', 'corn', 'mow', 'harvest', 'farmer', 'farm']],
-  ['tree', ['oak', 'elm', 'thorn', 'ash', 'willow', 'birch', 'cedar', 'pine', 'tree', 'wood', 'forest', 'cottage', 'cottager', 'ranger']],
-  ['wheel', ['wheel', 'mill', 'waggon', 'wagon', 'coach', 'cart', 'railway', 'station', 'traction']],
-  ['hop', ['hop', 'brewer', 'brewery', 'ale']],
+  ['tree', ['oak', 'elm', 'thorn', 'ash', 'willow', 'birch', 'cedar', 'pine', 'beech', 'hawthorn', 'hazel', 'alder', 'sycamore', 'chestnut', 'poplar', 'aspen', 'holly', 'yew', 'tree', 'wood', 'grove', 'copse', 'forest', 'cottage', 'cottager', 'ranger']],
+  ['wheel', ['wheel', 'mill', 'waggon', 'wagon', 'coach', 'cart', 'railway', 'rail', 'rails', 'locomotive', 'station', 'signal', 'junction', 'siding', 'traction']],
+  ['hop', ['hop', 'brewer', 'brewery', 'ale', 'malt', 'malthouse', 'beer', 'bitters']],
   ['anvil', ['forge', 'smith', 'anvil', 'nail']],
   ['trowel', ['bricklayer', 'mason', 'builder']],
-  ['plough', ['plough', 'plow', 'tillage']],
+  ['plough', ['plough', 'plow', 'tillage', 'furrow', 'tractor']],
   ['anchor', ['anchor', 'docker', 'dock']],
-  ['ship', ['ship', 'ferry', 'ferryman', 'nelson', 'sailor', 'mariner', 'boat', 'quay']],
-  ['bell', ['bell']],
+  ['ship', ['ship', 'ferry', 'ferryman', 'nelson', 'sailor', 'mariner', 'boat', 'quay', 'barge', 'trawler', 'ketch', 'sloop', 'harbour', 'marina']],
+  ['bell', ['bell', 'peal', 'carillon']],
   ['chequers', ['chequer', 'chequerboard']],
   ['sun', ['sun', 'sol']],
   ['star', ['star', 'north', 'pole', 'astro']],
-  ['crown', ['crown', 'royal', 'king', 'queen', 'duke', 'victoria', 'regal']],
-  ['lion', ['lion', 'albion']],
-  ['bull', ['bull']],
+  ['crown', ['crown', 'royal', 'king', 'queen', 'duke', 'earl', 'prince', 'princess', 'imperial', 'coronet', 'regina', 'majesty', 'victoria', 'regal']],
+  ['lion', ['lion', 'lioness', 'albion', 'rampant']],
+  ['bull', ['bull', 'cow', 'cattle', 'heifer']],
   ['ram', ['ram', 'sheep', 'lamb']],
   ['fox', ['fox', 'vixen']],
-  ['hound', ['hound', 'dog', 'poach', 'beagle', 'mastiff']],
+  ['hound', ['hound', 'dog', 'poach', 'greyhound', 'whippet', 'terrier', 'spaniel', 'collie', 'lurcher', 'beagle', 'mastiff']],
   ['badger', ['badger', 'brock']],
   ['swan', ['swan', 'pelican', 'goose', 'duck']],
-  ['bird', ['bird', 'robin', 'swift', 'magpie', 'crow', 'heron', 'harrier', 'sparrow', 'wren', 'kestrel', 'falcon', 'hawk', 'owl', 'pigeon']],
-  ['horse', ['horse', 'pony', 'stallion', 'mare', 'groom']],
+  ['bird', ['bird', 'robin', 'swift', 'magpie', 'crow', 'lark', 'finch', 'thrush', 'martin', 'dove', 'starling', 'swallow', 'jackdaw', 'heron', 'harrier', 'sparrow', 'wren', 'kestrel', 'falcon', 'hawk', 'owl', 'pigeon']],
+  ['horse', ['horse', 'pony', 'stallion', 'mare', 'groom', 'stirrup', 'saddle', 'harness', 'farrier', 'galloway']],
   ['bridge', ['bridge', 'ford']],
   ['tower', ['kirk', 'church', 'abbey', 'priory', 'minster', 'tower', 'steeple', 'chapel', 'st mary', 'st peter']],
-  ['castle', ['castle', 'fort', 'keep', 'united', 'town', 'city']],
-  ['cross', ['cross', 'george', 'st george']],
-  ['laurel', ['laurel', 'legion', 'corinthian', 'athletic', 'olympic', 'victor']],
+  ['castle', ['castle', 'fort', 'keep', 'united', 'barbican', 'motte', 'bailey', 'donjon', 'town', 'city']],
+  ['cross', ['cross', 'george', 'st george', 'crusader']],
+  ['laurel', ['laurel', 'legion', 'corinthian', 'athletic', 'olympic', 'victor', 'victory', 'wreath']],
   ['bolt', ['dynamo', 'bolt', 'lightning', 'electric']],
+
+  /* The newer symbols. These are appended rather than folded into the table
+     above because the table's order is its rule: an entry only ever takes a
+     name from the entries below it, so adding these at the bottom cannot move
+     a crest that clubs already wear. */
+  ['gate', ['gate', 'gates', 'gatehouse', 'portcullis', 'turnpike']],
+  ['well', ['well', 'wells', 'spring', 'fountain', 'font']],
+  ['beehive', ['bee', 'bees', 'beehive', 'hive', 'apiary', 'honey']],
+  ['fish', ['fish', 'fisher', 'fisherman', 'fishermen', 'trout', 'salmon', 'pike', 'tench', 'eel', 'eels', 'otter']],
+  ['arrow', ['arrow', 'arrows', 'archer', 'archers', 'bow', 'bowman', 'bowmen', 'fletcher', 'quiver']],
+  ['lamp', ['lamp', 'lamps', 'lantern', 'beacon', 'light', 'lights']],
+  ['hammer', ['hammer', 'hammers', 'sledge', 'smiddy']],
+  ['mallet', ['mallet', 'joiner', 'joiners', 'carpenter', 'carpenters']],
+  ['mitre', ['mitre', 'bishop', 'bishops', 'bishopric', 'canon']],
+  ['chalice', ['chalice', 'cup', 'goblet', 'grail', 'tankard']],
+  ['vine', ['vine', 'vines', 'vineyard', 'grape', 'grapes']],
+  ['millstone', ['millstone', 'millstones', 'stone', 'stones', 'quarry', 'quarries']],
+  ['spade', ['spade', 'spades', 'gardener', 'gardeners', 'allotment', 'digger', 'diggers']],
+  ['sword', ['sword', 'swords', 'blade', 'blades', 'sabre', 'cutler', 'cutlers']],
 ];
 
 /** Devices for clubs whose name says nothing at all: still varied, still theirs. */
-const GENERIC_DEVICES: BadgeDevice[] = ['ball', 'laurel', 'star', 'castle', 'tower', 'cross', 'crown', 'tree', 'ship', 'lion'];
+const GENERIC_DEVICES: BadgeDevice[] = [
+  'ball',
+  'laurel',
+  'star',
+  'castle',
+  'tower',
+  'cross',
+  'crown',
+  'tree',
+  'ship',
+  'lion',
+  'gate',
+  'well',
+  'beehive',
+  'fish',
+  'arrow',
+  'lamp',
+  'hammer',
+  'mallet',
+  'mitre',
+  'chalice',
+  'vine',
+  'millstone',
+  'spade',
+  'sword',
+];
 
 /**
  * The symbol for a club, from its name and its nickname.
@@ -318,7 +379,12 @@ export function badgePlan(
   // A club that designed its own badge wears that; anything it left alone it
   // takes from the generator, exactly as every other club in the world does.
   const choice = club.badge;
-  const shape = choice?.shape ?? BADGE_SHAPES[seed % BADGE_SHAPES.length]!;
+  // Three separate streams off the club's own id, the way every other unrelated
+  // draw in the game is taken. One hash cut into thirds does not spread: clubs
+  // generated in a run have near-identical ids, and the low bits of their hashes
+  // are near-identical too — which is why forty anonymous sides used to wear
+  // fourteen crests out of a library of thirty-four.
+  const shape = choice?.shape ?? BADGE_SHAPES[hashString(`${club.id}:shape`) % BADGE_SHAPES.length]!;
   const frame = BADGE_FRAMES[shape];
   const sameColours = secondary.toLowerCase() === primary.toLowerCase();
 
@@ -326,9 +392,11 @@ export function badgePlan(
   // nothing for it to be drawn in and stays plain whatever was asked for.
   const pattern: BadgePattern = sameColours
     ? 'plain'
-    : choice?.pattern ?? BADGE_PATTERNS[(seed >>> 9) % BADGE_PATTERNS.length]!;
+    : choice?.pattern ?? BADGE_PATTERNS[hashString(`${club.id}:pattern`) % BADGE_PATTERNS.length]!;
   const device =
-    choice?.device ?? deviceFor(identity.name, identity.nickname) ?? GENERIC_DEVICES[(seed >>> 3) % GENERIC_DEVICES.length]!;
+    choice?.device ??
+    deviceFor(identity.name, identity.nickname) ??
+    GENERIC_DEVICES[hashString(`${club.id}:device`) % GENERIC_DEVICES.length]!;
 
   // The symbol is drawn over the primary colour, so it takes that colour's ink.
   const ink = inkForColour(primary);

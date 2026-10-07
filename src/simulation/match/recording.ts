@@ -12,19 +12,20 @@ import type { MatchEngineState } from './matchEngine/types';
  * and where the ball is — on its way past and stores the samples on the match.
  *
  * It is a *reader*. It never moves a player, aims a ball or changes possession;
- * it takes what `stepSpatial` has already made true and writes it down. Removing
- * it entirely would not change a single result — the replay would simply fall
- * back to drawing the teams between the recorded moments, as it did before.
+ * it takes what the engine's step has already made true and writes it down.
+ * Removing it entirely would not change a single result — the replay would
+ * simply fall back to drawing the teams between the recorded moments, as it did
+ * before.
  *
- * Recording is cheap and gated three ways: it only runs for a match with
- * continuous state (a match somebody is watching), it only samples every
+ * Recording is cheap and gated three ways: it only runs for a match whose engine
+ * is observed (a match somebody is watching), it only samples every
  * {@link RECORD_INTERVAL_SECONDS} rather than every simulation step, and it
  * never keeps more than {@link MAX_KEYFRAMES} samples — thinning instead, so a
  * long match is remembered at a coarser resolution rather than forgotten at the
  * end.
  */
 
-/** Spatial seconds between samples. A replay interpolates between them. */
+/** Football seconds between samples. A replay interpolates between them. */
 export const RECORD_INTERVAL_SECONDS = 0.25;
 
 /**
@@ -76,12 +77,11 @@ function ensureRecording(match: Match): MatchRecording {
 }
 
 /**
- * Write one sample, whichever engine produced it.
+ * Write one sample.
  *
  * The recording is engine-agnostic: it stores positions, the ball and who is on
- * it, keyed by the football clock. The old continuous state and the new engine
- * both reduce to this, so the replay that reads it back cannot tell which engine
- * played the afternoon.
+ * it, keyed by the football clock, so the replay that reads it back knows
+ * nothing about how the afternoon was played.
  */
 function writeKeyframe(
   recording: MatchRecording,
@@ -130,35 +130,7 @@ function writeKeyframe(
 }
 
 /**
- * Take one sample of the old continuous state as it is now.
- *
- * Called once per simulation step by `stepSpatial`; does nothing unless the
- * interval has passed, so the cost is a clock comparison on nearly every call.
- * Kept for the tools and tests that still drive the old spatial state; the
- * watched match now records through `recordEngineKeyframe`.
- */
-export function recordKeyframe(match: Match): void {
-  const spatial = match.spatial;
-  if (!spatial) return;
-  const nodes: RecordedNode[] = spatial.players.map((node) => ({
-    playerId: node.playerId,
-    x: node.x,
-    y: node.y,
-  }));
-  writeKeyframe(
-    ensureRecording(match),
-    spatial.clock,
-    spatial.ball.x,
-    spatial.ball.y,
-    spatial.ball.status,
-    spatial.ball.ownerId,
-    spatial.ball.targetId,
-    nodes,
-  );
-}
-
-/**
- * Take one sample of the new engine's state.
+ * Take one sample of the engine's state.
  *
  * This is what a watched match records through: the engine calls it after every
  * fixed step (see `MatchEngine.observe`), so the afternoon is remembered at the

@@ -1,6 +1,6 @@
 import { FULL_SIDE, MIN_SIDE, type BenchSlot, type LineupSlot } from '@/domain/match';
 import type { Player } from '@/domain/person';
-import { getFormation, positionalSimilarity, POSITIONS, type FormationId, type PositionCode } from '@/domain/positions';
+import { formationSlots, positionalSimilarity, POSITIONS, type FormationId, type FormationSlot, type PositionCode } from '@/domain/positions';
 import { defaultRoleFor } from '@/simulation/match/roles';
 
 /**
@@ -68,6 +68,13 @@ export interface PickOptions {
   eligible?: (player: Player) => boolean;
   /** Score multiplier per slot index, used for weaker preferred selections. */
   seed?: number;
+  /**
+   * The eleven positions to pick for, when the manager has set a shape himself.
+   * Without it the named formation is used, which is every side until somebody
+   * moves a dot — and then the assistant has to pick for the shape on the pitch,
+   * or he would hand back a 4-4-2 while the screen shows a back three.
+   */
+  shape?: readonly FormationSlot[];
 }
 
 function pickScore(player: Player, position: PositionCode): number {
@@ -91,12 +98,12 @@ export function autoPickLineup(
   options: PickOptions = {},
 ): Selection {
   const eligible = squad.filter((player) => canPlay(player) && (options.eligible ? options.eligible(player) : true));
-  const formation = getFormation(formationId);
+  const slots = formationSlots(formationId, options.shape);
   const used = new Set<string>();
   const starting: LineupSlot[] = [];
 
   // Fill the most specialised roles first (keeper, centre backs, striker).
-  const slotOrder = formation.slots
+  const slotOrder = slots
     .map((slot, index) => ({ slot, index }))
     .sort((a, b) => slotPriority(b.slot.position) - slotPriority(a.slot.position));
 
@@ -121,7 +128,7 @@ export function autoPickLineup(
 
   const remaining = eligible
     .filter((player) => !used.has(player.id))
-    .map((player) => ({ player, score: bestScoreAnywhere(player, formation.slots.map((s) => s.position)) }))
+    .map((player) => ({ player, score: bestScoreAnywhere(player, slots.map((s) => s.position)) }))
     .sort((a, b) => b.score - a.score);
 
   const bench: BenchSlot[] = [];

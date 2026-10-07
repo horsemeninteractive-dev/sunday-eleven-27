@@ -3,13 +3,21 @@ import { ageOn, isManagerProfileComplete, MAX_MANAGER_AGE, MIN_MANAGER_AGE, type
 import { firstSundayOfSeptember } from '@/simulation/gameSetup';
 import { preSeasonStart } from '@/simulation/calendar';
 import { weekStartOf } from '@/simulation/timeline';
+import { MIN_SEED_LENGTH, pickSuggestedSeeds, rollSeed, seedIsUsable } from '@/simulation/generation/seeds';
 import { useGameStore } from '@/state/gameStore';
 import { listProfiles } from '@/state/managerProfiles';
 import { gameActions } from '../hooks';
 import { Button, PageHeader, Panel } from '../components/primitives';
 import { SceneBackdrop } from '../components/SceneBackdrop';
 
-const SUGGESTED_SEEDS = ['wychavon-morning', 'bramley-ford-88', 'the-crown-railway', 'muddy-pitch-4'];
+/**
+ * How many of the offered worlds the panel shows.
+ *
+ * The seed list is long enough that showing all of it would be a wall of
+ * buttons over the form, so the panel offers a handful and a press that invents
+ * the next one. Between the two, four worlds are never the whole offer.
+ */
+const SUGGESTIONS_SHOWN = 9;
 const START_YEAR = 2026;
 
 /**
@@ -23,7 +31,11 @@ export function ProfileView() {
   const setup = useGameStore((state) => state.setup);
   const profile = setup?.profile ?? null;
   const mode = setup?.mode ?? 'career';
-  const [seed, setSeed] = useState(() => SUGGESTED_SEEDS[Math.floor(Math.random() * SUGGESTED_SEEDS.length)]!);
+  // The world the manager is about to walk into, and a handful of others to
+  // choose from: a rolled one cannot be a repeat of the list he was just shown.
+  const [seed, setSeed] = useState(() => rollSeed());
+  // Fresh on every visit, so the panel is never the same nine worlds twice.
+  const suggestions = useMemo(() => pickSuggestedSeeds(SUGGESTIONS_SHOWN), []);
   const [error, setError] = useState<string | null>(null);
   // Read once when the screen opens: it is a shortcut into the form, not
   // something that has to keep up with what is typed.
@@ -54,7 +66,7 @@ export function ProfileView() {
     age !== null &&
     age >= MIN_MANAGER_AGE &&
     age <= MAX_MANAGER_AGE &&
-    seed.trim().length >= 3;
+    seedIsUsable(seed);
 
   const begin = () => {
     if (!isManagerProfileComplete(profile)) {
@@ -79,6 +91,7 @@ export function ProfileView() {
       <PageHeader
         eyebrow={mode === 'create-club' ? 'Create a club' : 'New career'}
         title="Your profile"
+        subtitle="Step 1 of 2 · Introduce yourself, then choose or build your club."
         actions={
           <>
             <Button variant="ghost" onClick={() => gameActions().cancelSetup()}>
@@ -155,7 +168,7 @@ export function ProfileView() {
                 value={profile.birthday}
                 onChange={(event) => update({ birthday: event.target.value })}
               />
-              <span className="field__hint">{age !== null ? `Age ${age}` : 'Pick a date'}</span>
+              <span className={`field__hint${age !== null && (age < MIN_MANAGER_AGE || age > MAX_MANAGER_AGE) ? ' tone tone--bad' : ''}`}>{age !== null ? `Age ${age}${age < MIN_MANAGER_AGE || age > MAX_MANAGER_AGE ? ` · choose an age from ${MIN_MANAGER_AGE} to ${MAX_MANAGER_AGE}` : ''}` : 'Pick a date'}</span>
             </label>
             <label className="field">
               <span className="field__label">Day job</span>
@@ -194,18 +207,28 @@ export function ProfileView() {
             />
           </label>
           <div className="row row--wrap">
-            {SUGGESTED_SEEDS.map((suggestion) => (
+            {suggestions.map((suggestion) => (
               <Button key={suggestion} variant="ghost" onClick={() => setSeed(suggestion)}>
                 {suggestion}
               </Button>
             ))}
+            <Button
+              variant="ghost"
+              onClick={() => setSeed(rollSeed())}
+              title="Invent another world and put it in the box above"
+            >
+              Another one
+            </Button>
           </div>
           <p className="muted small">
             {ready
               ? 'The world is built from the seed above — the same words always make the same towns, clubs and players.'
               : 'Fill in your name and your date of birth to carry on.'}
           </p>
-          {error && <p className="tone tone--bad">{error}</p>}
+          {!seedIsUsable(seed) && (
+            <p className="small tone tone--bad">The world seed needs at least {MIN_SEED_LENGTH} characters.</p>
+          )}
+          {error && <p className="tone tone--bad" role="alert">{error}</p>}
         </Panel>
       </div>
     </div>

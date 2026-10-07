@@ -31,6 +31,10 @@ you were away.
 - **A match engine worth looking at.** Roughly 24,000 lines simulating one clock
   — players hold shape, the ball has to be won, goals come from something a
   person would recognise. See [`MATCH_ENGINE.md`](MATCH_ENGINE.md).
+- **Touchline, named.** The simulation underneath the game has a name: the first
+  launch with nothing saved introduces it, briefly and only once, and the credits
+  say what it is. See
+  [`TOUCHLINE_ARCHITECTURE.md`](TOUCHLINE_ARCHITECTURE.md).
 
 ## Running it
 
@@ -106,6 +110,7 @@ milliseconds that way rather than a minute. Both modes are documented in
 ## Further reading
 
 - [`CHANGELOG.md`](CHANGELOG.md) — what has changed, and what this build is
+- [`TOUCHLINE_ARCHITECTURE.md`](TOUCHLINE_ARCHITECTURE.md) — the football simulation: what owns what
 - [`MATCH_ENGINE.md`](MATCH_ENGINE.md) — where the match actually happens
 - [`SE27_Design_Document.md`](SE27_Design_Document.md) — the design, in full
 - [`SOAK.md`](SOAK.md) — long runs, and what they are for

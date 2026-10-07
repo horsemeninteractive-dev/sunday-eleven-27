@@ -141,7 +141,7 @@ export function MetricTile({
   children?: ReactNode;
 }) {
   return (
-    <Tile label={label} tone={tone}>
+    <Tile label={label} tone={tone} className="metric-tile">
       <span className="metric__value">{value}</span>
       {note && <span className="metric__note">{note}</span>}
       {children}
@@ -203,7 +203,7 @@ export function StatusTile({
   tone?: TileTone;
 }) {
   return (
-    <Tile label={label} tone={tone}>
+    <Tile label={label} tone={tone} className="metric-tile">
       <span className={`status-tile__status tone tone--${tone === 'default' ? 'muted' : tone}`}>{status}</span>
       {note && <span className="status-tile__note">{note}</span>}
     </Tile>

@@ -9,6 +9,7 @@ import { BrandLockup } from '../components/BrandMark';
 import { InstallCard } from '../components/InstallCard';
 import { SceneBackdrop } from '../components/SceneBackdrop';
 import { Glyph } from '../components/icons';
+import { loadCareer } from '../careerActions';
 
 /** The line under the mark, one word per span so it can be spread. */
 const TAGLINE = ['Sunday', 'League', 'Management'];
@@ -42,9 +43,13 @@ export function StartView() {
   // reached once it is — so this resolves on the next tick rather than showing
   // an empty list first.
   const [saves, setSaves] = useState<SaveSlotInfo[]>([]);
+  const [reading, setReading] = useState(true);
+  const [failure, setFailure] = useState<string | null>(null);
 
   const refreshSaves = () => {
-    void gameActions().listSaves().then((listed) => setSaves(orderSaves(listed)));
+    setReading(true);
+    setFailure(null);
+    void gameActions().listSaves().then((listed) => setSaves(orderSaves(listed))).catch(() => setFailure('Your saved careers could not be listed. Try Refresh.')).finally(() => setReading(false));
   };
 
   useEffect(refreshSaves, []);
@@ -131,7 +136,7 @@ export function StartView() {
                 Refresh
               </Button>
             </header>
-            {saves.length === 0 ? (
+            {reading ? <p className="small muted" role="status">Reading saved careers…</p> : failure ? <p role="alert" className="tone tone--bad">{failure}</p> : saves.length === 0 ? (
               <p className="empty">Nothing saved yet. Start a career and the game keeps it up to date on its own.</p>
             ) : (
               <ul className="save-list">
@@ -141,13 +146,13 @@ export function StartView() {
                       <strong>{save.clubName}</strong>
                       {save.auto && <span className="save-list__tag">Autosave</span>}
                       <div className="muted small">
-                        {save.seasonLabel} · {save.auto ? 'autosaved' : 'saved'}{' '}
+                        {save.seasonLabel} · in-game {formatShortDate(save.date)} · {save.auto ? 'autosaved' : 'saved'}{' '}
                         {formatShortDate(save.savedAt.slice(0, 10))} · seed “{save.seed}”
                       </div>
                     </div>
                     <Button
                       variant={save.auto ? 'primary' : 'default'}
-                      onClick={() => void gameActions().loadGame(save.slot)}
+                      onClick={() => void loadCareer(save.slot)}
                     >
                       {save.auto ? 'Continue' : 'Load'}
                     </Button>

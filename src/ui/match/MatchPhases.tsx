@@ -1,4 +1,6 @@
+import { useRef } from 'react';
 import type { GameState } from '@/domain/game';
+import { useModal } from '../components/useModal';
 import { PITCH_LABEL, WEATHER_LABEL, type Match } from '@/domain/match';
 import { isPlayer, type Player } from '@/domain/person';
 import { POSITIONS } from '@/domain/positions';
@@ -51,10 +53,12 @@ export function PreMatchPanel({
   const ground = game.world.grounds[match.groundId];
   const warnings = selectionWarnings(game, match, session, playerById);
   const opponentForm = recentForm(game, opponentId);
+  const ref = useRef<HTMLDivElement>(null);
+  useModal(ref, onLookAround);
 
   return (
-    <div className="interval" role="dialog" aria-label="Matchday briefing">
-      <div className="interval__card">
+    <div className="interval">
+      <div ref={ref} className="interval__card" role="dialog" aria-modal="true" aria-label="Matchday briefing">
         <header className="interval__head">
           <h2>Matchday</h2>
           <p className="small muted">
@@ -132,6 +136,7 @@ export function PreMatchPanel({
               key={talk}
               type="button"
               className={`choice${session.teamTalk === talk ? ' choice--on' : ''}`}
+              aria-pressed={session.teamTalk === talk}
               onClick={() => gameActions().setTeamTalk(talk as TeamTalk)}
               title={TEAM_TALK_BLURB[talk]}
             >
@@ -139,6 +144,7 @@ export function PreMatchPanel({
             </button>
           ))}
         </div>
+        {session.teamTalk && <p className="choice-help">{TEAM_TALK_BLURB[session.teamTalk]}</p>}
       </div>
 
       <div className="briefing__block">
@@ -149,6 +155,7 @@ export function PreMatchPanel({
               key={warmUp}
               type="button"
               className={`choice choice--compact${session.warmUp === warmUp ? ' choice--on' : ''}`}
+              aria-pressed={session.warmUp === warmUp}
               onClick={() => gameActions().setWarmUp(warmUp as WarmUp)}
               title={WARM_UP_BLURB[warmUp]}
             >
@@ -156,6 +163,7 @@ export function PreMatchPanel({
             </button>
           ))}
         </div>
+        <p className="choice-help">{WARM_UP_BLURB[session.warmUp]}</p>
       </div>
         </div>
 
@@ -201,10 +209,12 @@ export function HalfTimePanel({
   const tired = starters.filter((entry) => (match.performances[entry.slot.playerId]?.energy ?? 100) < 45);
   const carded = starters.filter((entry) => (match.performances[entry.slot.playerId]?.yellowCards ?? 0) > 0);
   const changes = 3 - match.substitutions[session.side];
+  const ref = useRef<HTMLDivElement>(null);
+  useModal(ref, onMakeChanges);
 
   return (
-    <div className="interval" role="dialog" aria-label="Half time">
-      <div className="interval__card">
+    <div className="interval">
+      <div ref={ref} className="interval__card" role="dialog" aria-modal="true" aria-label="Half time">
         <header className="interval__head">
           <h2>Half time</h2>
           <p className="scoreline">
@@ -255,12 +265,14 @@ export function HalfTimePanel({
                   type="button"
                   className={`choice choice--compact${session.halfTimeTalk === talk ? ' choice--on' : ''}`}
                   title={TEAM_TALK_BLURB[talk]}
+                  aria-pressed={session.halfTimeTalk === talk}
                   onClick={() => gameActions().setHalfTimeTalk(talk as TeamTalk)}
                 >
                   {TEAM_TALK_LABEL[talk]}
                 </button>
               ))}
             </div>
+            {session.halfTimeTalk && <p className="choice-help">{TEAM_TALK_BLURB[session.halfTimeTalk]}</p>}
             <MatchStatsPanel match={match} />
           </div>
         </div>
@@ -309,10 +321,12 @@ export function FullTimePanel({
   const scorers = match.events.filter((event) => event.type === 'goal' || event.type === 'penalty-scored');
   const cards = match.events.filter((event) => event.type === 'yellow-card' || event.type === 'red-card');
   const squad = [...match.lineups[session.side].starting, ...match.lineups[session.side].bench];
+  const ref = useRef<HTMLDivElement>(null);
+  useModal(ref);
 
   return (
-    <div className="interval" role="dialog" aria-label="Full time">
-      <div className="interval__card">
+    <div className="interval">
+      <div ref={ref} className="interval__card" role="dialog" aria-modal="true" aria-label="Full time">
         <header className="interval__head">
           <h2>Full time</h2>
           <p className="scoreline">
@@ -389,12 +403,14 @@ export function FullTimePanel({
                   type="button"
                   className={`choice choice--compact${session.fullTimeTalk === talk ? ' choice--on' : ''}`}
                   title={FULL_TIME_TALK_BLURB[talk]}
+                  aria-pressed={session.fullTimeTalk === talk}
                   onClick={() => gameActions().setFullTimeTalk(talk)}
                 >
                   {FULL_TIME_TALK_LABEL[talk]}
                 </button>
               ))}
             </div>
+            {session.fullTimeTalk && <p className="choice-help">{FULL_TIME_TALK_BLURB[session.fullTimeTalk]}</p>}
             <MatchStatsPanel match={match} />
             <p className="small muted">{feed.entries[0]?.text ?? 'Full time.'}</p>
           </div>

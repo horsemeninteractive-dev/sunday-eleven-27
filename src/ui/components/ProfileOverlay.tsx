@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { Club } from '@/domain/club';
 import { CLUB_STRUCTURE_LABEL } from '@/domain/club';
 import { ATTRIBUTE_DESCRIPTORS } from '@/domain/attributes';
-import { isPlayer, personDisplayName, type Player, type PlayerHistoryEntry } from '@/domain/person';
+import { isOfficial, isPlayer, personDisplayName, type Player, type PlayerHistoryEntry } from '@/domain/person';
 import { POSITIONS, POSITION_GROUP_LABEL } from '@/domain/positions';
 import {
   CANDIDATE_STATUS_LABEL,
@@ -33,6 +33,8 @@ import { gameActions, useGame } from '../hooks';
 import { clubKit } from '../kit';
 import { AttributeRow, Button, Meter, Panel, Pill, SortTh, Stat } from './primitives';
 import { ClubBadge } from './Badge';
+import { Dialog } from '../dialogs/Dialog';
+import { Tabs } from './Tabs';
 import { KitSetRow } from './Kit';
 import { PositionMap } from './PositionMap';
 import { ClubLink, PlayerLink, ProfileNavProvider, useOpenProfile } from './Links';
@@ -83,13 +85,6 @@ export function ProfileOverlay({ target }: { target: ProfileTarget }) {
     setStack([target]);
   }
   const current = stack[stack.length - 1]!;
-  const overlayRef = useRef<HTMLDivElement | null>(null);
-
-  // A new face starts at the top of its own page. Without this, following a
-  // name from halfway down a long profile drops you halfway down the next man's.
-  useEffect(() => {
-    overlayRef.current?.scrollTo({ top: 0 });
-  }, [current.kind, current.id]);
 
   const push = (next: ProfileTarget) => {
     setStack((entries) => {
@@ -102,29 +97,12 @@ export function ProfileOverlay({ target }: { target: ProfileTarget }) {
 
   return (
     <ProfileNavProvider open={push}>
-      <div className="overlay" role="dialog" aria-modal="true" aria-label="Profile" ref={overlayRef}>
-        <div className="overlay__panel">
-          <div className="overlay__bar">
-            <span className="overlay__title">{current.kind === 'club' ? 'Club profile' : 'Player profile'}</span>
-            <div className="row row--tight">
-              {stack.length > 1 && (
-                <Button variant="ghost" size="sm" onClick={back}>
-                  ← Back
-                </Button>
-              )}
-              <button
-                type="button"
-                className="overlay__close"
-                aria-label="Close profile"
-                onClick={() => gameActions().closeProfile()}
-              >
-                ✕
-              </button>
-            </div>
-          </div>
+      <Dialog title={current.kind === 'club' ? 'Club profile' : 'Person profile'} onClose={() => gameActions().closeProfile()}
+        actions={stack.length > 1 ? <Button variant="ghost" size="sm" onClick={back}>← Back</Button> : undefined}>
+        <div key={`${current.kind}-${current.id}`} className="profile-content">
           {current.kind === 'club' ? <ClubProfile clubId={current.id} /> : <PlayerProfile personId={current.id} />}
         </div>
-      </div>
+      </Dialog>
     </ProfileNavProvider>
   );
 }
@@ -133,11 +111,18 @@ export function ProfileOverlay({ target }: { target: ProfileTarget }) {
 
 function PlayerProfile({ personId }: { personId: string }) {
   const [careerSort, setCareerSort] = useState<SortState<CareerSortKey>>(UNSORTED);
+  const [tab, setTab] = useState<'overview' | 'attributes' | 'history'>('overview');
   const game = useGame();
   const openProfile = useOpenProfile();
   if (!game) return null;
 
   const person = game.people[personId];
+  if (isOfficial(person)) return <div className="stack">
+    <div className="profilehead"><h2>{personDisplayName(person)}</h2><p className="muted">{person.role} · {person.occupation}</p></div>
+    <dl className="facts"><Row label="Age" value={String(person.age)} /><Row label="Local standing" value={String(Math.round(person.reputation))} /></dl>
+    {person.notes.length > 0 && <ul className="tight-list">{person.notes.map((note, index) => <li key={index}>{note}</li>)}</ul>}
+    {person.id !== game.clubs[game.userClubId]!.managerId && <Button variant="primary" onClick={() => { gameActions().closeProfile(); gameActions().startConversationWith(person.id); }}>Have a word</Button>}
+  </div>;
   if (!person || !isPlayer(person)) {
     return (
       <div className="overlay__body">
@@ -196,8 +181,9 @@ function PlayerProfile({ personId }: { personId: string }) {
         <QuickStat label="Assists" value={player.record.assists} />
       </div>
 
-      <div className="overlay__body">
-        <div className="profile-grid profile-grid--person">
+      <Tabs label="Player profile" value={tab} onChange={setTab} options={[{ value: 'overview', label: 'Overview' }, { value: 'attributes', label: isMine ? 'Attributes' : 'What you know' }, { value: 'history', label: 'Career & relationships' }]}>
+      <div className={`profile-sections profile-sections--${tab}`}>
+        {tab === 'overview' && <div className="profile-grid profile-grid--person">
           {/* Where he plays: one small pitch instead of twelve rows. */}
           <Panel
             title="Where he plays"
@@ -214,7 +200,7 @@ function PlayerProfile({ personId }: { personId: string }) {
               <Readiness label="Form" value={player.form} />
               <Readiness label="Morale" value={player.morale} />
             </div>
-            <div className="facts">
+            <dl className="facts">
               <Row label="Condition" value={conditionText(player)} />
               <Row label="Injury" value={player.injury ? player.injury.description : 'No active injuries'} />
               <Row label="Availability" value={player.availability.status} />
@@ -228,19 +214,19 @@ function PlayerProfile({ personId }: { personId: string }) {
               <Row label="Deal" value="Non-contract (Sunday League)" />
               <Row label="Subs" value={`£${club?.finances.starterSubAmount ?? 5}/£${club?.finances.substituteSubAmount ?? 3} per game`} />
               <Row label="Registration" value={player.registered ? 'Registered' : 'Not registered'} />
-            </div>
+            </dl>
           </Panel>
 
           {isMine ? (
             <Panel title="The way we play" subtitle="Learned on Thursday nights" level="default">
-              <div className="facts">
+              <dl className="facts">
                 <Row label="Shape" value={describeSystemFamiliarity((player.systemFamiliarity?.formation ?? 10) / 20)} />
                 <Row
                   label="Instructions"
                   value={describeSystemFamiliarity((player.systemFamiliarity?.instructions ?? 10) / 20)}
                 />
                 <Row label="Set pieces" value={describeSetPieceWork((player.systemFamiliarity?.setPieces ?? 10) / 20)} />
-              </div>
+              </dl>
               {improving.length > 0 && <p className="small muted">{improving.join(' · ')}.</p>}
             </Panel>
           ) : (
@@ -256,11 +242,11 @@ function PlayerProfile({ personId }: { personId: string }) {
               {candidate ? (
                 <>
                   <p className="small">{candidate.sourceNote}</p>
-                  <div className="facts">
+                  <dl className="facts">
                     <Row label="On the list since" value={formatShortDate(candidate.discoveredOn)} />
                     <Row label="Sessions with you" value={String(candidate.trials)} />
                     <Row label="Status" value={CANDIDATE_STATUS_LABEL[candidate.status]} />
-                  </div>
+                  </dl>
                   <p className="small">
                     <strong>{joiningProspect(game, player.id)}</strong>
                   </p>
@@ -294,10 +280,10 @@ function PlayerProfile({ personId }: { personId: string }) {
               )}
             </Panel>
           )}
-        </div>
+        </div>}
 
         <div className="split split--sidebar">
-          {isMine ? (
+          {tab === 'attributes' && (isMine ? (
             <Panel title="Attributes" subtitle="Hidden characteristics stay hidden — you get impressions instead">
               {(['technical', 'physical', 'mental', 'behavioural'] as const).map((groupKey) => (
                 <div className="attr-group" key={groupKey}>
@@ -315,13 +301,13 @@ function PlayerProfile({ personId }: { personId: string }) {
             </Panel>
           ) : (
             <Panel title="What you can say for definite" subtitle="Everything else is somebody's opinion">
-              <div className="facts">
+              <dl className="facts">
                 <Row label="Age" value={String(player.age)} />
                 <Row label="Current club" value={club?.identity.name ?? 'Not registered'} />
                 <Row label="Day job" value={player.occupation} />
                 <Row label="General impression" value={estimateAbilityBand(player)} />
                 <Row label="Registered" value={player.registered ? 'Yes' : 'No'} />
-              </div>
+              </dl>
               <p className="muted small">
                 {candidate
                   ? `You have a view on ${knowledge.length} part${knowledge.length === 1 ? '' : 's'} of his game, all of it second hand until you see him yourself.`
@@ -344,10 +330,10 @@ function PlayerProfile({ personId }: { personId: string }) {
                 </>
               )}
             </Panel>
-          )}
+          ))}
 
           <div className="stack">
-            <Panel title="Actions" level="primary">
+            {tab === 'overview' && <Panel title="Actions" level="primary">
               <div className="profile-actions">
                 {candidate ? (
                   <>
@@ -421,9 +407,9 @@ function PlayerProfile({ personId }: { personId: string }) {
                   </p>
                 )}
               </div>
-            </Panel>
+            </Panel>}
 
-            <Panel title="Career history" level="default">
+            {tab === 'history' && <Panel title="Career history" level="default">
               <div className="table-wrapper">
                 <table className="table table--compact table--numeric">
                   <thead>
@@ -470,9 +456,9 @@ function PlayerProfile({ personId }: { personId: string }) {
                 <Stat label="Yellow" value={player.record.yellowCards} />
                 <Stat label="Red" value={player.record.redCards} />
               </div>
-            </Panel>
+            </Panel>}
 
-            <Panel title="Around him" level="quiet">
+            {tab === 'history' && <Panel title="Around him" level="quiet">
               <div className="row row--tight">
                 {profile.informalLeader && <Pill tone="ok">Dressing-room leader</Pill>}
                 {profile.troublemaker && <Pill tone="warn">Handle with care</Pill>}
@@ -507,10 +493,11 @@ function PlayerProfile({ personId }: { personId: string }) {
                   </ul>
                 </>
               )}
-            </Panel>
+            </Panel>}
           </div>
         </div>
       </div>
+      </Tabs>
     </>
   );
 }
@@ -549,7 +536,7 @@ function ClubProfile({ clubId }: { clubId: string }) {
   const squad = squadOf(game, club.id);
   const position = leaguePosition(game, club.id);
   const kit = clubKit(game, club.id);
-  const season = club.history.seasons[0];
+  const season = club.history.seasons.find((entry) => entry.seasonId === game.season.id);
   const played = clubMatches(game, club.id)
     .filter((match) => match.played)
     .slice(-6)
@@ -577,12 +564,10 @@ function ClubProfile({ clubId }: { clubId: string }) {
         <div className="quickstats">
           <QuickStat label="Town" value={town?.name ?? '—'} />
           <QuickStat label="Ground" value={ground?.name ?? '—'} />
-          <QuickStat label="Manager" value={manager ? personDisplayName(manager) : '—'} />
-          <QuickStat label="Founded" value={club.identity.foundedYear} />
+          <QuickStat label="Manager" value={manager ? <PlayerLink personId={manager.id}>{personDisplayName(manager)}</PlayerLink> : '—'} />
           <QuickStat label="In the league" value={position ? `${position}` : '—'} />
           <QuickStat label="Registered" value={squad.length} />
-          <QuickStat label="Standing" value={`${Math.round(club.reputation)}/100`} />
-          <QuickStat label="Balance" value={moneyShort(club.finances.balance)} />
+
         </div>
       </div>
 
@@ -592,25 +577,27 @@ function ClubProfile({ clubId }: { clubId: string }) {
               gets a column of its own instead of floating under the name. */}
           <div className="profilebody__side">
             {kit && (
-              <Panel title="The kit" subtitle={`${kit.season} · ${kit.maker.name}`} level="default">
+              <details className="more"><summary>The kit · {kit.maker.name}</summary><Panel>
                 <KitSetRow club={club} kit={kit} size={84} />
                 <p className="muted small">
                   {kit.sponsor
                     ? `${kit.sponsor.name} across the chest, the club's crest over the heart.`
                     : 'No shirt sponsor this season — a blank chest on all three strips.'}
                 </p>
-              </Panel>
+              </Panel></details>
             )}
 
             {/* Nothing here repeats the strip above or the kit beside it: the
                 founded year, the kit firm and the sponsor are all already said. */}
-            <Panel title="Identity" level="quiet">
+            <details className="more"><summary>Club identity and rivalries</summary><Panel level="quiet">
               <p className="clubquote">“{club.identity.motto}”</p>
-              <div className="facts">
+              <dl className="facts">
                 <Row label="Run by" value={CLUB_STRUCTURE_LABEL[club.structure]} />
                 <Row label="Chairman" value={game.people[club.chairmanId ?? '']?.surname ?? '—'} />
                 <Row label="Nickname" value={club.identity.nickname} />
-              </div>
+                <Row label="Founded" value={String(club.identity.foundedYear)} />
+                <Row label="Local standing" value={`${Math.round(club.reputation)}/100`} />
+              </dl>
               <h4 className="subhead">Rivalries</h4>
               {Object.keys(club.rivalries).length === 0 ? (
                 <p className="muted small">No established rivalries.</p>
@@ -627,27 +614,14 @@ function ClubProfile({ clubId }: { clubId: string }) {
                   ))}
                 </ul>
               )}
-            </Panel>
+            </Panel></details>
           </div>
 
           {/* Right: one inspector, four screens of facts. Nothing is stacked
               off the bottom of the viewport where nobody can find it. */}
           <div className="inspector">
-            <div className="inspector__tabs" role="tablist" aria-label="Club">
-              {CLUB_TABS.map((entry) => (
-                <button
-                  key={entry.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={tab === entry.id}
-                  className={`inspector__tab${tab === entry.id ? ' inspector__tab--active' : ''}`}
-                  onClick={() => setTab(entry.id)}
-                >
-                  {entry.label}
-                </button>
-              ))}
-            </div>
-            <div className="inspector__panel" role="tabpanel">
+            <Tabs label="Club" options={CLUB_TABS.map((entry) => ({ value: entry.id, label: entry.label }))} value={tab} onChange={setTab}>
+            <div className="inspector__panel">
               {tab === 'season' && (
                 <>
                   <div className="stat-grid stat-grid--wide">
@@ -735,7 +709,7 @@ function ClubProfile({ clubId }: { clubId: string }) {
 
               {tab === 'ground' && (
                 <>
-                  <div className="facts">
+                  <dl className="facts">
                     <Row label="Name" value={ground?.name ?? '—'} />
                     <Row label="Town" value={town?.name ?? '—'} />
                     <Row label="Surface" value={ground?.surface ?? '—'} />
@@ -750,7 +724,7 @@ function ClubProfile({ clubId }: { clubId: string }) {
                       value={ground && ground.sharedWith.length > 0 ? `${ground.sharedWith.length + 1} clubs` : 'Nobody'}
                     />
                     <Row label="Pitch hire" value={ground ? `£${ground.matchdayCost} a game` : '—'} />
-                  </div>
+                  </dl>
                   <p className="muted small">
                     Drainage is what costs a Sunday in February: a waterlogged pitch is the most common way a fixture is lost.
                   </p>
@@ -771,13 +745,14 @@ function ClubProfile({ clubId }: { clubId: string }) {
                     <Stat label="Training" value={`£${club.finances.trainingCostPerWeek}`} hint="Per week" />
                     <Stat label="Insurance" value={`£${club.finances.insurancePerWeek}`} hint="Per week" />
                   </div>
-                  <div className="facts">
+                  <dl className="facts">
                     <Row label="League fee" value={`£${club.finances.annualLeagueFee} a season`} />
                     <Row label="Ledger entries" value={String(club.finances.ledger.length)} />
-                  </div>
+                  </dl>
                 </>
               )}
             </div>
+            </Tabs>
           </div>
         </div>
       </div>
@@ -788,7 +763,7 @@ function ClubProfile({ clubId }: { clubId: string }) {
 /* ------------------------------------------------------------------ pieces */
 
 /** One item of the quick facts strip under a profile's name. */
-function QuickStat({ label, value }: { label: string; value: string | number }) {
+function QuickStat({ label, value }: { label: string; value: ReactNode }) {
   return (
     <span className="quickstat">
       <span>{label}</span>

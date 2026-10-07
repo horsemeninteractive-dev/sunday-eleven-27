@@ -38,6 +38,10 @@ function appointSecretary(game: TestGame, organisation = 12, reliability = 12): 
     person.attributes.organisation = organisation;
     person.attributes.reliability = reliability;
   }
+  // And a man who is at his desk. The rule under test is what the secretary does
+  // with the post, not whether this week's roll of the dice has him on holiday —
+  // which career the seed makes must not be what decides that.
+  person.availability = { status: 'available', reason: null, note: null, until: null, discoveredLate: false };
   club.staff.secretaryId = id;
   return id;
 }

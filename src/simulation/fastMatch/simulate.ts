@@ -4,6 +4,16 @@ import type { Player } from '@/domain/person';
 import { isPlayer } from '@/domain/person';
 import { type PositionCode } from '@/domain/positions';
 import { attackingCoordinates, makeEvent, type MatchEnvironment } from '@/simulation/match/core';
+// The laws of the game both resolutions obey — the penalty's own ladder, the
+// ladder a foul walks to a card, and how many changes a side may make. What is
+// *measured* stays in `FAST_CALIBRATION` below; what is a law lives there.
+import {
+  RESTART_STRIKES,
+  cardForFoul,
+  changesAllowed,
+  penaltyTaker,
+  strikeOutcome,
+} from '@/simulation/match/laws';
 import { BASE_INJURY_RATE, pickInjury } from '@/simulation/match/matchEngine/injuries';
 import { ensurePerformances } from '@/simulation/match/matchEngine/state';
 import { computeTeamStrength, conditionFactor, type TeamStrength } from '@/simulation/match/teamStrength';
@@ -11,14 +21,15 @@ import { conditionEffects, tacticalProfile, type TacticalProfile } from '@/simul
 import { stream, type Rng } from '@/simulation/rng';
 
 /**
- * The FAST background simulation.
+ * Touchline — the abstract resolution: the FAST background simulation.
  *
  * A fixture nobody watches does not need twenty-two men moved thirty times a
  * second. It needs the things the rest of the game actually reads: a score, the
  * goals and who scored them, the shots, the cards, the knocks, the substitutions,
  * and a per-player record the season can accumulate. This module produces exactly
  * that — the *same* domain record the full engine writes, filled in at a higher
- * level of abstraction.
+ * level of abstraction. It is the second resolution of the one Touchline (see
+ * `TOUCHLINE_ARCHITECTURE.md`), not a second football.
  *
  * It is an **abstraction of the same football world**, not a second game:
  *
@@ -72,6 +83,13 @@ import { stream, type Rng } from '@/simulation/rng';
  * cards table and its goals-per-game would quietly depend on *which* fixtures the
  * manager happened to watch. `npm run benchmark` prints both fingerprints side by
  * side, so the day these drift apart is the day it says so.
+ *
+ * Two things a football match has are deliberately *not* here, because they are
+ * the laws of the game rather than this model's measurements, and both
+ * resolutions read them from `laws.ts`: the ladder a penalty is scored or missed
+ * from, and how many changes a side is allowed. The card ladder is shared too —
+ * one of the two chances it is given is this block's, and the other is the
+ * deliberate softening of the law explained at `secondYellowShare`.
  */
 export const FAST_CALIBRATION = {
   /** Shots a side creates in an even match over ninety minutes. */
@@ -113,8 +131,6 @@ export const FAST_CALIBRATION = {
   straightRedPerFoul: 0.0009,
   /** Penalties awarded to a side per match. */
   penaltiesPerSide: 0.2,
-  /** Share of penalties scored. */
-  penaltyConversion: 0.74,
   /** Passes a side plays per ninety minutes at even possession. */
   passesPerSide: 772,
   /** How often a pass finds its man, at an average squad. */
@@ -125,8 +141,6 @@ export const FAST_CALIBRATION = {
   interceptionsPerSide: 92,
   /** Football seconds of stamina a fresh outfield man burns in a minute. */
   staminaPerMinute: 0.84,
-  /** Substitutions a side is allowed (`MatchEnvironment.substitutionsAllowed`). */
-  substitutionsPerSide: 3,
   /** The minutes at which a bench is looked at. */
   benchCheckMinutes: [58, 66, 74, 82] as readonly number[],
   /** The chance a bench check turns into a change, before tiredness. */
@@ -571,7 +585,8 @@ function sendOff(ctx: FastContext, side: RunningSide, player: Player, text: stri
  * booked is the second yellow, and he goes; a straight red is rare and left to
  * the referee's temper. The men are chosen by how likely they are to be the one
  * making the challenge — a holding midfielder more than a winger — and by how
- * badly their discipline reads.
+ * badly their discipline reads. The ladder a foul walks is the shared law in
+ * `laws.ts`; only the chances below are this model's.
  */
 function resolveFoul(ctx: FastContext, side: RunningSide): void {
   const offender = pickWeighted(ctx.rng, side.onPitch, (player) => {
@@ -586,15 +601,26 @@ function resolveFoul(ctx: FastContext, side: RunningSide): void {
   const x = ctx.rng.float(0.12, 0.88);
   const y = ctx.rng.float(0.12, 0.88);
 
-  const cardChance = FAST_CALIBRATION.yellowsPerFoul * side.profile.cardRate * refereeFactor(ctx) * disciplineFactor(offender);
-  if (ctx.rng.chance(cardChance)) {
-    if ((perf?.yellowCards ?? 0) > 0) {
-      if (ctx.rng.chance(FAST_CALIBRATION.secondYellowShare)) {
-        if (perf) perf.yellowCards += 1;
-        sendOff(ctx, side, offender, `Second booking for ${playerName(offender)} — he is off.`, x, y);
-      }
-      return;
-    }
+  const decision = cardForFoul(
+    ctx.rng,
+    {
+      straightRed: FAST_CALIBRATION.straightRedPerFoul * refereeFactor(ctx) * disciplineFactor(offender),
+      yellow: FAST_CALIBRATION.yellowsPerFoul * side.profile.cardRate * refereeFactor(ctx) * disciplineFactor(offender),
+      secondYellowShare: FAST_CALIBRATION.secondYellowShare,
+    },
+    (perf?.yellowCards ?? 0) > 0,
+  );
+
+  if (decision === 'straight-red') {
+    sendOff(ctx, side, offender, `${playerName(offender)} is sent off.`, x, y);
+    return;
+  }
+  if (decision === 'second-yellow') {
+    if (perf) perf.yellowCards += 1;
+    sendOff(ctx, side, offender, `Second booking for ${playerName(offender)} — he is off.`, x, y);
+    return;
+  }
+  if (decision === 'yellow') {
     if (perf) perf.yellowCards += 1;
     emit(ctx, 'yellow-card', side.side, {
       playerId: offender.id,
@@ -603,11 +629,6 @@ function resolveFoul(ctx: FastContext, side: RunningSide): void {
       y,
       importance: 2,
     });
-    return;
-  }
-
-  if (ctx.rng.chance(FAST_CALIBRATION.straightRedPerFoul * refereeFactor(ctx) * disciplineFactor(offender))) {
-    sendOff(ctx, side, offender, `${playerName(offender)} is sent off.`, x, y);
     return;
   }
 
@@ -624,28 +645,33 @@ function resolveFoul(ctx: FastContext, side: RunningSide): void {
  * Award and take a penalty.
  *
  * A penalty is taken by the club's nominated taker when it has one and he is on
- * the pitch, and by the side's best finisher otherwise — the same choice the full
- * engine makes through the set-piece routines. It counts as a shot, and it is
- * scored or missed as such, so the record stays a single account of the match.
+ * the pitch, and by the side's best finisher otherwise. That choice is the law in
+ * `laws.ts` and the detailed resolution obeys it too, and so is the ladder the
+ * penalty is scored or missed from: the two resolutions cannot disagree about
+ * what a penalty *is*. What they read differently is only what "best finisher"
+ * means, and what a save is — a save is the keeper's and a miss the taker's, and
+ * that is local to what this model can see. It counts as a shot, and it is scored
+ * or missed as such, so the record stays a single account of the match.
  */
 function resolvePenalty(ctx: FastContext, att: RunningSide): void {
-  const nominated = att.lineup.tactics.setPieceRoutines?.penaltyTakerId;
+  const nominatedId = att.lineup.tactics.setPieceRoutines?.penaltyTakerId;
   const onPitch = att.onPitch;
-  const taker =
-    (nominated ? onPitch.find((player) => player.id === nominated) : undefined) ??
+  const nominated = nominatedId ? onPitch.find((player) => player.id === nominatedId) : undefined;
+  const taker = penaltyTaker(nominated, () =>
     pickWeighted(ctx.rng, onPitch, (player) => {
       if (att.positionOf.get(player.id) === 'GK') return 0;
       return player.attributes.technical.shooting + player.attributes.mental.composure * 0.5;
-    });
+    }),
+  );
   if (!taker) return;
+  const outcome = strikeOutcome(RESTART_STRIKES.penalty, ctx.rng.next());
   const takerPerf = performanceOf(ctx.match, taker.id);
   if (takerPerf) {
     takerPerf.shots += 1;
-    takerPerf.shotsOnTarget += 1;
+    // A penalty put wide is a shot, but it is not a shot *on target*.
+    if (outcome !== 'wide') takerPerf.shotsOnTarget += 1;
   }
-  const keeper = keeperOf(opponent(ctx, att));
-  const scoring = ctx.rng.chance(FAST_CALIBRATION.penaltyConversion);
-  if (scoring) {
+  if (outcome === 'goal') {
     ctx.score[att.side] += 1;
     if (takerPerf) takerPerf.goals += 1;
     emit(ctx, 'penalty-scored', att.side, {
@@ -657,11 +683,16 @@ function resolvePenalty(ctx: FastContext, att: RunningSide): void {
     });
     return;
   }
+  // Only a save is the keeper's: a penalty put wide never reached him.
+  const keeper = outcome === 'saved' ? keeperOf(opponent(ctx, att)) : undefined;
   const keeperPerf = keeper ? performanceOf(ctx.match, keeper.id) : undefined;
   if (keeperPerf) keeperPerf.saves += 1;
   emit(ctx, 'penalty-missed', att.side, {
     playerId: taker.id,
-    text: `${playerName(taker)} misses from the spot — ${keeper ? playerName(keeper) : 'the keeper'} keeps it out.`,
+    text:
+      outcome === 'saved'
+        ? `${playerName(taker)} misses from the spot — ${keeper ? playerName(keeper) : 'the keeper'} keeps it out.`
+        : `${playerName(taker)} puts the penalty wide.`,
     x: 0.88,
     y: 0.5,
     importance: 3,
@@ -709,7 +740,7 @@ function resolveInjuries(ctx: FastContext): void {
  * played. His own record starts at the minute he came on.
  */
 function makeSubstitution(ctx: FastContext, side: RunningSide, outgoing: Player, injured: boolean): void {
-  if (side.substitutions >= Math.min(FAST_CALIBRATION.substitutionsPerSide, ctx.env.substitutionsAllowed)) return;
+  if (side.substitutions >= changesAllowed(ctx.env.substitutionsAllowed)) return;
   if (side.bench.length === 0) return;
   if (side.onPitch.length <= OFF_PITCH_FLOOR) return;
   const position = side.positionOf.get(outgoing.id) ?? outgoing.preferredPosition;
@@ -753,7 +784,7 @@ function makeSubstitution(ctx: FastContext, side: RunningSide, outgoing: Player,
  * same principle (a fresh pair of legs for a heavy one) from real stamina.
  */
 function reviewBench(ctx: FastContext, side: RunningSide): void {
-  if (side.substitutions >= Math.min(FAST_CALIBRATION.substitutionsPerSide, ctx.env.substitutionsAllowed)) return;
+  if (side.substitutions >= changesAllowed(ctx.env.substitutionsAllowed)) return;
   if (side.bench.length === 0) return;
   const candidates = side.onPitch.filter((player) => side.positionOf.get(player.id) !== 'GK');
   if (candidates.length === 0) return;

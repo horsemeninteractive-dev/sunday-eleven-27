@@ -1,7 +1,6 @@
 import type { ClubId, CompetitionId, GroundId, ISODate, MatchId, PersonId, PlayerId, SeasonId } from './ids';
 import type { PositionCode } from './positions';
 import type { Tactics } from './tactics';
-import type { ActionOutcome, MatchBallState, MatchState, PlayerState, PossessionPlan, RestartState, Side } from './matchState';
 import type { MatchRecording } from './matchRecording';
 // Type-only on purpose: the role table lives in the simulation layer, and this
 // keeps the domain free of any runtime dependency on it.
@@ -18,13 +17,8 @@ export type {
   MatchActionKind,
   MatchActionStatus,
   MatchBallState,
-  MatchContextState,
-  MatchState,
   PlayerAction,
   PlayerState,
-  PossessionPlan,
-  PossessionStep,
-  PossessionStepKind,
 } from './matchState';
 
 export type { MatchRecording, ReplayKeyframe, RecordedSample } from './matchRecording';
@@ -257,101 +251,6 @@ export interface CommentaryEvent {
 }
 
 /**
- * The ball's continuous state, as the authoritative contract defines it.
- *
- * The ball is a first-class part of the simulation, not an implication of the
- * last event: it has a position the simulation owns, a previous position so a
- * renderer can interpolate between steps, and a state that says whether it is
- * at somebody's feet, travelling, loose, or out of play. `speed` is in
- * pitch-lengths per simulation second; `height` is carried for the aerial game
- * later and is deliberately unused for now.
- */
-export type BallSpatial = MatchBallState;
-
-/**
- * A player's continuous state, as the authoritative contract defines it.
- *
- * This is the player's place in the match as the simulation holds it, not a
- * position worked out for the picture: the renderer draws these, it does not
- * derive them. `tx/ty` is the target the simulation has chosen for him, and
- * `px/py` is where he was a step ago so the renderer can smooth between them.
- */
-export type PlayerSpatial = PlayerState;
-
-/** What a passage of play is made of, step by step. */
-export type PassageStepKind = 'carry' | 'pass' | 'shot';
-
-/** The outcome the engine has already decided for a shot. */
-export type PassageOutcome =
-  | 'goal'
-  | 'penalty-scored'
-  | 'penalty-missed'
-  | 'saved'
-  | 'blocked'
-  | 'off-target';
-
-/**
- * One thing a player does with the ball.
- *
- * A step is a plan, not a wish: the commentary is written from the same steps
- * the pitch plays out, so the words and the picture are the same passage rather
- * than two accounts of the same minute that happen to agree on the score.
- */
-export interface PassageStep {
-  kind: PassageStepKind;
-  playerId: PlayerId;
-  /**
-   * Which side this step belongs to.
-   *
-   * A minute is several possessions, and a passage may now hold the steps of all
-   * of them — so the side can no longer be assumed from the passage as a whole.
-   * Absent on a passage built the old way, where the whole thing belongs to the
-   * side it was planned for.
-   */
-  side?: Side;
-  /** The man a pass is played to. */
-  targetId: PlayerId | null;
-  /** Set on a shot, from the engine's own event — never invented here. */
-  outcome: PassageOutcome | null;
-  /**
-   * How the action came out, from the simulation that decided it. Absent on a
-   * step built without a decision behind it (a save from an older path). The
-   * pitch reads this to represent the outcome spatially — an incomplete pass
-   * finds a defender, a saved shot is met by the keeper — without ever changing
-   * it.
-   */
-  result?: ActionOutcome | null;
-  /** The engine's sentence for a shot, kept so the narrator can use its words. */
-  text: string | null;
-  /**
-   * How long the step is worth, for pacing the line against the move.
-   *
-   * This is the only timing a passage carries. It used to drive an executor —
-   * `elapsed` and `started` tracked a step being played out — but the pitch is
-   * driven by the possession plan now, and a passage is a description: it says
-   * what happened and how long it took, not what is happening next.
-   */
-  duration: number;
-}
-
-/**
- * A minute of football, as the narrator tells it.
- *
- * Built from the names the engine actually used — the possession model's own
- * chains, laid end to end — so the words describe the football that was played
- * and not a reconstruction beside it. It is a *description*, not a plan: nothing
- * executes a passage any more. The pitch is driven by the possession plans (see
- * `MatchSpatial.plan`), and this exists so the commentary can read the same
- * moves in the same order.
- */
-export interface Passage {
-  /** The side the minute's *last* chain belonged to, for a single-line summary. */
-  side: 'home' | 'away';
-  minute: number;
-  steps: PassageStep[];
-}
-
-/**
  * The football the simulation is playing right now.
  *
  * A match is not a list of incidents but a run of phases: somebody builds from
@@ -380,21 +279,6 @@ export type MatchPhase =
  * possession. "Own box" is his own six-yard area; "box" is the one he attacks.
  */
 export type FieldZone = 'own-box' | 'own-third' | 'middle' | 'final-third' | 'box';
-
-/**
- * Where the ball is and who, if anyone, has it.
- *
- * Coordinates are fractions of the pitch in a single fixed frame — the home side
- * always attacks toward x = 1 — so the simulation never has to remember which
- * way anybody is kicking. The event log flips this into its own half-time
- * convention at the point a line is written; the simulation itself does not care.
- */
-export interface BallState {
-  x: number;
-  y: number;
-  possessionSide: 'home' | 'away' | null;
-  possessionPlayerId: PlayerId | null;
-}
 
 /**
  * How a team is standing, in the fixed frame.
@@ -438,155 +322,6 @@ export interface TeamShape {
   compactness: { inPossession: number; outOfPossession: number };
   /** How wide the block is in and out of possession. */
   width: { inPossession: number; outOfPossession: number };
-}
-
-/** How hard each side is currently pressing, 0..1. */
-export interface PressureState {
-  home: number;
-  away: number;
-}
-
-/**
- * The authoritative picture of the football, minute to minute.
- *
- * This is deliberately small: a ball, two shapes and a pressure reading. It is
- * not a second spatial renderer — the watched pitch has its own, much richer,
- * `MatchSpatial` — it is the simulation's own working memory, so that the next
- * decision can depend on the last one. It is optional on the match so older
- * saves load unchanged and are given a state the first time one is needed.
- */
-export interface MatchFieldState {
-  ball: BallState;
-  homeShape: TeamShape;
-  awayShape: TeamShape;
-  pressure: PressureState;
-  phase: MatchPhase;
-  /** Consecutive possessions each side has won back within a few seconds. */
-  counterPress: { home: number; away: number };
-  /**
-   * Whether this side shielded the ball the last time it had it, per side.
-   *
-   * Lives on the field rather than inside a single possession, because a hold
-   * *ends* the possession it happens in — so a flag local to that call starts
-   * every time, and two shields back to back are always allowed. Each is bounded
-   * on its own; together they are a ball standing still for longer than either.
-   * The flag is cleared when the ball is actually turned over or a goal is scored,
-   * which are the things that make holding the ball a fresh choice again.
-   */
-  heldRecently?: { home: boolean; away: boolean };
-}
-
-/**
- * The match's continuous state — the authoritative contract, embodied.
- *
- * Present only for a match somebody is watching: the engine plays other clubs'
- * fixtures out a minute at a time without ever needing to know where anybody
- * stood. It is optional on the match so a save written before the match had a
- * pitch underneath it still loads, and is rebuilt from the lineups when it is
- * first needed; a save written before the contract existed is grown onto it in
- * `ensureSpatial` without a version bump.
- *
- * This is the single continuous state. It is not a second simulation beside
- * the minute engine, and it must never become one: the football is decided by
- * the engine, and what lives here is where that football is happening.
- */
-export interface MatchSpatial extends MatchState {
-  /**
-   * The possession chain the simulation is executing right now.
-   *
-   * This is the only thing that drives the pitch: the movement, the ball's
-   * travel and the change of possession all come from this plan, one fixed
-   * simulation step at a time. It is the first of the minute's chains, and
-   * `pending` holds the rest.
-   */
-  plan?: PossessionPlan | null;
-  /**
-   * The rest of the minute's possessions, waiting their turn.
-   *
-   * A minute is a run of possessions, and only one of them can be played at a
-   * time. The chain in `plan` is the one happening now; these are the ones the
-   * model already decided will follow, in order. When the current chain is over
-   * the next is taken from the front — which is what stops a minute's football
-   * being only the move it happened to end on.
-   */
-  pending?: PossessionPlan[];
-  /** The goal being celebrated right now, or absent between them. */
-  celebration?: Celebration | null;
-  /**
-   * The dead ball the pitch is arranging right now, or absent between them.
-   *
-   * While this is present the ball is out of play and nobody is playing: the
-   * men are walking into position for a corner, a throw or a free kick, and
-   * the chain that follows opens with the delivery rather than the ball
-   * appearing at somebody's feet. A restart is the one thing that legitimately
-   * stops the football, and this is where the pitch says so rather than
-   * leaving twenty-two men frozen while the clock runs.
-   */
-  restart?: RestartState | null;
-  /**
-   * Whether dead balls are arranged on the pitch at all.
-   *
-   * A debug switch, and the only one of its kind: it exists so that
-   * `restarts.test.ts` can prove that showing a set piece cannot change it. Two
-   * fixtures are driven identically — the same seeds, the same steps, the same
-   * minutes — and one of them refuses to install restarts. Their event logs must
-   * be identical, and they are.
-   *
-   * It has no UI and is not a product feature. If it ever became one it would be
-   * a way of watching a match where set pieces are invisible, which is the thing
-   * this whole slice was written to stop.
-   */
-  restartsEnabled?: boolean;
-  /**
-   * The man closing the ball down for each side, remembered between steps.
-   *
-   * Which of a side's outfield players is nearest the ball is a comparison that
-   * changes as they jostle, and deciding it afresh every step made the job
-   * swap hands between two men from frame to frame — so each was sent from the
-   * carrier to his own shape and back again, visibly vibrating. Holding the
-   * assignment until somebody is *clearly* nearer keeps one man closing down,
-   * which is both what a defence does and what the picture needs to be stable.
-   */
-  pressing?: Partial<Record<Side, PlayerId | null>>;
-  /**
-   * Commentary that has been written but not yet told, in playing order.
-   *
-   * A minute's words are written when the minute is decided, which is before
-   * the picture has played any of it. They are held here rather than shown, and
-   * a chain takes its share — see `PossessionPlan.commentaryCount` — off the
-   * front as it takes the pitch. What the bar says and what the pitch is doing
-   * are then the same moment by construction rather than by coincidence.
-   */
-  untold?: CommentaryEvent[];
-  /**
-   * The role every outfield player is playing, by id.
-   *
-   * Held beside the players rather than on them: {@link PlayerSpatial} is the
-   * continuous-state contract, and a matchday instruction is not part of it. It
-   * lives here so the shape and the pressing can both read a player's job
-   * without being handed the whole match.
-   */
-  roles?: Partial<Record<PlayerId, Role>>;
-  /**
-   * The shape each side is holding, copied from the decision layer.
-   *
-   * The pitch cannot read `match.field` without being handed the match, and the
-   * decision layer is the only thing that knows who has the ball and how late it
-   * is — so the shape is copied here rather than recomputed. Copied on every
-   * sync, which is what stops the picture from showing an arrangement the
-   * decisions have already moved past.
-   */
-  shapes?: Partial<Record<Side, TeamShape>>;
-  /**
-   * True when the pitch has nothing left to play and is behind the match clock.
-   *
-   * A *report*, not a repair. This layer knows it is out of chains and behind;
-   * only the layer that decides minutes can supply more, and deciding one from
-   * inside a spatial step would make this file call its own caller. The flag is
-   * written once per step so whoever is driving the match can see the stall and
-   * advance a minute rather than waiting for a clock that cannot move.
-   */
-stalled?: boolean;
 }
 
 /**
@@ -746,11 +481,6 @@ export interface Match {
    */
   commentary?: CommentaryEvent[];
   /**
-   * The match as it is happening in space. Authoritative simulation state the
-   * renderers read; see `MatchSpatial`.
-   */
-  spatial?: MatchSpatial;
-  /**
    * The watched match's movement, remembered for the replay.
    *
    * Present only for a match somebody watched: the continuous state is sampled
@@ -760,13 +490,6 @@ export interface Match {
    * optional, so a save written before it existed loads unchanged.
    */
   recording?: MatchRecording;
-  /**
-   * The simulation's own working picture of the football — ball position, team
-   * shapes, pressure and the current phase. Distinct from `spatial`, which is
-   * presentation for a match somebody is watching; this exists whether or not
-   * anybody is looking, because the next decision depends on it.
-   */
-  field?: MatchFieldState;
   performances: Record<PlayerId, PlayerPerformance>;
   /**
    * Incremental simulation state — the engine advances one minute at a time —

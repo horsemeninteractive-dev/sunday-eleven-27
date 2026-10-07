@@ -727,4 +727,10 @@ export function linkManagerToClub(
     .map((id) => people[id])
     .filter(isPlayer);
   linkManagerAndPlayers(store, seed, club, squad, people, date);
+  // The backroom knows him too. The committee was linked to the man who was in
+  // charge when the world was built, and a manager whose coaches, secretary and
+  // treasurer have never met him has not taken charge of anything: he is a name
+  // on the league's paperwork. The pairs that already exist are left alone, so
+  // this only ever adds the introductions that are missing.
+  linkStaff(store, seed, club, people, date);
 }

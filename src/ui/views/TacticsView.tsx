@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   FOCUS_LABEL,
   FOCUS_ORDER,
@@ -21,6 +21,8 @@ import { gameActions, useGame, useNextFixture, useSquad } from '../hooks';
 import { applyFormation } from '../lineupEditing';
 import { Button, PageHeader, Panel, Pill } from '../components/primitives';
 import { Section, TileGrid } from '../components/hierarchy';
+import { FormationBoard } from '../components/FormationBoard';
+import { Tabs } from '../components/Tabs';
 
 /**
  * The tactical model is deliberately small: every choice buys something and
@@ -34,6 +36,7 @@ export function TacticsView() {
   const game = useGame();
   const squad = useSquad();
   const fixture = useNextFixture();
+  const [instructions, setInstructions] = useState<'shape' | 'ball' | 'defend'>('shape');
   if (!game) return null;
 
   const club = game.clubs[game.userClubId]!;
@@ -72,14 +75,10 @@ export function TacticsView() {
   return (
     <div className="stack">
       <PageHeader
-        eyebrow="Club"
+        eyebrow="Team"
         title="Tactics"
         subtitle={describeTactics(tactics)}
-        meta={
-          <span className="small muted">
-            The shape, the instructions and the pitch all feed the match engine directly.
-          </span>
-        }
+        meta={<span className="small muted">Your club's standing instructions · changes apply to the next fixture</span>}
         actions={
           <Button
             variant="ghost"
@@ -101,9 +100,18 @@ export function TacticsView() {
         }
       />
 
-      <Panel level="primary" title="How you want to play">
+      <div className="tactics-workspace">
+      <div className="tactics-workspace__pitch">
+        {/* The same three choices as the instruction tabs, so choosing "without
+            the ball" moves the picture and the controls together — one idea,
+            one control, rather than a second tab strip inside the diagram. */}
+        <FormationBoard game={game} formation={tactics.formation} slots={positions} tactics={tactics} phase={instructions === 'shape' ? 'shape' : instructions === 'ball' ? 'with-ball' : 'without-ball'} />
+        <Button variant="ghost" onClick={() => gameActions().setView('team')}>Team selection</Button>
+      </div>
+      <Panel level="primary" title="How you want to play" className="workspace-panel tactics-instructions">
+        <Tabs label="Instructions" options={[{ value: 'shape', label: 'Shape' }, { value: 'ball', label: 'In possession' }, { value: 'defend', label: 'Out of possession' }]} value={instructions} onChange={setInstructions}>
         <div className="tactics">
-          <TacticsZone title="Shape" hint="Where the team stands before a ball is kicked.">
+          {instructions === 'shape' && <TacticsZone title="Shape" hint="Where the team stands before a ball is kicked.">
             <OptionGroup
               label="Formation"
               hint={getFormation(tactics.formation).description}
@@ -118,9 +126,9 @@ export function TacticsView() {
               value={tactics.mentality}
               onChange={(value) => set({ mentality: value })}
             />
-          </TacticsZone>
+          </TacticsZone>}
 
-          <TacticsZone title="In possession" hint="What you do with the ball, and how quickly you do it.">
+          {instructions === 'ball' && <TacticsZone title="In possession" hint="What you do with the ball, and how quickly you do it.">
             <OptionGroup
               label="Passing approach"
               hint="Short passing needs a decent surface and composed players. Direct gets it forward and turns it into a scrap."
@@ -135,9 +143,9 @@ export function TacticsView() {
               value={tactics.tempo}
               onChange={(value) => set({ tempo: value })}
             />
-          </TacticsZone>
+          </TacticsZone>}
 
-          <TacticsZone title="Out of possession" hint="What happens when the other lot have it.">
+          {instructions === 'defend' && <TacticsZone title="Out of possession" hint="What happens when the other lot have it.">
             <OptionGroup
               label="Pressing"
               hint="Press high to win the ball up the pitch and invite trouble in behind. Sit off to stay compact."
@@ -152,9 +160,9 @@ export function TacticsView() {
               value={tactics.defensiveLine}
               onChange={(value) => set({ defensiveLine: value })}
             />
-          </TacticsZone>
+          </TacticsZone>}
 
-          <TacticsZone title="Where the chances come from" hint="One instruction, and the one the players will notice most.">
+          {instructions === 'ball' && <TacticsZone title="Where the chances come from" hint="One instruction, and the one the players will notice most.">
             <OptionGroup
               label="Attacking focus"
               hint="Crosses if you have wingers and a centre forward who can head it, or through the middle if you do not."
@@ -162,11 +170,13 @@ export function TacticsView() {
               value={tactics.attackingFocus}
               onChange={(value) => set({ attackingFocus: value })}
             />
-          </TacticsZone>
+          </TacticsZone>}
         </div>
+        </Tabs>
       </Panel>
+      </div>
 
-      <Section title="Tactical effects">
+      <details className="more"><summary>What these instructions ask of the team</summary><Section title="Tactical effects">
         <TileGrid min={200}>
           {effectsFor(tactics).map((effect) => (
             <div className="tile" key={effect.label}>
@@ -175,7 +185,7 @@ export function TacticsView() {
             </div>
           ))}
         </TileGrid>
-      </Section>
+      </Section></details>
 
       <Panel title="Does this suit the players you have?" subtitle="A quick read on your likely XI">
         <div className="row row--wrap">
@@ -264,11 +274,11 @@ function OptionGroup<T extends string>({
   onChange: (value: T) => void;
 }) {
   return (
-    <div className="option-group" title={hint}>
+    <div className="option-group">
       <div className="option-group__head">
         <h4 className="subhead">{label}</h4>
       </div>
-      <div className="segmented">
+      <div className="segmented" role="group" aria-label={label}>
         {options.map((option) => (
           <button
             key={option.value}
@@ -281,6 +291,7 @@ function OptionGroup<T extends string>({
           </button>
         ))}
       </div>
+      <p className="instruction-help">{hint}</p>
     </div>
   );
 }

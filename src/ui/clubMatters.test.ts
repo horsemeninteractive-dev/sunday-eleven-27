@@ -139,8 +139,12 @@ describe('club matters', () => {
   it('points a sponsor running out of time at the agreement that will need renewing', () => {
     const { state } = createTestGame('matters-sponsor');
     const club = state.clubs[state.userClubId]!;
-    // Give the club the sponsor it is already associated with, through the same
-    // seeding path a career uses.
+    // A local business behind the club, then the sponsor it is already
+    // associated with, through the same seeding path a career uses. Which kind
+    // of club this seed hands the manager — a pub side, a committee, a comers'
+    // team — is not what this test is about.
+    const localBusiness = Object.values(state.world.businesses).find((entry) => entry.townId === club.townId)!;
+    club.sponsorIds = [localBusiness.id];
     club.finances.sponsorIncomePerWeek = 60;
     seedInitialSponsorship(state);
     const deal = state.sponsorship.deals.find((entry) => entry.clubId === club.id)!;

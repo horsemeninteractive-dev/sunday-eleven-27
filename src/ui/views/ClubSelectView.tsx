@@ -9,6 +9,7 @@ import { ClubBadge } from '../components/Badge';
 import { SceneBackdrop } from '../components/SceneBackdrop';
 import { applySort, UNSORTED, type SortAccessors, type SortState } from '../tableSort';
 import { useGameStore } from '@/state/gameStore';
+import { handleTabKeys } from '../components/Tabs';
 
 type SquadSortKey = 'player' | 'age' | 'pos' | 'occupation' | 'personality';
 
@@ -96,12 +97,15 @@ export function ClubSelectView() {
           clubs in one column is a list nobody reads and a scroll nobody
           finishes; twelve at a time is a decision. */}
       {divisions.length > 1 && (
-        <div className="segmented" role="tablist" aria-label="Divisions">
+        <div className="segmented" role="tablist" aria-label="Divisions" onKeyDown={handleTabKeys}>
           {divisions.map((division) => (
             <button
               type="button"
               key={division.tier}
               role="tab"
+              tabIndex={division.tier === visible?.tier ? 0 : -1}
+              aria-controls="selected-division"
+              id={`division-${division.tier}`}
               aria-selected={division.tier === visible?.tier}
               className={`segmented__item${division.tier === visible?.tier ? ' segmented__item--active' : ''}`}
               onClick={() => setTier(division.tier)}
@@ -112,7 +116,7 @@ export function ClubSelectView() {
         </div>
       )}
 
-      <div className="club-select__grid">
+      <div className="club-select__grid" id="selected-division" role="tabpanel" aria-labelledby={`division-${visible?.tier}`}>
         <div className="stack">
           {visible && (
             <Panel
@@ -130,6 +134,7 @@ export function ClubSelectView() {
                       <button
                         type="button"
                         className={`club-card${isSelected ? ' club-card--selected' : ''}`}
+                        aria-pressed={isSelected}
                         onClick={() => setSelected(club.id)}
                       >
                         <span className="club-card__stripe" style={{ background: club.identity.colours.primary }} />
@@ -209,7 +214,10 @@ export function ClubSelectView() {
                       Object.keys(selectedClub.rivalries).length === 0
                         ? 'None established'
                         : Object.entries(selectedClub.rivalries)
-                            .map(([id, rivalry]) => `${draft.clubs[id]?.identity.shortName} (${Math.round(rivalry.intensity)})`)
+                            // The full name, not the short one: three clubs in this
+                            // division share a nickname stem, so "The Old (91), The Old
+                            // (64)" named nobody.
+                            .map(([id, rivalry]) => `${draft.clubs[id]?.identity.name ?? id} (${Math.round(rivalry.intensity)})`)
                             .join(', ')
                     }
                   />
@@ -220,7 +228,7 @@ export function ClubSelectView() {
                 </p>
               </Panel>
 
-              <Panel title="Squad snapshot" subtitle="Who you would inherit">
+              <details className="more"><summary>Who you would inherit · squad snapshot</summary><Panel>
                 <div className="table-wrapper">
                 <table className="table table--compact table--stack">
                   <thead>
@@ -253,7 +261,7 @@ export function ClubSelectView() {
                 </table>
                 </div>
                 <p className="muted small">Showing 12 of {squad.length}. The full squad is on the Squad screen once you take over.</p>
-              </Panel>
+              </Panel></details>
             </>
           )}
         </div>

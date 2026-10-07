@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 72" width="240" height="72" role="img" aria-label="Touchline">
+  <!--
+    The Touchline mark.
+
+    The name is the idea, so the mark is the thing itself: the touchline — the
+    side line of the pitch — running the length of the mark and arriving at its
+    corner, where the goal line turns up out of it, with the corner arc curving
+    into the field of play at the point they meet. It is a pitch drawn the way a
+    manager draws one on a team sheet: one line, one corner, and the quarter
+    circle that exists in no other game. No ball, no boot, no whistle, and
+    nothing lifted from a clip-art set.
+
+    Three strokes, one weight, one colour — the game's own rule for a mark (see
+    the icon set: one stroke width, one grid, `currentColor` only), so this sits
+    beside the glyphs rather than above them. The line is long and the goal line
+    is short because that is true of a football pitch.
+
+    Proportions were chosen by drawing them and looking: a wider canvas than this
+    turns the corner into a bracket, and one with the arc eating the whole goal
+    line turns it into a hooked foot. At 10:3 the corner still reads as a corner
+    at 32px, which is the smallest it is ever shown, and the mark is wide enough
+    to sit over the letterspaced wordmark the component sets beneath it as one
+    lockup rather than as a logo with a caption.
+
+    Colour is fixed rather than `currentColor`, because an <img> cannot inherit
+    anything from the page. The game is dark-only (`color-scheme: dark`), and the
+    accent green reads against its near-black ground at roughly 6.8:1 everywhere
+    this appears — the first boot, the credits, and anything that ever follows.
+  -->
+  <g fill="none" stroke="#4caf7d" stroke-width="6" stroke-linecap="butt" stroke-linejoin="miter">
+    <!-- The touchline, and the goal line rising from its end. One path, so the
+         corner is a mitre rather than two strokes meeting at a notch. -->
+    <path d="M22 60H218V12" />
+    <!-- The corner arc, struck from the corner itself: the quarter circle the
+         two lines do not have to explain. -->
+    <path d="M194 60A24 24 0 0 1 218 36" />
+  </g>
+</svg>

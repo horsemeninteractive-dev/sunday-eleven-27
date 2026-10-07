@@ -692,6 +692,9 @@ export function startGameFromDraft(draft: WorldDraft, options: StartGameOptions)
     // The day he arrives is already in front of him: the clock should not stop
     // on it before it has moved at all.
     schedule: { ...emptyScheduleState(), notifiedThrough: seasonStart },
+    // A career starts with no shapes of its own: the first manager to move a
+    // dot on the preparation pitch is the one who fills this in.
+    customFormations: [],
     admin: emptyAdminState(),
     governance: emptyGovernanceState(),
     sponsorship: emptySponsorshipState(),

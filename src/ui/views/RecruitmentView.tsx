@@ -16,6 +16,7 @@ import { gameActions, useGame } from '../hooks';
 import { Button, PageHeader, Panel, Pill, SortTh } from '../components/primitives';
 import { MetricTile, Section, Tile, TileGrid } from '../components/hierarchy';
 import { PlayerLink } from '../components/Links';
+import { Glyph } from '../components/icons';
 import { applySort, UNSORTED, type SortAccessors, type SortState } from '../tableSort';
 
 /**
@@ -67,6 +68,7 @@ export function RecruitmentView() {
       <PageHeader
         eyebrow="Club"
         title="Recruitment"
+        subtitle="Find names through the local game, watch them, then talk terms."
         meta={
           <>
             <span className="small muted">{open.length} on the list</span>
@@ -144,13 +146,13 @@ export function RecruitmentView() {
         action={
           <div className="row row--wrap">
             <Button variant="primary" onClick={() => gameActions().askForRecommendations()} disabled={alreadyAsked}>
-              {alreadyAsked ? 'Asked this week' : 'Ask the lads for names'}
+              {alreadyAsked ? 'Asked today' : 'Ask the lads for names'}
             </Button>
             <Button variant="ghost" onClick={() => gameActions().checkFiveASide()} disabled={alreadyWatched}>
-              {alreadyWatched ? 'Been this week' : 'Look in at five-a-side'}
+              {alreadyWatched ? 'Been today' : 'Look in at five-a-side'}
             </Button>
             <Button variant="ghost" onClick={() => gameActions().holdOpenSession()} disabled={sessionThisWeek}>
-              {sessionThisWeek ? 'Session already this week' : 'Put on an open session (£20–£40)'}
+              {sessionThisWeek ? 'Session already today' : 'Put on an open session (£20–£40)'}
             </Button>
             {awaitingSession > 0 && (
               <Button variant="primary" onClick={() => gameActions().runTrialSession()}>
@@ -252,6 +254,7 @@ function CandidateRow({
       onClick={() => gameActions().openNegotiation(candidate.personId)}
       title={`Talk terms with ${personName(state, candidate.personId)}`}
     >
+      <span className="person-mark" aria-hidden="true"><Glyph name="manager" /></span>
       <span className="player-tile__top">
         <span className="player-tile__name">{personName(state, candidate.personId)}</span>
         <span className="player-tile__position">{personHint(state, candidate.personId)}</span>
@@ -260,9 +263,7 @@ function CandidateRow({
         {DISCOVERY_SOURCE_LABEL[candidate.discoveredVia]}
         {sourceName ? ` · ${sourceName}` : ''}
       </span>
-      <span className="player-tile__secondary">
-        {counts.total === 0 ? 'nothing known yet' : `${counts.known} seen · ${counts.reported} reported · ${counts.total} attributes`}
-      </span>
+      <span className="player-tile__secondary">{counts.total === 0 ? 'Nothing known yet' : `${counts.known} attributes seen · ${counts.reported} reported`} · Open to evaluate and talk</span>
     </Tile>
   );
 }

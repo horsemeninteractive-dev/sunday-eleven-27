@@ -90,12 +90,16 @@ const PATHS: Record<NavIcon, string[]> = {
  * Icons for the interface rather than for a destination: what a table heading
  * is doing with the rows underneath it.
  */
-export type UIGlyphName = 'sort-none' | 'sort-asc' | 'sort-desc';
+export type UIGlyphName = 'sort-none' | 'sort-asc' | 'sort-desc' | 'warn';
 
 const UI_PATHS: Record<UIGlyphName, string[]> = {
   'sort-none': ['M8.6 10.6 12 7.2l3.4 3.4', 'M8.6 13.4 12 16.8l3.4-3.4'],
   'sort-asc': ['M8.6 14.6 12 11.2l3.4 3.4'],
   'sort-desc': ['M8.6 9.4 12 12.8l3.4-3.4'],
+  // A warning triangle on the same grid and stroke as the rest: the state of
+  // the selection, small enough to sit in the corner of a pitch without
+  // competing with the men standing on it.
+  warn: ['M12 4.6 3.4 19.4h17.2z', 'M12 10.4v4.4', 'M12 17.2h.01'],
 };
 
 function GlyphSvg({ paths, className }: { paths: readonly string[]; className?: string }) {

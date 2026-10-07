@@ -1,4 +1,6 @@
+import { useRef } from 'react';
 import { useGameStore } from '@/state/gameStore';
+import { useModal } from './useModal';
 
 /**
  * The rest of the league, being played out.
@@ -15,6 +17,8 @@ import { useGameStore } from '@/state/gameStore';
  */
 export function ProcessingModal() {
   const processing = useGameStore((state) => state.processing);
+  const ref = useRef<HTMLDivElement>(null);
+  useModal(ref, undefined, Boolean(processing));
   if (!processing) return null;
 
   const { done, total, current, results } = processing;
@@ -23,9 +27,9 @@ export function ProcessingModal() {
   const pct = Math.round((done / Math.max(1, total)) * 100);
 
   return (
-    <div className="overlay overlay--processing" role="dialog" aria-modal="true" aria-label="Working">
+    <div className="overlay overlay--processing">
       <div className="overlay__scrim" aria-hidden="true" />
-      <div className="overlay__panel overlay__panel--narrow processing">
+      <div ref={ref} className="overlay__panel overlay__panel--narrow processing" role="dialog" aria-modal="true" aria-label={processing.headline}>
         <div className="overlay__bar">
           <span className="overlay__title">{processing.headline}</span>
         </div>

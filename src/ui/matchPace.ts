@@ -9,8 +9,8 @@
  * paces its lines against it — and because it is the one number that decides
  * whether an afternoon is followable.
  *
- * The simulation's clock is now real match seconds — one spatial second is one
- * second of football — so watched at *true speed* a match would take ninety
+ * The simulation's clock is real match seconds — one second of the engine's clock
+ * is one second of football — so watched at *true speed* a match would take ninety
  * minutes, exactly as it does on a Sunday morning. Nobody is going to watch that
  * on a screen, so the speed controls compress it: `MINUTE_MS_AT_ONE_X` is how
  * long sixty seconds of football is given on screen, and it is the pace a minute
@@ -25,7 +25,7 @@ const MINUTE_MS_AT_ONE_X = 6000;
 export const BASE_MINUTE_MS = MINUTE_MS_AT_ONE_X;
 
 /** Football seconds to a match minute. The engine's clock is real seconds. */
-const SECONDS_PER_MINUTE = 60;
+export const SECONDS_PER_MINUTE = 60;
 
 /** How long one match minute lasts on screen, in milliseconds, at this speed. */
 export function matchMinuteMs(speed: number): number {
@@ -43,6 +43,6 @@ export function matchMinuteMs(speed: number): number {
  * always agrees with {@link matchMinuteMs}: change the base and the pitch changes
  * with it, instead of the two drifting apart.
  */
-export function spatialSecondsPerRealSecond(speed: number): number {
+export function matchSecondsPerRealSecond(speed: number): number {
   return (SECONDS_PER_MINUTE * 1000) / matchMinuteMs(speed);
 }

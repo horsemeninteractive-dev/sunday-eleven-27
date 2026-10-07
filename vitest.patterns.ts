@@ -15,6 +15,9 @@ export const SLOW_TEST_PATTERNS = [
   // The match engine and its batches: whole matches, one after another.
   'src/simulation/match/**/*.test.ts',
   'src/simulation/fastMatch/**/*.test.ts',
+  // The Touchline architecture: a whole match driven step by step, another
+  // watched frame by frame, and the guards that the boundary holds.
+  'src/simulation/touchline/**/*.test.ts',
   'src/presentation/matchEngine*.test.ts',
 
   // The season loop: the soak smoke test and every suite that plays one or

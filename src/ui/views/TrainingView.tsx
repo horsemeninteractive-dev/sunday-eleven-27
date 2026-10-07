@@ -83,6 +83,8 @@ export function TrainingView() {
       <PageHeader
         eyebrow="Team"
         title="Training"
+        subtitle={`Preparing for Sunday · ${forecast.venueName}, ${formatDayMonth(forecast.date)}`}
+        actions={<Button variant="primary" onClick={() => gameActions().openPlanner()}>Plan the week</Button>}
         tone={errors.length > 0 ? 'danger' : warnings.length > 0 ? 'warn' : 'default'}
         meta={
           <>
@@ -125,6 +127,7 @@ export function TrainingView() {
                 key={length}
                 variant={plan.length === length ? 'primary' : 'ghost'}
                 size="sm"
+                aria-pressed={plan.length === length}
                 onClick={() => gameActions().setTrainingLength(length)}
                 title={TRAINING_LENGTH_DETAIL[length]}
               >
@@ -159,6 +162,9 @@ export function TrainingView() {
             })}
           </div>
 
+          <ol className="session-plan">{plan.blocks.map((blockId, index) => <li key={blockId}><span className="session-plan__number">{index + 1}</span><div><strong>{TRAINING_BLOCKS[blockId].label}</strong><p className="small muted">{TRAINING_BLOCKS[blockId].purpose}</p></div></li>)}</ol>
+          {plan.blocks.length === 0 && <p className="empty">Choose blocks above to give the evening a purpose.</p>}
+          <details className="instruction-help"><summary>Session length and indoor fallback</summary><p>{TRAINING_LENGTH_DETAIL[plan.length]} Hall hire costs £20–£30 when used.</p></details>
           <div className="row row--wrap row--tight" style={{ marginTop: 'var(--s3)' }}>
             <Button
               variant={plan.fallbackVenue ? 'primary' : 'ghost'}
@@ -198,6 +204,7 @@ export function TrainingView() {
         }
       >
         <Panel flush>
+          {groupEntries(forecast.attendance.entries, showAll).length === 0 && <p className="empty">No attendance issues reported. Open Whole squad to see everyone coming.</p>}
           <div className="table-wrapper">
             <table className="table table--compact table--stack">
               <thead>
@@ -253,7 +260,7 @@ export function TrainingView() {
 
       {last && <SessionReport state={game} session={last} title="Last session" />}
 
-      <Section title="What the work has built">
+      <details className="more"><summary>Preparation and player development</summary><Section title="What the work has built">
         <TileGrid min={230}>
           <MetricTile label="Cohesion" value={describeCohesion(forecast.cohesion)} note="How settled this group is" />
           <MetricTile label="The system" value={describeSystemFamiliarity(clubSystemFamiliarity(game, club.id))} note="Shape and instructions" />
@@ -279,7 +286,7 @@ export function TrainingView() {
             </ul>
           </div>
         )}
-      </Section>
+      </Section></details>
 
       <Section title="Training history">
         <details className="more">

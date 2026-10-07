@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createTestGame } from '../testSupport';
 import { matchEnvironment, prepareMatchday } from '../matchday';
 import { cloneMatch } from './testHelpers';
-import { simulateToCompletion } from './engine';
+import { createMatchEngine } from './matchEngine';
 import { matchStats, recentPressure } from './stats';
 
 /**
@@ -19,7 +19,8 @@ function aFinishedMatch(seed: string) {
   )!;
   prepareMatchday(state, match.matchday);
   const prepared = cloneMatch(state.matches[match.id]!);
-  simulateToCompletion(prepared, matchEnvironment(state, prepared, { autoManageAllBenches: true }));
+  const engine = createMatchEngine(prepared, matchEnvironment(state, prepared, { autoManageAllBenches: true }));
+  engine.runToCompletion();
   return prepared;
 }
 

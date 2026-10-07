@@ -1,11 +1,12 @@
-import { useEffect } from 'react';
+import { useRef, useState } from 'react';
 import type { ViewId } from '@/state/gameStore';
 import { MOBILE_MORE_SECTIONS, MOBILE_PRIMARY } from '../navigation';
 import { gameActions } from '../hooks';
 import { Glyph } from '../components/icons';
 import { Button } from '../components/primitives';
+import { useModal } from '../components/useModal';
 
-const SLOTS = ['slot-1', 'slot-2', 'slot-3'];
+import { SaveManager } from '../dialogs/SaveManager';
 
 /**
  * Mobile navigation: five destinations a thumb can reach, and everything else
@@ -24,14 +25,9 @@ export function MobileNav({
   onOpenChange: (open: boolean) => void;
   onNavigate: (view: ViewId) => void;
 }) {
-  useEffect(() => {
-    if (!open) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onOpenChange(false);
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [open, onOpenChange]);
+  const [savesOpen, setSavesOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useModal(ref, () => onOpenChange(false), open);
 
   const go = (destination: ViewId) => {
     onNavigate(destination);
@@ -75,8 +71,8 @@ export function MobileNav({
       {open && (
         <div className="sheet-layer">
           <button type="button" className="sheet__backdrop" aria-label="Close menu" onClick={() => onOpenChange(false)} />
-          <div className="sheet" role="dialog" aria-modal="true" aria-label="All screens">
-            <div className="sheet__grab" aria-hidden="true" />
+          <div ref={ref} className="sheet" role="dialog" aria-modal="true" aria-label="All screens">
+            <header className="sheet__header"><h2 className="sheet__heading">Your club</h2><Button variant="ghost" ariaLabel="Close menu" onClick={() => onOpenChange(false)}>Close</Button></header>
             {hasSession && (
               <button type="button" className="sheet__live" onClick={() => go('match')}>
                 <Glyph name="match" />
@@ -132,16 +128,7 @@ export function MobileNav({
             <section className="sheet__group">
               <h2 className="sheet__label">Save and load</h2>
               <div className="sheet__buttons">
-                {SLOTS.map((slot, index) => (
-                  <Button key={slot} size="sm" onClick={() => { void gameActions().saveGame(slot); onOpenChange(false); }}>
-                    Save {index + 1}
-                  </Button>
-                ))}
-                {SLOTS.map((slot, index) => (
-                  <Button key={slot} variant="ghost" size="sm" onClick={() => { void gameActions().loadGame(slot); onOpenChange(false); }}>
-                    Load {index + 1}
-                  </Button>
-                ))}
+                <Button onClick={() => { onOpenChange(false); setSavesOpen(true); }}>Save or load a career</Button>
                 <Button variant="danger" size="sm" onClick={() => { void gameActions().quitToMenu(); onOpenChange(false); }}>
                   Quit to menu
                 </Button>
@@ -150,6 +137,7 @@ export function MobileNav({
           </div>
         </div>
       )}
+      {savesOpen && <SaveManager onClose={() => setSavesOpen(false)} />}
     </>
   );
 }

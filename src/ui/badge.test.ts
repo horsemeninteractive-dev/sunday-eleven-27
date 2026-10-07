@@ -150,7 +150,14 @@ describe('badgePlan', () => {
     const plans = clubs.map((entry) => badgePlan(entry));
     expect(new Set(plans.map((plan) => plan.shape)).size).toBe(BADGE_SHAPES.length);
     expect(new Set(plans.map((plan) => plan.pattern)).size).toBeGreaterThan(4);
-    expect(new Set(plans.map((plan) => plan.device)).size).toBeGreaterThan(8);
+    expect(new Set(plans.map((plan) => plan.device)).size).toBeGreaterThan(15);
+  });
+
+  it('keeps a library of symbols big enough that a county is not one crest', () => {
+    // A badge is the first thing a manager sees of another club, so a world
+    // where a third of the sides wear the same one reads smaller than it is.
+    expect(new Set(BADGE_DEVICES).size).toBe(BADGE_DEVICES.length);
+    expect(BADGE_DEVICES.length).toBeGreaterThanOrEqual(45);
   });
 
   it('shows the founding year on some badges and not others', () => {

@@ -11,7 +11,7 @@ import { GAME_STATE_VERSION } from '@/domain/game';
 import { serialiseGame, deserialiseGame } from '@/state/persistence';
 import { applyMatchConsequences } from './consequences';
 import { matchEnvironment } from './matchday';
-import { simulateToCompletion } from './match/engine';
+import { simulateMatchHeadless } from './match/matchEngine';
 import { startNextSeason } from './progression';
 import {
   applyRelationshipEvent,
@@ -360,7 +360,7 @@ describe('relationships in the simulation', () => {
     const store = relationshipStore(game.state);
     const before = new Map(Object.entries(store.byId).map(([id, rel]) => [id, attitudeSignature(rel)]));
 
-    simulateToCompletion(match, matchEnvironment(game.state, match, { autoManageAllBenches: true }));
+    simulateMatchHeadless(match, matchEnvironment(game.state, match, { autoManageAllBenches: true }));
     applyMatchConsequences(game.state, match);
 
     let changed = 0;

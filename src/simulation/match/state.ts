@@ -1,12 +1,3 @@
-import type { PlayerId } from '@/domain/ids';
-import type {
-  ActionOutcome,
-  MatchAction,
-  MatchActionKind,
-  MatchState,
-  PlayerState,
-} from '@/domain/matchState';
-
 /**
  * The rules that advance the authoritative continuous match state.
  *
@@ -14,21 +5,21 @@ import type {
  *
  * 1. **Simulation time.** The match advances in fixed steps of
  *    {@link SIMULATION_STEP_SECONDS} of football, whatever the frame rate and
- *    whatever the presentation speed. Real time is converted into whole steps
- *    and a carried remainder; the remainder never affects an outcome, it only
- *    lets a renderer interpolate between the step a thing was at and the step it
- *    is at. This is the separation the architecture needs — simulation time,
- *    rendering frequency and match presentation speed are three different
- *    clocks, and only the first one plays football.
+ *    whatever the presentation speed. `MatchEngine` converts real time into whole
+ *    steps and a carried remainder, handing the remainder to a renderer so it can
+ *    interpolate between the step a thing was at and the step it is at. That is
+ *    the separation the architecture needs — simulation time, rendering frequency
+ *    and match presentation speed are three different clocks, and only the first
+ *    one plays football.
  *
- * 2. **Timed actions.** An action begins at a simulation time, is given a
- *    duration, and resolves when it has done what it set out to do. `active` is
- *    the only state the continuous field carries; resolution is reported through
- *    the action's own `status`/`outcome` before it leaves the list.
+ * 2. **Movement.** How a man carries his legs from where he is to where the
+ *    simulation has told him to go — see {@link advanceMovement}. The target is
+ *    chosen by Touchline, and this only decides what a footballer's body can
+ *    actually do about it.
  *
  * Nothing here reads a random stream, a player attribute or a tactic, so nothing
- * here can change what happens on the pitch. It moves the clock and it files the
- * paperwork.
+ * here can change what happens on the pitch. It moves the clock and it moves men
+ * towards a mark somebody else picked.
  */
 
 /** The fixed slice of football one simulation step is worth. */
@@ -53,150 +44,14 @@ export interface SimulationStepOptions {
 }
 
 /**
- * Convert real time into whole steps of football.
- *
- * The state's carriage is spent a fixed step at a time, so the same span of
- * football takes the same number of steps whether it arrived as one frame or a
- * hundred. That is the determinism guarantee: outcomes depend on the sequence of
- * steps, never on how often the browser happened to draw.
- *
- * This plans the steps and spends the carriage; it does not take them, because a
- * step also moves players and the ball, and that is `stepSpatial`'s job. Keeping
- * the arithmetic here means it can be tested without a football pitch.
- */
-export function advanceSimulationSteps(
-  state: Pick<MatchState, 'stepSeconds' | 'residual'>,
-  deltaSeconds: number,
-  options: SimulationStepOptions = {},
-): SimulationStepPlan {
-  if (!(deltaSeconds > 0)) return { steps: 0, spent: 0 };
-
-  const step = state.stepSeconds > 0 ? state.stepSeconds : SIMULATION_STEP_SECONDS;
-  const ceiling = options.maxCatchUpSeconds ?? deltaSeconds;
-  const maxSteps = options.maxSteps ?? Math.ceil(Math.min(deltaSeconds, ceiling) / step) + 1;
-
-  state.residual += Math.min(deltaSeconds, ceiling);
-
-  let steps = 0;
-  while (state.residual >= step && steps < maxSteps) {
-    state.residual -= step;
-    steps += 1;
-  }
-
-  return { steps, spent: steps * step };
-}
-
-/**
  * How far into the next step the simulation has got, 0..1.
  *
  * A renderer draws between `px/py` and `x/y` by this fraction, so movement is
  * smooth without the simulation having to run per frame.
  */
-export function simulationAlpha(state: Pick<MatchState, 'stepSeconds' | 'residual'>): number {
+export function simulationAlpha(state: { stepSeconds: number; residual: number }): number {
   const step = state.stepSeconds > 0 ? state.stepSeconds : SIMULATION_STEP_SECONDS;
   return Math.max(0, Math.min(1, state.residual / step));
-}
-
-/** The player state for an id, if he is on the pitch. */
-export function playerStateOf(state: MatchState, playerId: PlayerId | null | undefined): PlayerState | undefined {
-  if (!playerId) return undefined;
-  return state.players.find((player) => player.playerId === playerId);
-}
-
-/** The active action a player is playing out, if any. */
-export function activeActionOf(state: MatchState, playerId: PlayerId): MatchAction | undefined {
-  return state.actions.find((action) => action.playerId === playerId);
-}
-
-/** A stable, collision-free id, derived from the action rather than a counter. */
-function actionIdFor(state: MatchState, kind: MatchActionKind, playerId: PlayerId | null, startedAt: number): string {
-  const base = `${kind}:${playerId ?? 'ball'}:${startedAt.toFixed(3)}`;
-  let id = base;
-  let suffix = 1;
-  while (state.actions.some((action) => action.id === id)) {
-    id = `${base}#${suffix}`;
-    suffix += 1;
-  }
-  return id;
-}
-
-/**
- * Start an action at the current simulation time.
- *
- * The only kind of action the present simulation produces is one the passage
- * already planned — carry, pass or shot — but the contract accepts any of the
- * action vocabulary, so the rest can be added without a new representation.
- */
-export function beginAction(
-  state: MatchState,
-  spec: {
-    kind: MatchActionKind;
-    playerId?: PlayerId | null;
-    targetPlayerId?: PlayerId | null;
-    duration: number;
-  },
-): MatchAction {
-  const startedAt = state.clock;
-  const playerId = spec.playerId ?? null;
-  const action: MatchAction = {
-    id: actionIdFor(state, spec.kind, playerId, startedAt),
-    kind: spec.kind,
-    playerId,
-    targetPlayerId: spec.targetPlayerId ?? null,
-    startedAt,
-    duration: Math.max(0, spec.duration),
-    status: 'active',
-    outcome: null,
-  };
-  state.actions.push(action);
-  syncPlayerActions(state);
-  return action;
-}
-
-/** How far an action has run, 0..1, at a given simulation time. */
-export function actionProgress(action: MatchAction, clock: number): number {
-  if (action.duration <= 0) return 1;
-  return Math.max(0, Math.min(1, (clock - action.startedAt) / action.duration));
-}
-
-/** Whether an action's time is up. */
-export function actionIsDue(action: MatchAction, clock: number): boolean {
-  return clock >= action.startedAt + action.duration;
-}
-
-/**
- * End an action, recording what it came to.
- *
- * Resolution is reported first — so a caller can read the outcome — and the
- * action then leaves the active list, because `actions` describes what is
- * happening now.
- */
-export function resolveAction(state: MatchState, action: MatchAction, outcome: ActionOutcome | null = null): MatchAction {
-  action.status = 'resolved';
-  action.outcome = outcome;
-  const index = state.actions.indexOf(action);
-  if (index >= 0) state.actions.splice(index, 1);
-  syncPlayerActions(state);
-  return action;
-}
-
-/** Resolve every active action whose time is up. Returns them in order. */
-export function resolveDueActions(
-  state: MatchState,
-  outcomeOf: (action: MatchAction) => ActionOutcome | null = () => null,
-): MatchAction[] {
-  const due = state.actions.filter((action) => actionIsDue(action, state.clock));
-  for (const action of due) resolveAction(state, action, outcomeOf(action));
-  return due;
-}
-
-/** Cancel every active action without an outcome — a new minute, a goal, a substitution. */
-export function clearActions(state: MatchState): void {
-  for (const action of state.actions) {
-    action.status = 'cancelled';
-  }
-  state.actions.length = 0;
-  syncPlayerActions(state);
 }
 
 /**
@@ -388,17 +243,3 @@ export function advanceMovement(mover: MovementState, dt: number, clock = 0): vo
   mover.y = Math.max(MIN_Y, Math.min(MAX_Y, mover.y + mover.vy * dt));
 }
 
-/**
- * Keep each player's own action fields in step with the authoritative list.
- *
- * This is the one place a player's `actionKind`/timing is written, so the
- * denormalised view on `PlayerState` cannot drift from `MatchState.actions`.
- */
-export function syncPlayerActions(state: MatchState): void {
-  for (const player of state.players) {
-    const action = state.actions.find((entry) => entry.playerId === player.playerId);
-    player.actionKind = action?.kind ?? null;
-    player.actionStartedAt = action?.startedAt ?? null;
-    player.actionEndsAt = action ? action.startedAt + action.duration : null;
-  }
-}

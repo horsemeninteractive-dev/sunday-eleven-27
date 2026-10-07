@@ -1,4 +1,10 @@
-# The Match Engine
+# The Match Engine — Touchline's detailed resolution
+
+> **Touchline decides what happens. Presentation shows what happened.**
+>
+> This document is the design of Touchline's **detailed resolution**: the engine a
+> manager watches. [`TOUCHLINE_ARCHITECTURE.md`](TOUCHLINE_ARCHITECTURE.md) is the audit of the whole system
+> — the ownership contract across *both* resolutions — and should be read first.
 
 > **One match. One engine. One authoritative state.**
 >
@@ -7,13 +13,16 @@
 
 This document is both the audit of the previous implementation (Phase 1) and the
 contract for the replacement (Phases 2 onward). It is the single place a reader
-should look to answer *"where does the match actually happen?"*
+should look to answer *"where does the match actually happen?"* — within
+Touchline's detailed resolution.
 
 ---
 
 ## 0. The two modes — read this first
 
-The game has **two ways to play a fixture**, and which one is used is a property
+The game has **two ways to play a fixture** — Touchline's two *resolutions* of the
+same football (see [`TOUCHLINE_ARCHITECTURE.md`](TOUCHLINE_ARCHITECTURE.md) §5 for what they share) — and
+which one is used is a property
 of the fixture itself, written onto its record as `Match.simulationMode` and never
 inferred from a call site.
 
@@ -69,6 +78,11 @@ produce the same match. They are meant to produce the same *football*.
 ---
 
 ## 1. Phase 1 — Audit of the previous implementation
+
+> **Historical, and kept as history.** This section describes the code as it was
+> before the rewrite. That code has since been **deleted** — see §9 — and the audit
+> below is why it was replaced rather than repaired. Read it as the record of a
+> decision, not as a description of the tree.
 
 The old match code lived in `src/simulation/match/` and was **fragmented across two
 competing authorities**:
@@ -168,7 +182,7 @@ src/simulation/match/matchEngine/
   decisions.ts  The player decision model (on-ball and off-ball)
   ball.ts       Ball travel, control, interception, loose balls, contests
   resolve.ts    Goals, the ball leaving play, control, tackles, shots and saves
-  setPieces.ts  Set pieces as real phases of play
+  setPieces.ts  Set pieces as real phases of play (geometry and timing from ../laws)
   management.ts Substitutions, bench review, tactical changes, sendings off
   events.ts     Structured events as engine output (+ stats accumulation)
   narrate.ts    Turning drained events into commentary lines (a reader)
@@ -176,6 +190,17 @@ src/simulation/match/matchEngine/
 
 Supporting modules **must not advance the match**. They answer questions the
 engine asks; they never move the clock.
+
+The laws the *other* resolution of Touchline also obeys live one directory up,
+shared rather than duplicated:
+
+```text
+src/simulation/match/laws.ts
+              The restarts both resolutions place (kinds, geometry, setup seconds,
+              taker rules), the ladder a strike at goal is walked in, the ladder a
+              foul is walked in, and the changes a side may make. Pure readings of
+              the law: no state, and no football of its own.
+```
 
 ---
 
@@ -334,14 +359,14 @@ by the same authoritative domain and read by the same consequences code.
 that want the real football in bulk still use it. What changed is that the season
 no longer uses it for the games nobody sees.
 
-The old minute engine (`match/engine.ts`) and its supporting modules (`spatial.ts`,
-`possession.ts`, `continuousPossession.ts`, `shot.ts`, `restarts.ts`,
-`discipline.ts`, `actionTimeline.ts`, `trace.ts`, `setPieces.ts`) have **no
-production call sites** any more; they are kept only for their tests and the two
-developer tools that read them (`tools/balance.ts`, `tools/matchReadout.ts`).
-Neither mode reintroduced them — the fast model is new code that shares the
-project's *models* (`teamStrength`, `tacticsModel`, `injuries`), never the old
-engine's simulation.
+The old minute engine (`match/engine.ts`) and its supporting modules have been
+**deleted** — `spatial.ts`, `possession.ts`, `continuousPossession.ts`, `shot.ts`,
+`restarts.ts`, `discipline.ts`, `actionTimeline.ts`, `trace.ts`, `setPieces.ts`,
+`commentary.ts` and `passages.ts`, with the sixteen suites that covered them (§9).
+The two developer tools that read it (`tools/balance.ts`, `tools/matchReadout.ts`)
+now read the engine. Neither mode ever needed it back: the fast model is new code
+that shares the project's *models* (`teamStrength`, `tacticsModel`, `injuries`),
+never the old engine's simulation.
 
 `simulateMatchHeadless` returns the same authoritative record as the watched
 match, written onto the `Match`: `result` (score, possession percentages,
@@ -502,65 +527,38 @@ The two are separate systems joined by one record:
 
 `npm run timeline-readout` prints the engine's event stream, the passages it
 groups into, and how long each viewing mode would take to watch — the developer's
-window onto the split (`npm run match-readout` remains the old spatial trace).
+window onto the split (`npm run match-readout` measures the engine's own state,
+frame by frame).
 
 ---
 
-## 9. Removing the old engine
+## 9. Removing the old engine — done
 
-With `day.ts` on `simulateMatchHeadless`, the old minute engine has **no
-production call sites**. What remains is a small, closed reference set. This is
-the map for deleting it.
+With `day.ts` on `simulateMatchHeadless`, the old minute engine had no production
+call site, and it has now been removed: thirteen modules and sixteen suites. What
+remains under `src/simulation/match/` is the engine's own field model (`field.ts`),
+its shared vocabulary (`core.ts`, `roles.ts`, `teamStrength.ts`, `actions.ts`,
+`tacticsModel.ts`, `preparation.ts`, `attendance.ts`), the fixed step and the
+movement integrator (`state.ts`), the shared laws (`laws.ts`), the record readers
+(`stats.ts`) and the engine itself (`matchEngine/`).
 
-### Files with no production importer — safe to remove with the engine
+Deleted with it: `engine.ts`, `possession.ts`, `spatial.ts`,
+`continuousPossession.ts`, `shot.ts`, `restarts.ts`, `discipline.ts`,
+`setPieces.ts`, `actionTimeline.ts`, `trace.ts`, `commentary.ts`, `passages.ts`,
+plus `Match.spatial` / `Match.field` / `MatchSpatial` / `MatchFieldState` /
+`PossessionPlan` / `RestartState` / `Passage` from the domain, and the sixteen test
+files that drove it. The one live piece of `passages.ts` — `recordCommentary`, the
+single writer of `match.commentary` — moved into `matchEngine/narrate.ts`, beside
+the words it files.
 
-All under `src/simulation/match/`, none imported by anything outside this list
-and its own tests:
+Both tools were repointed rather than retired: `tools/balance.ts` plays
+`simulateMatchHeadless` and reads its ordinary-play mix off the record, and
+`tools/matchReadout.ts` steps a `MatchEngine` one frame at a time and measures
+`MatchEngineState`. The `TOUCHLINE_Y` geometry the old restarts module kept for
+itself is now `laws.ts::TOUCHLINE`, which both resolutions place a throw-in and a
+corner by.
 
-| File | Notes |
-| --- | --- |
-| `engine.ts` | the old entry (`simulateToCompletion`, `advanceMinute`, `beginMatch`) |
-| `possession.ts` | the old decision layer (`runMinuteFootball`) |
-| `continuousPossession.ts` | the plan builder |
-| `shot.ts` | old shot resolution |
-| `restarts.ts` | old restart resolution |
-| `discipline.ts` | old foul/card resolution |
-| `actionTimeline.ts` | old spatial plan steps |
-| `setPieces.ts` | the old 924-line set-piece module (the *new* one is `matchEngine/setPieces.ts`) |
-| `trace.ts` | the old spatial trace, referenced only by `possession.test.ts` |
-
-The **old tests** that drive these files go with them: `engine.test.ts`,
-`calibration.test.ts`, `passages.test.ts`, `possession.test.ts`, `shot`-adjacent
-`continuous*.test.ts`, `commentarySync.test.ts`, `recording.test.ts`,
-`restarts.test.ts`, `stats.test.ts`, and the old spatial cluster
-(`spatial.test.ts`, `movement.test.ts`, `jitter.test.ts`, `oneClock.test.ts`,
-`state.test.ts`, `realism.test.ts`). They already fail on the old engine's own
-terms and are not part of the new engine's suite.
-
-### Files that stay, though they live beside the engine
-
-- `core.ts`, `roles.ts`, `field.ts`, `teamStrength.ts`, `actions.ts`,
-  `tacticsModel.ts`, `state.ts`, `commentary.ts`, `attendance.ts`,
-  `preparation.ts` — **shared**: the new engine imports them too.
-- `passages.ts` — **shared**: `matchEngine/narrate.ts` and `liveEngine.ts` use it.
-- `stats.ts` — read by production (`ui/match/MatchStats.tsx`) for the stats panel.
-
-### Blockers before a clean delete
-
-- **`spatial.ts` is now test- and tool-only.** The replay used to carry the old
-  clock across the seam: `presentation/matchReplay.ts`, `ui/matchPace.ts` and
-  `ui/views/ReplayView.tsx` all imported `SPATIAL_SECONDS_PER_MINUTE`. The replay
-  now reads `MatchEvent.second` directly and the pace keeps its own constant, so
-  no production file imports `spatial.ts` (or calls `advanceSpatial` /
-  `ensureSpatial`). Only the old cluster's own tests and the two tools below still
-  do.
-- **Old-engine tools.** `tools/balance.ts` (`simulateToCompletion`) and
-  `tools/matchReadout.ts` (`advanceMinute`, `beginMatch`, `advanceSpatial`,
-  `ensureSpatial`) read the old engine directly. They must be repointed at the new
-  engine or retired. `tools/timelineReadout.ts` already uses the new engine.
-- **Test imports to repoint.** `progression.test.ts` and `relationships.test.ts`
-  import `simulateToCompletion`; `state/gameStore.test.ts` imports `currentScore`
-  from the old path (it is really `core.ts` — repoint to `matchEngine`).
-  `presentation/recordedFrame.test.ts` and `presentation/matchRenderer.test.ts`
-  drive the old spatial engine to build recordings; `presentation/matchReplay.test.ts`
-  still plays its record with `simulateToCompletion`.
+Verified afterwards: `npx tsc --noEmit` clean, the fast suite green, the slow half
+green, the engine's benchmark fingerprint **bit-identical** to the commit before
+the deletion, and the abstract resolution's distribution unchanged over 1 500
+fixtures. `TOUCHLINE_ARCHITECTURE.md` § "The deletion pass" is the fuller record.

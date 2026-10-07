@@ -212,6 +212,15 @@ describe('stripes', () => {
 });
 
 describe('clubStyle', () => {
+  it('offers every club its own shirt, and never the same one twice', () => {
+    // A pair is a shirt, a scarf and a crest band all at once. Two identical
+    // pairs mean one of the county's wardrobes is a copy of another's, which is
+    // how a whole division ends up in the same colours.
+    const keys = COLOUR_PAIRS.map((colours) => `${colours.primary}/${colours.secondary}`);
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(keys.length).toBeGreaterThanOrEqual(40);
+  });
+
   it('hands CSS both colours, the stripe background and an ink that reads on it', () => {
     const style = clubStyle({ primary: '#c62828', secondary: '#ffffff' });
     expect(style['--club']).toBe('#c62828');

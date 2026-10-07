@@ -9,6 +9,8 @@ import { Button, PageHeader, Pill, SortTh } from '../components/primitives';
 import { MetricTile, Section, TileGrid } from '../components/hierarchy';
 import { ClubLink, CompetitionLink, PlayerLink } from '../components/Links';
 import { applySort, UNSORTED, type SortAccessors, type SortState } from '../tableSort';
+import { ClubBadge } from '../components/Badge';
+import { openMatchReport } from '../reportActions';
 
 type SeasonSortKey =
   | 'season'
@@ -50,7 +52,7 @@ export function HistoryView() {
 
   const club = game.clubs[game.userClubId]!;
   const history = club.history;
-  const seasonAt = history.seasons[0];
+  const seasonAt = history.seasons.find((season) => season.seasonId === game.season.id);
   const squad = squadOf(game, club.id);
   const matches = clubMatches(game, club.id).filter((match) => match.played);
   const allPlayers = Object.values(game.people)
@@ -64,13 +66,13 @@ export function HistoryView() {
     SEASON_SORT,
   );
   const biggest = biggestWin(club.id, matches);
-  const recent = matches.slice().sort((a, b) => b.matchday - a.matchday).slice(0, 8);
+  const recent = matches.slice().sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8);
 
   return (
     <div className="stack">
       <PageHeader
         eyebrow="Club admin"
-        title="History"
+        title={<span className="person-identity"><ClubBadge club={club} size={40} />{club.identity.shortName} · History</span>}
         subtitle={`Founded ${history.founded} · ${history.seasons.length} season${history.seasons.length === 1 ? '' : 's'} on record`}
         meta={
           <>
@@ -87,7 +89,7 @@ export function HistoryView() {
         }
       />
 
-      <Section title={`${game.season.label} so far`}>
+      <details className="more"><summary>{game.season.label} · current-season record</summary><Section>
         <TileGrid min={175}>
           <MetricTile label="Played" value={seasonAt?.played ?? 0} note="League matches" />
           <MetricTile label="Record" value={`${seasonAt?.won ?? 0}W ${seasonAt?.drawn ?? 0}D ${seasonAt?.lost ?? 0}L`} />
@@ -104,7 +106,7 @@ export function HistoryView() {
             note={topScorer && topScorer.record.goals > 0 ? `${topScorer.record.goals} goals` : 'no goals yet'}
           />
         </TileGrid>
-      </Section>
+      </Section></details>
 
       <Section title="Honours">
         {history.honours.length > 0 ? (
@@ -117,8 +119,7 @@ export function HistoryView() {
           </ul>
         ) : (
           <p className="muted small">
-            Nothing in the cabinet yet. The county league gives out one promotion place a season, and everyone else
-            remembers a good run in November.
+            Nothing in the cabinet yet. The club's next chapter is yours to write.
           </p>
         )}
 
@@ -135,8 +136,8 @@ export function HistoryView() {
         )}
       </Section>
 
-      <details className="more">
-      <summary className="small muted">Notable events ({history.notableEvents.length})</summary>
+      <details className="more" open>
+      <summary className="small muted">The club story ({history.notableEvents.length})</summary>
       <Section>
         {history.notableEvents.length === 0 && <p className="empty">Nothing notable on record yet.</p>}
         <ul className="timeline">
@@ -178,7 +179,7 @@ export function HistoryView() {
                 <span>
                   <Pill tone={mine > theirs ? 'ok' : mine === theirs ? 'warn' : 'bad'}>
                     {mine > theirs ? 'Won' : mine === theirs ? 'Drew' : 'Lost'}
-                  </Pill>
+                  </Pill><Button variant="ghost" size="sm" onClick={() => openMatchReport(match.id)}>Report</Button>
                 </span>
               </li>
             );

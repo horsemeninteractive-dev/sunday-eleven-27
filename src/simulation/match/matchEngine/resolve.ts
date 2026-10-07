@@ -1,5 +1,9 @@
 import type { Rng } from '../../rng';
 import { otherSide } from '../core';
+// What a foul becomes is a law of the game, shared with the background
+// resolution; only the chances are this resolution's own.
+import { cardForFoul } from '../laws';
+import { setPieceRoutinesFor } from '../tacticsModel';
 import { playerEffectiveness } from '../teamStrength';
 import { giveBallTo, releaseBall } from './ball';
 import { emitEvent, statsFor } from './events';
@@ -817,12 +821,17 @@ export function commitFoul(state: MatchEngineState, world: DecisionWorld, offend
       y: spot.y,
       importance: 3,
     });
-    beginSetPiece(state, 'penalty', side, spotFor('penalty', side, spot));
+    beginSetPiece(state, 'penalty', side, spotFor('penalty', side, spot), {
+      // The manager's nominated taker, when he named one and the man is out
+      // there — the law in `../laws`, and what the background resolution has
+      // always done.
+      takerId: setPieceRoutinesFor(world.match, side).penaltyTakerId ?? null,
+    });
     return;
   }
 
   // A free kick only for the direct kind if it is near enough to be worth a shot.
-  beginSetPiece(state, 'free-kick', side, spot, true);
+  beginSetPiece(state, 'free-kick', side, spot, { direct: true });
 }
 
 /**
@@ -833,6 +842,11 @@ export function commitFoul(state: MatchEngineState, world: DecisionWorld, offend
  * and a straight red stands on its own: a lunge, a stamp, a shove, judged from
  * the offender's discipline and how tightly the referee is running the game. Off
  * he goes, and the football plays ten against eleven from there.
+ *
+ * The ladder is the law's and is obeyed through `cardForFoul` (`../laws`), so the
+ * background resolution cannot quietly decide that a booking is something else.
+ * What is local — the two chances and the order of the writes below — is
+ * deliberately unchanged, so sharing the rule moved no football.
  */
 function judgeFoul(
   state: MatchEngineState,
@@ -844,22 +858,32 @@ function judgeFoul(
   const discipline = person?.attributes.behavioural.discipline ?? 10;
   const strictness = clamp(world.env.refereeStrictness / 20, 0, 1);
 
-  // The straight red is its own event, not a worse booking: it is decided first,
-  // so it cannot be swallowed by the yellow that would otherwise have followed.
-  const redChance = 0.0009 * (1 + (14 - discipline) / 8) * (1 + strictness);
-  if (rng.chance(redChance)) {
+  // The referee's verdict, through the shared law: a straight red is its own
+  // event and is decided first, so it cannot be swallowed by the booking that
+  // would otherwise have followed.
+  const decision = cardForFoul(
+    rng,
+    {
+      straightRed: 0.0009 * (1 + (14 - discipline) / 8) * (1 + strictness),
+      yellow: 0.05 + strictness * 0.03 + (offender.booked ? 0.015 : 0),
+      // The law itself, not a calibration: a booked man who is booked again is
+      // off. The background resolution passes its own share here because at its
+      // foul rate the law sent men off several times too often, and says so.
+      secondYellowShare: 1,
+    },
+    offender.booked,
+  );
+  if (decision === 'straight-red') {
     sendOff(state, world, offender, 'straight-red');
     return;
   }
-
-  const yellowChance = 0.05 + strictness * 0.03 + (offender.booked ? 0.015 : 0);
-  if (!rng.chance(yellowChance)) return;
+  if (decision === 'none') return;
 
   const performance = world.match.performances[offender.playerId];
   statsFor(state, offender.side).yellowCards += 1;
   if (performance) performance.yellowCards += 1;
 
-  if (offender.booked) {
+  if (decision === 'second-yellow') {
     sendOff(state, world, offender, 'second-yellow');
     return;
   }

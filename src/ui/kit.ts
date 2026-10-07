@@ -60,6 +60,32 @@ export const KIT_MAKERS: KitMaker[] = [
   { id: 'progress', name: 'Progress Kit', mark: 'crown' },
   { id: 'colney', name: 'Colney Sport', mark: 'orbit' },
   { id: 'marlowe', name: 'Marlowe', mark: 'flame' },
+  // The rest of the trade the county deals with: the firm that prints in a unit
+  // on the estate, the workshop behind a terrace, and the two or three that have
+  // been going since the seventies and have never changed their mark. A club
+  // meets a different one every few summers, which is the point.
+  { id: 'ashcombe', name: 'Ashcombe Sportswear', mark: 'chevron' },
+  { id: 'henlow', name: 'Henlow', mark: 'wing' },
+  { id: 'pinnock', name: 'Pinnock & Sons', mark: 'tick' },
+  { id: 'dunmore', name: 'Dunmore Kit', mark: 'bolt' },
+  { id: 'arkwright', name: 'Arkwright & Co', mark: 'arc' },
+  { id: 'whitcombe', name: 'Whitcombe', mark: 'rosette' },
+  { id: 'newlands', name: 'Newlands Sports', mark: 'pennant' },
+  { id: 'oldfield', name: 'Oldfield Sport', mark: 'crown' },
+  { id: 'wrenfield', name: 'Wrenfield', mark: 'orbit' },
+  { id: 'stowford', name: 'Stowford Wear', mark: 'flame' },
+  { id: 'stanton', name: 'Stanton Sports', mark: 'chevron' },
+  { id: 'eastgate', name: 'Eastgate', mark: 'wing' },
+  { id: 'amberline', name: 'Amberline', mark: 'tick' },
+  { id: 'sandon', name: 'Sandon Sportswear', mark: 'bolt' },
+  { id: 'fernhill', name: 'Fernhill & Sons', mark: 'arc' },
+  { id: 'northgate', name: 'Northgate Kit', mark: 'pennant' },
+  { id: 'cornbrash', name: 'Cornbrash', mark: 'rosette' },
+  { id: 'lowther', name: 'Lowther Sports', mark: 'crown' },
+  { id: 'mayfield', name: 'Mayfield Kit Co', mark: 'flame' },
+  { id: 'hollinwood', name: 'Hollinwood', mark: 'orbit' },
+  { id: 'barkwith', name: 'Barkwith & Sons', mark: 'chevron' },
+  { id: 'werrington', name: 'Werrington Sport', mark: 'wing' },
 ];
 
 /**
@@ -83,6 +109,40 @@ const CHANGE_COLOURS_RAW: string[] = [
   '#3b2a52',
   '#d9700f',
   '#e0e3e8',
+  // Whites and creams, because a change strip very often is one.
+  '#f7f3e3',
+  '#eef4f8',
+  '#f6e7c8',
+  '#e8eef0',
+  '#dce7dd',
+  // Yellows, ambers and the pale blues and greens of an old away shirt.
+  '#ffd54f',
+  '#e8b64c',
+  '#a9c8e8',
+  '#bfd8f2',
+  '#cfe0c4',
+  '#d8c8e8',
+  '#f0b8bd',
+  '#b7c9d4',
+  '#9fb8c8',
+  // Greys, navies and the deep reds, greens and browns of a club that changes
+  // into its second kit and nothing else.
+  '#3a3a3a',
+  '#4a4f57',
+  '#0f3d91',
+  '#103a63',
+  '#6d1227',
+  '#0d4a2a',
+  '#3c6a44',
+  '#2f4232',
+  '#2a1f3d',
+  '#00695c',
+  '#006a73',
+  '#9c4718',
+  '#7a4a1f',
+  '#5a3b22',
+  '#7a5a00',
+  '#558b2f',
 ];
 
 /** Goalkeepers wear the loudest shirt on the field. */
@@ -99,6 +159,34 @@ const KEEPER_COLOURS_RAW: string[] = [
   '#00695c',
   '#d84315',
   '#7cb342',
+  // The loud end of the rack: the shirts that only ever belong to a keeper, and
+  // the ones a Sunday side finds in the bottom of the kit bag.
+  '#ff6f00',
+  '#fdd835',
+  '#00bcd4',
+  '#03a9f4',
+  '#ff4081',
+  '#c51162',
+  '#9c27b0',
+  '#673ab7',
+  '#3f51b5',
+  '#009688',
+  '#4caf50',
+  '#8bc34a',
+  '#cddc39',
+  '#ff9800',
+  '#ff5722',
+  '#795548',
+  '#e040fb',
+  '#00e5ff',
+  '#00c853',
+  '#d50000',
+  '#6200ea',
+  '#1a4fd6',
+  '#1de9b6',
+  '#aeea00',
+  '#ffab00',
+  '#c42200',
 ];
 
 /**
@@ -122,39 +210,39 @@ const PRINTABLE_KEEPER_COLOURS = printablePool(KEEPER_COLOURS_RAW);
 /* Weights: what clubs at this level actually wear. Plenty of plain shirts,
    plenty of stripes, and the more elaborate patterns kept rare. */
 const HOME_PATTERNS: Array<WeightedEntry<KitPattern>> = [
-  { value: 'stripes', weight: 4 },
-  { value: 'plain', weight: 3 },
-  { value: 'pinstripes', weight: 2 },
-  { value: 'hoops', weight: 2 },
-  { value: 'yoke', weight: 1.2 },
-  { value: 'halves', weight: 1.2 },
-  { value: 'quarters', weight: 1 },
-  { value: 'chevron', weight: 0.7 },
-  { value: 'sash', weight: 0.6 },
+  { value: 'stripes', weight: 4.2 },
+  { value: 'plain', weight: 3.2 },
+  { value: 'pinstripes', weight: 2.2 },
+  { value: 'hoops', weight: 1.8 },
+  { value: 'yoke', weight: 1.4 },
+  { value: 'halves', weight: 1.3 },
+  { value: 'quarters', weight: 1.1 },
+  { value: 'chevron', weight: 0.8 },
+  { value: 'sash', weight: 0.7 },
 ];
 
 const AWAY_PATTERNS: Array<WeightedEntry<KitPattern>> = [
-  { value: 'plain', weight: 4 },
-  { value: 'pinstripes', weight: 2 },
-  { value: 'halves', weight: 1.5 },
-  { value: 'yoke', weight: 1.5 },
-  { value: 'chevron', weight: 1 },
+  { value: 'plain', weight: 3.6 },
+  { value: 'pinstripes', weight: 2.2 },
+  { value: 'yoke', weight: 1.8 },
+  { value: 'halves', weight: 1.4 },
+  { value: 'chevron', weight: 1.1 },
   { value: 'sash', weight: 1 },
-  { value: 'hoops', weight: 0.6 },
-  { value: 'stripes', weight: 0.6 },
-  { value: 'quarters', weight: 0.5 },
+  { value: 'hoops', weight: 0.7 },
+  { value: 'stripes', weight: 0.7 },
+  { value: 'quarters', weight: 0.6 },
 ];
 
 const KEEPER_PATTERNS: Array<WeightedEntry<KitPattern>> = [
-  { value: 'plain', weight: 5 },
-  { value: 'yoke', weight: 2.5 },
-  { value: 'halves', weight: 1.5 },
-  { value: 'chevron', weight: 1.2 },
-  { value: 'sash', weight: 0.6 },
-  { value: 'hoops', weight: 0.6 },
+  { value: 'plain', weight: 4.6 },
+  { value: 'yoke', weight: 2.6 },
+  { value: 'halves', weight: 1.6 },
+  { value: 'chevron', weight: 1.4 },
+  { value: 'sash', weight: 0.7 },
+  { value: 'hoops', weight: 0.7 },
   { value: 'pinstripes', weight: 0.6 },
-  { value: 'stripes', weight: 0.3 },
-  { value: 'quarters', weight: 0.4 },
+  { value: 'quarters', weight: 0.5 },
+  { value: 'stripes', weight: 0.4 },
 ];
 
 export interface KitRequest {
@@ -400,6 +488,58 @@ export function clubKitOptions(game: GameState, clubId: ClubId): KitSet[] {
 }
 
 /**
+ * The colour in the local game's own palette that could not be mistaken for
+ * this one.
+ *
+ * The last resort of {@link visitorsStrip}, and deliberately drawn from the
+ * palette every change strip in this world is drawn from: a club pushed off its
+ * own second colour by a clash is wearing something the kit man had, not a
+ * colour invented for the occasion.
+ */
+function furthestFrom(primary: string): string {
+  const pool = [...PRINTABLE_CHANGE_COLOURS, ...PRINTABLE_KEEPER_COLOURS, '#ffffff', '#000000'];
+  let best = pool[0]!;
+  let bestDistance = -1;
+  for (const colour of pool) {
+    const distance = colourDistance(primary, colour);
+    if (distance > bestDistance) {
+      bestDistance = distance;
+      best = colour;
+    }
+  }
+  return best;
+}
+
+/**
+ * The shirt the visitors actually run out in.
+ *
+ * The away strip is the first choice and the spare set is the second, which is
+ * what the local game actually does. What neither may be is a shirt a spectator
+ * cannot tell from the home one — so where the club's own two strips are both
+ * too close to the home colour, the strip is pushed to the furthest colour the
+ * world's own palette holds. Kits are drawn rather than stored, so this takes
+ * nothing away from either club: it is the kit man finding another set, which is
+ * the whole reason a club carries one.
+ */
+function visitorsStrip(homePrimary: string, awayKit: KitSet | null): KitDesign | null {
+  const candidates = [awayKit?.away, awayKit?.goalkeeper].filter(
+    (design): design is KitDesign => Boolean(design),
+  );
+  if (candidates.length === 0) return null;
+  const tellable = candidates.find(
+    (design) => colourDistance(homePrimary, design.primary) >= MIN_KIT_DISTANCE,
+  );
+  if (tellable) return tellable;
+
+  const base = candidates[0]!;
+  const pushed = furthestFrom(homePrimary);
+  const design: KitDesign = { ...base, primary: pushed, ink: inkForColour(pushed) };
+  // The same rule the design was built under: a pattern is only drawn when the
+  // two colours it is drawn in can be told apart.
+  return colourDistance(pushed, design.secondary) < 90 ? { ...design, pattern: 'plain' } : design;
+}
+
+/**
  * The strips the two sides actually turn out in, for one match.
  *
  * Home plays in its home shirt. The visiting side plays in its away shirt —
@@ -412,7 +552,10 @@ export function clubKitOptions(game: GameState, clubId: ClubId): KitSet[] {
  *
  * When the two first colours are too close to tell apart the visitors change
  * into the spare set from the boot of a car, which is what the local game
- * actually does — and which {@link INCIDENT_POOL} already jokes about.
+ * actually does — and which {@link INCIDENT_POOL} already jokes about. Where
+ * even that set cannot be told from the home shirt, the strip is pushed to the
+ * furthest colour the palette holds: two sides a spectator cannot separate is
+ * the one thing a kit is never allowed to be.
  */
 export function matchKits(
   game: GameState,
@@ -422,10 +565,7 @@ export function matchKits(
   const homeKit = clubKit(game, homeClubId);
   const awayKit = clubKit(game, awayClubId);
   const home = homeKit?.home ?? null;
-  let away = awayKit?.away ?? null;
-  if (home && away && colourDistance(home.primary, away.primary) < MIN_KIT_DISTANCE) {
-    away = awayKit?.goalkeeper ?? away;
-  }
+  const away = home ? visitorsStrip(home.primary, awayKit) : (awayKit?.away ?? null);
   return { home, away };
 }
 

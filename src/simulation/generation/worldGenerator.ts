@@ -72,6 +72,23 @@ const GROUND_NAME_PATTERNS = [
   'Meadow',
   'Park',
   'Cricket Club',
+  'Recreation Field',
+  'Playing Field',
+  'Sports Field',
+  'Memorial Fields',
+  'Athletic Fields',
+  'Community Ground',
+  'Community Pitch',
+  'Village Field',
+  'Village Green',
+  'Welfare Ground',
+  'Miners Welfare',
+  'Social Club Field',
+  'Showground',
+  'Mill Field',
+  'Water Meadow',
+  'Church Field',
+  'Sports and Social Club',
 ];
 
 const STREET_GROUND_NAMES = [
@@ -85,6 +102,36 @@ const STREET_GROUND_NAMES = [
   'Watery Lane',
   'The Common',
   'Pound Field',
+  'Church Road',
+  'Station Lane',
+  'Station Approach',
+  'New Road',
+  'Green Lane',
+  'Park Lane',
+  'Park Road',
+  'High Street',
+  'High Street End',
+  'The Green',
+  'The Meadow',
+  'The Park',
+  'Vicarage Lane',
+  'Vicarage Road',
+  'Manor Lane',
+  'Manor Road',
+  'Chapel Lane',
+  'Chapel Street',
+  'Bridge Road',
+  'Riverside',
+  'Meadow Lane',
+  'Orchard Lane',
+  'Rookery Lane',
+  'Kiln Lane',
+  'Marsh Lane',
+  'Fen Lane',
+  'Pinfold Lane',
+  'Turnpike Road',
+  'Barn Lane',
+  'Hollow Lane',
 ];
 
 const CLUB_MOTTOS = [
@@ -96,7 +143,100 @@ const CLUB_MOTTOS = [
   'Never short of volunteers. Never.',
   'Runs on subs, raffle money and goodwill.',
   'Bring your own boots and your own luck.',
+  'Sunday mornings, whatever the weather.',
+  'Half the town has played for us at some point.',
+  'No egos, no agents, no excuses.',
+  'The tea hut does a better trade than the bar.',
+  'We were here before the bypass was.',
+  'Lose together, drink together.',
+  "Somebody's dad has always run the line.",
+  'Shirts washed at home, nets up at eight.',
+  'If you can play, you play.',
+  'Old kit, new season, same lot.',
+  'The pitch is flat if you stand at the right angle.',
+  'Everyone pays their subs, everyone gets a game.',
+  'One club, one town, one raffle a year.',
+  'We do not do trials. We do do tea.',
+  'The second team is the first team, eventually.',
+  'Nobody remembers the league table in July.',
+  'The corner flag has been replaced twice this century.',
+  'Win or lose, the kit goes in the wash.',
+  'Played for the club, married into the town.',
+  'Rusty nets, decent lads, proper football.',
+  'If it goes in the river, somebody fetches another.',
+  'Started with eleven, finished with eleven, just about.',
 ];
+
+/**
+ * The trades a club can borrow a name and a sponsor from, and how ordinary each
+ * one is on a local high street. Weighted rather than uniform, because a county
+ * in which every settlement has exactly one of each is the same county every
+ * time: one town has two garages, the next has a farm shop and no plumber.
+ */
+const LOCAL_TRADES: Array<{ value: Business['kind']; weight: number }> = [
+  { value: 'builder', weight: 3 },
+  { value: 'garage', weight: 3 },
+  { value: 'butcher', weight: 2.2 },
+  { value: 'cafe', weight: 2.2 },
+  { value: 'plumbers', weight: 1.8 },
+  { value: 'farm-shop', weight: 1.2 },
+];
+
+/**
+ * What a town calls the institution it drinks in when it is not a pub with a
+ * name over the door: the working men's club, the legion, the Catholic club.
+ *
+ * A town of twelve businesses often holds two or three of these, and they are
+ * not all "<town> Social Club" — that is one club, and the second one three
+ * doors down is a different one.
+ */
+const SOCIAL_CLUB_NAMES = [
+  'Social Club',
+  'Working Men\u2019s Club',
+  'British Legion',
+  'Conservative Club',
+  'Catholic Club',
+  'Ex-Servicemen\u2019s Club',
+  'Trades and Labour Club',
+  'Comrades Club',
+  'Conservative and Unionist Club',
+  'Royal British Legion',
+  'Institute and Social Club',
+  'Miners\u2019 Welfare',
+  'Bowling and Social Club',
+  'Sports and Social Club',
+];
+
+/**
+ * The parish churches a Sunday side is named after, and the ends of town a club
+ * calls home. Both are shapes of name rather than decoration: "St Wilfrid's" and
+ * "Haxbridge North End" are what grassroots clubs are actually called, and a
+ * world without either of them is a world of thirty-six sides called Athletic.
+ */
+const SAINT_NAMES = [
+  'Aidan',
+  'Alban',
+  'Anne',
+  'Barnabas',
+  'Bede',
+  'Chad',
+  'Cuthbert',
+  'Edmund',
+  'Etheldreda',
+  'George',
+  'Guthlac',
+  'Hilda',
+  'Joseph',
+  'Mary',
+  'Michael',
+  'Oswald',
+  'Teresa',
+  'Werburgh',
+  'Wilfrid',
+  'Winifred',
+];
+
+const COMPASS_ENDINGS = ['North End', 'South End', 'East End', 'West End'];
 
 function pickSettlementKind(rng: Rng): SettlementKind {
   return rng.weighted([
@@ -119,6 +259,21 @@ function settlementDescription(rng: Rng, town: Town, river: string): string {
     `Commuter belt territory now, though the football club has been here longer than the new estates.`,
     `Surrounded by farmland; most Sunday mornings you can hear the church bells from the top pitch.`,
     `A high street that has seen better days and a sports field that has not.`,
+    `${river} is still the reason the mills were here, and the reason the bottom pitch floods.`,
+    `Three new estates, one bus an hour, and a butcher who knows everybody's name.`,
+    `A crossroads with a post office, a garage and not a great deal else.`,
+    `Half the working population drives out of the county in the morning and back in at six.`,
+    `The old railway line is a footpath now, and the station is a garden centre.`,
+    `One church, two chapels, and a third chapel that sells carpets.`,
+    `Roughly ${town.population.toLocaleString('en-GB')} people, and the football club has most of them on a Sunday.`,
+    `Farms either side, a school in the middle, and a playing field behind it.`,
+    `A market square that is a car park for six days of the week.`,
+    `The sort of place where the pub landlord is also the club treasurer.`,
+    `New houses on the old field, and the old field's name on the road sign.`,
+    `A village that has more than doubled since the bypass opened.`,
+    `Two industries came and went, and the football club outlasted both of them.`,
+    `${town.name} is one of the places people drive through on the way to somewhere better.`,
+    `A long straggle of a place strung out along one road, with the pitch at the far end of it.`,
   ];
   return rng.pick(patterns);
 }
@@ -128,11 +283,14 @@ function generateTowns(rng: Rng, river: string): { towns: Town[]; businesses: Bu
   const towns: Town[] = [];
   const businesses: Business[] = [];
 
-  // One anchor town, then a spread of smaller settlements. A county that has to
-  // hold thirty-six clubs needs more places to put them than a county with
-  // twelve, so the spread is wider than a single division would need.
+  // One anchor town, then a spread of smaller settlements. The ladder holds
+  // thirty-six clubs, and the county offers the sites rather than the other way
+  // round: a wider spread means many more places than the pyramid needs, so
+  // which thirty-six of them get a club — and which are only a name on the map
+  // with a pub and a rec — is different in every career rather than the same
+  // eleven villages twice.
   const settlementPlan: SettlementKind[] = ['town'];
-  const extras = rng.int(9, 12);
+  const extras = rng.int(15, 22);
   for (let i = 0; i < extras; i++) settlementPlan.push(pickSettlementKind(rng));
   settlementPlan.push('village');
 
@@ -152,17 +310,38 @@ function generateTowns(rng: Rng, river: string): { towns: Town[]; businesses: Bu
     };
 
     const pubCount = Math.max(1, Math.round(population / 2600) + (kind === 'town' ? 1 : 1));
-    const businessTarget = pubCount + (population > 4000 ? rng.int(1, 3) : rng.chance(0.4) ? 1 : 0);
-    const kinds: Business['kind'][] = ['pub', 'social-club', 'builder', 'garage', 'butcher', 'cafe', 'plumbers', 'farm-shop'];
+    // A bigger place has more than pubs in it. The high street is where a club
+    // finds a sponsor, a name across the shirt and somewhere to hold the
+    // presentation night, and the mix of trades is what makes one seed's county
+    // different from another's beyond the names of the places: a town with a
+    // garage, a butcher and a plumber is not the town with a farm shop and two
+    // cafés, even when the two towns are the same size.
+    const businessTarget =
+      pubCount +
+      (population > 4000 ? rng.int(2, 5) : population > 1500 ? rng.int(1, 3) : rng.chance(0.55) ? rng.int(1, 2) : 0);
+    // No two businesses in one town share a name. Two towns on opposite sides of
+    // a county may each have a Red Lion and always have; one town with three of
+    // them is a mistake in the generator rather than local colour.
+    const usedInTown = new Set<string>();
+    const freeName = (candidate: () => string): string => {
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        const name = candidate();
+        if (!usedInTown.has(name)) {
+          usedInTown.add(name);
+          return name;
+        }
+      }
+      return `${candidate()} No. ${usedInTown.size}`;
+    };
     for (let i = 0; i < businessTarget; i++) {
       businessCounter += 1;
-      const kindPick = i < pubCount ? (rng.chance(0.72) ? 'pub' : 'social-club') : rng.pick(kinds.slice(2));
+      const kindPick = i < pubCount ? (rng.chance(0.72) ? 'pub' : 'social-club') : rng.weighted(LOCAL_TRADES);
       const name =
-        kindPick === 'pub' || kindPick === 'social-club'
-          ? kindPick === 'social-club'
-            ? `${town.name} Social Club`
-            : pubName(rng)
-          : businessName(rng, capitalise(kindPick.replace('-', ' ')));
+        kindPick === 'pub'
+          ? freeName(() => pubName(rng))
+          : kindPick === 'social-club'
+            ? freeName(() => `${town.name} ${rng.pick(SOCIAL_CLUB_NAMES)}`)
+            : freeName(() => businessName(rng, capitalise(kindPick.replace('-', ' '))));
       const business: Business = {
         id: `biz_${businessCounter}`,
         name,
@@ -304,7 +483,34 @@ export function buildClubName(
   const pubBusinesses = localBusinesses.filter((b) => b.kind === 'pub' || b.kind === 'social-club');
 
   const candidateSuffixes = rng
-    .shuffle(['Rovers', 'Athletic', 'United', 'Wanderers', 'Rangers', 'Albion', 'Corinthians', 'Sports', 'Town', 'FC', 'Victoria', 'Old Boys'])
+    .shuffle([
+      'Rovers',
+      'Athletic',
+      'United',
+      'Wanderers',
+      'Rangers',
+      'Albion',
+      'Corinthians',
+      'Sports',
+      'Town',
+      'FC',
+      'Victoria',
+      'Old Boys',
+      'Casuals',
+      'Amateurs',
+      'Nomads',
+      'Crusaders',
+      'Conservatives',
+      'Conservative Club',
+      'Catholic Club',
+      "Working Men's Club",
+      'British Legion',
+      'Legion',
+      'Social',
+      'Swifts',
+      'Juniors',
+      'Veterans',
+    ])
     .map((suffix) => (town.kind !== 'town' && suffix === 'Town' ? 'Athletic' : suffix));
 
   const nameCandidates: Array<{ name: string; structure: ClubStructure; business: Business | null }> = [];
@@ -320,6 +526,21 @@ export function buildClubName(
   }
   nameCandidates.push({ name: `${town.name} Old Boys`, structure: 'members', business: null });
   nameCandidates.push({ name: `${town.name} Sunday`, structure: 'community', business: null });
+
+  // The other shapes a Sunday club's name takes, none of which are the town with
+  // a suffix stuck on the end: the parish side, the works team, the road the
+  // club plays on, the church that founded it, and the two or three lads who put
+  // FC in front of the town rather than behind it.
+  const saint = rng.pick(SAINT_NAMES);
+  nameCandidates.push({ name: `${town.name} St ${saint}'s`, structure: 'community', business: null });
+  nameCandidates.push({ name: `St ${saint}'s`, structure: 'community', business: null });
+  nameCandidates.push({ name: `FC ${town.name}`, structure: 'community', business: null });
+  nameCandidates.push({ name: `${town.name} AFC`, structure: 'members', business: null });
+  nameCandidates.push({ name: `${town.name} Working Men's Club`, structure: 'committee', business: null });
+  nameCandidates.push({ name: `${town.name} British Legion`, structure: 'committee', business: null });
+  for (const ending of COMPASS_ENDINGS) {
+    nameCandidates.push({ name: `${town.name} ${ending}`, structure: 'committee', business: null });
+  }
   for (const suffix of candidateSuffixes) {
     nameCandidates.push({
       name: `${town.name} ${suffix}`,
@@ -367,8 +588,19 @@ function pickFreeName(
 ): { name: string; structure: ClubStructure; business: Business | null } | null {
   const free = candidates.filter((candidate) => !usedNames.has(candidate.name));
   if (free.length === 0) return null;
-  // Weight towards the earlier patterns (pubs, businesses, community names).
-  const index = Math.min(free.length - 1, rng.int(0, 2));
+  // Three tiers, because the list itself is in priority order: a pub or a local
+  // business the club is named after, then the community names, then the whole
+  // vocabulary of suffixes, which is the longest part of it by far.
+  //
+  // Drawn from the front three only — which is what this used to do — two clubs
+  // in three are "<pub>" and one in three is "<town> Athletic", and every seed's
+  // league table looks the same. Drawn uniformly from the whole list, three
+  // clubs in four are "<town> <suffix>" and the county stops being the sort of
+  // place where the football club is the pub: sponsorship has nobody to sell to,
+  // and the shirts have no name across the chest. Weighted, the pub is the
+  // ordinary case and the tail still gets a third of the county to itself.
+  const weightFor = (index: number): number => (index < 3 ? 14 : index < 5 ? 4 : 1);
+  const index = rng.weighted(free.map((_, position) => ({ value: position, weight: weightFor(position) })));
   return free[index]!;
 }
 
@@ -385,7 +617,16 @@ function abbreviate(name: string, townName: string): string {
   // of the town on its own. "Upper Oakbridge Old Boys" -> "Oakbridge Old Boys".
   const townWords = townName.split(' ');
   const anchor = townWords[townWords.length - 1]!;
-  const rest = name.startsWith(townName) ? name.slice(townName.length).trim().split(' ').filter(Boolean) : [];
+  // A club that puts its town last is anchored at the front — "FC Middle
+  // Ashworth" is Middle Ashworth's club, and the part worth keeping is the town
+  // rather than the FC. Clubs that lead with the town are read as they always
+  // were. The distinguishing words of a leading name are those in front of the
+  // town, which for `FC <town>` is the FC itself.
+  const rest = name.startsWith(townName)
+    ? name.slice(townName.length).trim().split(' ').filter(Boolean)
+    : name.endsWith(townName)
+      ? name.slice(0, name.length - townName.length).trim().split(' ').filter(Boolean)
+      : [];
   const restWords = rest.slice(-2).join(' ');
 
   const candidates = rest.length > 0

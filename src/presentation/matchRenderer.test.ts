@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import type { Match } from '@/domain/match';
+import type { Match, MatchEvent, MatchEventType, MatchPhase } from '@/domain/match';
 import type { GameState } from '@/domain/game';
 import type { PlayerId } from '@/domain/ids';
 import { createTestGame } from '@/simulation/testSupport';
 import { matchEnvironment, prepareMatchday } from '@/simulation/matchday';
 import { cloneMatch } from '@/simulation/match/testHelpers';
-import { SPATIAL_STEP_SECONDS, advanceSpatial, ensureSpatial, spatialAlpha } from '@/simulation/match/spatial';
+// The simulation is reached only through its boundary, exactly as the match
+// screen reaches it — see `TOUCHLINE_ARCHITECTURE.md` §"Presentation boundary".
+import { createMatchEngine, simulationAlpha, type MatchEngine } from '@/simulation/touchline';
 import { DEFAULT_PREFERENCES } from '@/state/preferences';
 import {
   buildMatchRenderState,
@@ -14,9 +16,9 @@ import {
   interpolatedY,
   involvementOf,
 } from './matchPresentation';
+import { buildEngineRenderState } from './matchEnginePresentation';
 import { MATCH_RENDERERS, resolveRenderer } from './matchRenderers';
 import { incidentTone, incidentsOf, latestIncident, newIncidents, signalOfAction, signalOfEvent } from './matchSignals';
-import type { MatchEvent, MatchEventType } from '@/domain/match';
 
 /**
  * The renderer contract.
@@ -28,9 +30,25 @@ import type { MatchEvent, MatchEventType } from '@/domain/match';
  * is shared rather than reinvented per renderer, a chosen-but-unbuilt renderer
  * falls back cleanly, and the signals describe the football rather than the
  * drawing.
+ *
+ * The simulation is the live engine: `buildEngineRenderState` reads
+ * `MatchEngine.getState()` into the same neutral `MatchRenderState` the replay
+ * and the unwatched reconstruction produce, so the picture is tested against the
+ * one authority rather than against a retired second one.
  */
 
-function staged(seed: string): { state: GameState; match: Match; env: ReturnType<typeof matchEnvironment> } {
+/**
+ * A match somebody is watching: the world, the fixture, the environment, and the
+ * live engine that plays the football. Every reading below comes off this one
+ * engine — the object the match screen pumps — so the picture is measured
+ * against the state the simulation actually owns.
+ */
+function staged(seed: string): {
+  state: GameState;
+  match: Match;
+  env: ReturnType<typeof matchEnvironment>;
+  engine: MatchEngine;
+} {
   const { state } = createTestGame(seed);
   const fixture = Object.values(state.matches).find(
     (candidate) => candidate.homeClubId === state.userClubId || candidate.awayClubId === state.userClubId,
@@ -38,21 +56,23 @@ function staged(seed: string): { state: GameState; match: Match; env: ReturnType
   prepareMatchday(state, fixture.matchday);
   const match = cloneMatch(state.matches[fixture.id]!);
   const env = matchEnvironment(state, match, { autoManageAllBenches: true });
-  match.spatial = undefined;
-  ensureSpatial(match, env);
-  return { state, match, env };
+  const engine = createMatchEngine(match, env);
+  // A couple of seconds of football, so the engine is past kick-off set-up and
+  // there is real movement in the state to read, interpolate and draw.
+  engine.advance(2, 2, false);
+  return { state, match, env, engine };
 }
 
 /** A stable, comparable picture of the football, renderer-independent. */
-function snapshot(match: Match): string {
-  const spatial = match.spatial!;
+function snapshot(engine: MatchEngine, match: Match): string {
+  const state = engine.getState();
   return JSON.stringify({
-    clock: spatial.clock,
-    residual: spatial.residual,
-    possession: spatial.context.possession,
-    phase: spatial.context.phase,
-    ball: spatial.ball,
-    players: spatial.players.map((node) => ({
+    clock: state.clock,
+    residual: state.residual,
+    possession: state.possession,
+    phase: state.phase,
+    ball: state.ball,
+    players: state.players.map((node) => ({
       id: node.playerId,
       x: node.x,
       y: node.y,
@@ -87,30 +107,32 @@ describe('the renderer registry', () => {
 
 describe('the render state', () => {
   it('is a window onto the simulation, not a copy of it', () => {
-    const { state, match } = staged('render-window');
-    const spatial = match.spatial!;
-    const render = buildMatchRenderState(match, state);
+    const { state, match, engine } = staged('render-window');
+    const engineState = engine.getState();
+    const render = buildEngineRenderState(engine, match, state);
     expect(render.continuous).toBe(true);
-    expect(render.players).toBe(spatial.players);
-    expect(render.ball).toBe(spatial.ball);
-    expect(render.actions).toBe(spatial.actions);
+    // The arrays the renderer draws are the engine's own, not a snapshot of
+    // them, so reading the picture cannot fork the football.
+    expect(render.players[0]).toBe(engineState.players[0]);
+    expect(render.ball).toBe(engineState.ball);
+    expect(render.actions).toBe(engineState.actions);
     expect(render.players).toHaveLength(22);
   });
 
   it('reports the clock, context and revision the simulation holds', () => {
-    const { state, match } = staged('render-readings');
-    const spatial = match.spatial!;
-    const render = buildMatchRenderState(match, state);
-    expect(render.clock).toBe(spatial.clock);
-    expect(render.possession).toBe(spatial.context.possession);
-    expect(render.phase).toBe(spatial.context.phase);
+    const { state, match, engine } = staged('render-readings');
+    const engineState = engine.getState();
+    const render = buildEngineRenderState(engine, match, state);
+    expect(render.clock).toBe(engineState.clock);
+    expect(render.possession).toBe(engineState.possession);
+    expect(render.phase).toBe(engineState.phase as unknown as MatchPhase);
     expect(render.revision).toBe(match.events.length);
-    expect(render.alpha()).toBeCloseTo(spatialAlpha(spatial), 10);
+    expect(render.alpha()).toBeCloseTo(simulationAlpha(engineState), 10);
   });
 
   it('describes both teams, with their own colours', () => {
-    const { state, match } = staged('render-teams');
-    const render = buildMatchRenderState(match, state);
+    const { state, match, engine } = staged('render-teams');
+    const render = buildEngineRenderState(engine, match, state);
     expect(render.teams.home.clubId).toBe(match.homeClubId);
     expect(render.teams.away.clubId).toBe(match.awayClubId);
     expect(render.teams.home.colours).toEqual(state.clubs[match.homeClubId]!.identity.colours);
@@ -118,22 +140,23 @@ describe('the render state', () => {
   });
 
   it('lays the teams out from their formation when there is no continuous state', () => {
+    // An unwatched fixture, or a save from before the recording existed: there is
+    // no live state to read, so the picture is reconstructed from the lineups and
+    // there is nothing to interpolate between.
     const { state, match } = staged('render-fallback');
-    match.spatial = undefined;
     const render = buildMatchRenderState(match, state);
     expect(render.continuous).toBe(false);
     expect(render.players).toHaveLength(22);
     expect(render.ball).toBeTruthy();
-    // Nothing to interpolate between, so the fraction is a standing still one.
     expect(render.alpha()).toBe(0);
   });
 
   it('does not change the football by being read', () => {
-    const { state, match } = staged('render-pure');
-    const before = snapshot(match);
-    buildMatchRenderState(match, state);
-    involvementOf(buildMatchRenderState(match, state));
-    expect(snapshot(match)).toBe(before);
+    const { state, match, engine } = staged('render-pure');
+    const before = snapshot(engine, match);
+    buildEngineRenderState(engine, match, state);
+    involvementOf(buildEngineRenderState(engine, match, state));
+    expect(snapshot(engine, match)).toBe(before);
   });
 });
 
@@ -155,14 +178,14 @@ describe('shared interpolation', () => {
 
 describe('involvement', () => {
   it('picks out the carrier from the authoritative ball', () => {
-    const { state, match } = staged('render-involvement');
-    const spatial = match.spatial!;
-    const carrier = spatial.players.find((node) => node.side === 'home')!;
-    spatial.ball.ownerId = carrier.playerId;
-    spatial.ball.status = 'controlled';
-    spatial.context.possession = 'home';
+    const { state, match, engine } = staged('render-involvement');
+    const engineState = engine.getState();
+    const carrier = engineState.players.find((node) => node.side === 'home')!;
+    engineState.ball.ownerId = carrier.playerId;
+    engineState.ball.status = 'controlled';
+    engineState.possession = 'home';
 
-    const involvement = involvementOf(buildMatchRenderState(match, state));
+    const involvement = involvementOf(buildEngineRenderState(engine, match, state));
     expect(involvement.possessing).toBe('home');
     expect(involvement.carrying.has(carrier.playerId)).toBe(true);
     expect(involvement.involved.has(carrier.playerId)).toBe(true);
@@ -171,29 +194,31 @@ describe('involvement', () => {
 
 describe('switching renderer changes only the paint', () => {
   it('leaves the clock, positions, possession and events exactly as they were', () => {
-    const { state, match, env } = staged('render-switch');
-    for (let i = 0; i < 300; i += 1) advanceSpatial(match, env, SPATIAL_STEP_SECONDS);
-    const before = snapshot(match);
+    const { state, match, engine } = staged('render-switch');
+    engine.advance(10, 10, false);
+    const before = snapshot(engine, match);
 
     // Choosing 2D, then 3D (which resolves to 2D), and reading the state for
     // each: none of it may move a single value.
     for (const kind of ['2d', '3d', '2d'] as const) {
       expect(resolveRenderer(kind).Component).toBeTruthy();
-      involvementOf(buildMatchRenderState(match, state));
+      involvementOf(buildEngineRenderState(engine, match, state));
     }
-    expect(snapshot(match)).toBe(before);
+    expect(snapshot(engine, match)).toBe(before);
   });
 
   it('does not duplicate the simulation when a renderer is mounted', () => {
     const plain = staged('render-no-duplicate');
     const watched = staged('render-no-duplicate');
+    // The step the engine itself owns: no test decides the simulation's cadence.
+    const step = plain.engine.getState().stepSeconds;
     for (let i = 0; i < 300; i += 1) {
-      advanceSpatial(plain.match, plain.env, SPATIAL_STEP_SECONDS);
-      advanceSpatial(watched.match, watched.env, SPATIAL_STEP_SECONDS);
+      plain.engine.step(step);
+      watched.engine.step(step);
       // The watched one is "rendered" every step; the other is not.
-      involvementOf(buildMatchRenderState(watched.match, watched.state));
+      involvementOf(buildEngineRenderState(watched.engine, watched.match, watched.state));
     }
-    expect(snapshot(watched.match)).toBe(snapshot(plain.match));
+    expect(snapshot(watched.engine, watched.match)).toBe(snapshot(plain.engine, plain.match));
   });
 });
 
@@ -266,9 +291,9 @@ function matchEvent(type: MatchEventType, overrides: Partial<MatchEvent> = {}): 
 
 describe('the render state carries the shared signals', () => {
   it('projects the authoritative events into the one vocabulary', () => {
-    const { state, match } = staged('render-signals');
+    const { state, match, engine } = staged('render-signals');
     match.events.push(matchEvent('goal', { id: 'goal-1', clubId: match.homeClubId, minute: 20 }));
-    const render = buildMatchRenderState(match, state);
+    const render = buildEngineRenderState(engine, match, state);
     expect(render.signals).toHaveLength(match.events.length);
     const newest = render.signals[render.signals.length - 1]!;
     expect(newest.kind).toBe('goal');
@@ -294,15 +319,15 @@ describe('the replay cursor', () => {
     expect(render.revision).toBe(match.events.length - 1);
     expect(render.minute).toBe(30);
     expect(render.half).toBe(1);
-    // The picture leans toward the moment, not the live spatial state.
+    // The picture leans toward the moment, not the live state.
     expect(render.ball.x).toBeCloseTo(0.7, 5);
     expect(render.ball.y).toBeCloseTo(0.4, 5);
     expect(render.players.length).toBeGreaterThan(0);
   });
 
   it('still leaves the live match alone', () => {
-    const { state, match } = staged('render-cursor-live');
-    const live = buildMatchRenderState(match, state);
+    const { state, match, engine } = staged('render-cursor-live');
+    const live = buildEngineRenderState(engine, match, state);
     expect(live.continuous).toBe(true);
     expect(live.signals).toHaveLength(match.events.length);
   });

@@ -6,6 +6,7 @@ import { settleShortSides } from '@/simulation/forfeit';
 import type { GameEvent } from '@/domain/news';
 import { isPlayer, personDisplayName } from '@/domain/person';
 import type { Tactics } from '@/domain/tactics';
+import type { CustomFormation, FormationSlot } from '@/domain/positions';
 import {
   DEFAULT_PREFERENCES,
   applyMotion,
@@ -27,7 +28,6 @@ import {
   narrateDrained,
   setAutoManageBenches,
   setLivePlayback,
-  syncEnginePossession,
 } from './liveEngine';
 import { beginSkip, tickPlayback, VIEWING_MODES, type ViewingMode } from '@/presentation/matchPlayback';
 import {
@@ -264,6 +264,21 @@ export interface GameStore {
    */
   ready: boolean;
   game: GameState | null;
+  /**
+   * Whether anything has ever been saved in this browser.
+   *
+   * Published by `bootStore` beside `ready`, because both answer questions the
+   * first screen has to have: `game` says whether a career was *reopened*, and
+   * this says whether there is one on disk to reopen at all. They are not the
+   * same question — a manager who quit to the menu has cleared his resume mark
+   * and still has his whole season saved — and the menu needs the difference,
+   * because a career on disk means he has already met the game.
+   *
+   * It is read once, at the top of the app, and nothing keeps it up to date as
+   * the session goes on: it describes what was there when the game opened, which
+   * is exactly what the first-boot decision is about.
+   */
+  hasSaves: boolean;
   draft: WorldDraft | null;
   setup: SetupState | null;
   session: MatchSession | null;
@@ -446,6 +461,23 @@ export interface GameStore {
   /** Choose which of this season's kit designs the club runs out in. */
   chooseKit: (option: number) => void;
 
+  /**
+   * Keep the shape currently set out as one of the manager's own, under a name.
+   *
+   * A name he has already used replaces that shape rather than filling the book
+   * with variations of it, and naming a shape also makes it the one the side is
+   * set out in — naming what he is looking at should not only rename it in a
+   * list somewhere else on the screen.
+   */
+  saveFormationShape: (name: string, shape: FormationSlot[]) => void;
+  /**
+   * Forget one of his shapes.
+   *
+   * The side keeps the shape it is set out in — a man is not moved because a
+   * name was deleted — it simply stops being one of his named ones.
+   */
+  deleteFormationShape: (id: string) => void;
+
   // Selection and tactics, saved into the current fixture's lineup.
   updateClubTactics: (tactics: Tactics) => void;
   updateFixtureLineup: (
@@ -563,11 +595,10 @@ function recruitmentAction(
  */
 function startLiveEngine(game: GameState, live: Match): void {
   const env = matchEnvironment(game, live, { autoManageAllBenches: false });
-  const engine = liveEngineFor(live, env);
+  liveEngineFor(live, env);
   live.status = 'in-progress';
   live.half = 1;
   live.played = false;
-  syncEnginePossession(live, engine);
 }
 
 /**
@@ -575,10 +606,11 @@ function startLiveEngine(game: GameState, live: Match): void {
  *
  * This is the whole of the clock: the engine takes real seconds and plays the
  * fixed steps they are worth, so a frame rate cannot change a result. The events
- * it produced are drained into the commentary, the possession clock is mirrored
- * onto the match for the statistics, and the store is told whenever the football
- * actually said something, so the bar can redraw without the pitch re-rendering
- * sixty times a second.
+ * it produced are drained into the commentary — and the drain is also where the
+ * engine brings `match.possessionTicks` level with its own clock, because the
+ * engine is the only writer of that field — and the store is told whenever the
+ * football actually said something, so the bar can redraw without the pitch
+ * re-rendering sixty times a second.
  */
 function advanceLiveEngine(game: GameState, live: Match, deltaSeconds: number, maxCatchUpSeconds = 1): boolean {
   const env = liveEngineEnv() ?? matchEnvironment(game, live, { autoManageAllBenches: false });
@@ -586,7 +618,6 @@ function advanceLiveEngine(game: GameState, live: Match, deltaSeconds: number, m
   const toldBefore = live.commentary?.length ?? 0;
   const events = engine.advance(deltaSeconds, maxCatchUpSeconds);
   narrateDrained(live, env, events);
-  syncEnginePossession(live, engine);
   return (live.commentary?.length ?? 0) !== toldBefore;
 }
 
@@ -747,6 +778,7 @@ function* jumpToDateSteps(state: GameState, days: number): Generator<DayStep, st
 export const useGameStore = create<GameStore>((set, get) => ({
   ready: false,
   game: null,
+  hasSaves: false,
   draft: null,
   setup: null,
   session: null,
@@ -1413,7 +1445,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
     // stamped as such so the record says which simulation decided it.
     const instant = simulateMatchFull(working, env);
     narrateDrained(working, env, instant.drain());
-    syncEnginePossession(working, instant);
     const events = [...applyMatchConsequences(state, working).events, matchReportEvent(state, working)];
     applyMatchdayFinances(state, working);
     settleSubsFor(state, working);
@@ -1494,7 +1525,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const played = engine ?? liveEngineFor(live, env);
     played.runToCompletion();
     narrateDrained(live, env, played.drain());
-    syncEnginePossession(live, played);
     // The whole match has been played out, so the presentation has seen all of
     // it: the cursor goes to the final whistle with the engine.
     setLivePlayback({ cursor: played.getState().clock, skipping: false });
@@ -1848,6 +1878,62 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({ game: state });
   },
 
+  saveFormationShape: (name, shape) => {
+    const game = get().game;
+    if (!game) return;
+    const trimmed = name.trim();
+    if (!trimmed || shape.length === 0) return;
+    const state = clone(game);
+    const club = state.clubs[state.userClubId]!;
+    const counter = (state.counters.formationShapes ?? 0) + 1;
+    state.counters = { ...state.counters, formationShapes: counter };
+    const existing = state.customFormations.findIndex(
+      (entry) => entry.name.toLowerCase() === trimmed.toLowerCase(),
+    );
+    const record: CustomFormation = {
+      id: existing >= 0 ? state.customFormations[existing]!.id : `shape-${counter}`,
+      name: trimmed,
+      base: club.tactics.formation,
+      slots: shape.map((slot) => ({ ...slot })),
+    };
+    state.customFormations =
+      existing >= 0
+        ? state.customFormations.map((entry, index) => (index === existing ? record : entry))
+        : [...state.customFormations, record];
+
+    // The shape on the pitch is that shape now, name and all.
+    club.tactics = { ...club.tactics, shape: record.slots.map((slot) => ({ ...slot })), shapeId: record.id };
+    const match = nextFixtureFor(state, state.userClubId, state.date);
+    if (match && !match.played) {
+      const side = match.homeClubId === state.userClubId ? 'home' : 'away';
+      match.lineups[side].tactics = {
+        ...match.lineups[side].tactics,
+        shape: club.tactics.shape,
+        shapeId: record.id,
+      };
+    }
+    set({ game: state, notice: `${record.name} saved. Set your side out in it any time.` });
+  },
+
+  deleteFormationShape: (id) => {
+    const game = get().game;
+    if (!game) return;
+    const state = clone(game);
+    const record = state.customFormations.find((entry) => entry.id === id);
+    if (!record) return;
+    state.customFormations = state.customFormations.filter((entry) => entry.id !== id);
+    const club = state.clubs[state.userClubId]!;
+    if (club.tactics.shapeId === id) club.tactics = { ...club.tactics, shapeId: undefined };
+    const match = nextFixtureFor(state, state.userClubId, state.date);
+    if (match && !match.played) {
+      const side = match.homeClubId === state.userClubId ? 'home' : 'away';
+      if (match.lineups[side].tactics.shapeId === id) {
+        match.lineups[side].tactics = { ...match.lineups[side].tactics, shapeId: undefined };
+      }
+    }
+    set({ game: state, notice: `${record.name} forgotten. Your shape is still set out.` });
+  },
+
   updateFixtureLineup: (updater) => {
     const game = get().game;
     if (!game) return;
@@ -1895,15 +1981,23 @@ useGameStore.subscribe((state, previous) => {
  */
 export async function bootStore(): Promise<void> {
   let resumed: GameState | null = null;
+  let hasSaves = false;
   try {
     await persistence.initialise();
     resumed = await persistence.resumeCareer();
+    // The slot list, not the resume mark: quitting to the menu clears the mark
+    // and leaves the career exactly where it was, so a menu that asked only the
+    // mark would say "nothing saved" to a manager with a season on disk. Read
+    // after the resume so the list is only fetched when it is actually needed
+    // to tell the two apart.
+    hasSaves = resumed !== null || (await persistence.listSaveSlots()).length > 0;
   } catch (error) {
     console.warn('Starting without a stored career.', error);
   }
   useGameStore.setState({
     ready: true,
     game: resumed,
+    hasSaves,
     // The manager is put back on his own dashboard: a reload should not cost him
     // his place. No career — or a mark left pointing at one that has since gone
     // — leaves the menu in charge, which is where a new one starts.

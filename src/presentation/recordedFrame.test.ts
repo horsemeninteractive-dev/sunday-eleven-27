@@ -3,8 +3,8 @@ import type { GameState } from '@/domain/game';
 import type { Match } from '@/domain/match';
 import { createTestGame } from '@/simulation/testSupport';
 import { matchEnvironment, prepareMatchday } from '@/simulation/matchday';
-import { advanceMinute } from '@/simulation/match/engine';
-import { SPATIAL_SECONDS_PER_MINUTE, SPATIAL_STEP_SECONDS, advanceSpatial } from '@/simulation/match/spatial';
+import { createMatchEngine } from '@/simulation/match/matchEngine/engine';
+import { recordEngineKeyframe } from '@/simulation/match/recording';
 import { cloneMatch } from '@/simulation/match/testHelpers';
 import { buildMatchRenderState, recordedFrame } from './matchPresentation';
 
@@ -18,9 +18,17 @@ import { buildMatchRenderState, recordedFrame } from './matchPresentation';
  * back to the reconstruction.
  */
 
-const STEPS_PER_MINUTE = Math.round(SPATIAL_SECONDS_PER_MINUTE / SPATIAL_STEP_SECONDS);
+/** Football seconds to a match minute: the engine's clock is real seconds. */
+const SECONDS_PER_MINUTE = 60;
+/** How much of the match is played: enough that the recording is a real one. */
+const WATCHED_MINUTES = 4;
 
-function watched(seed: string): { state: GameState; match: Match; env: ReturnType<typeof matchEnvironment> } {
+/**
+ * A watched match: the authoritative engine is driven with the same observer the
+ * live match wires, so the recording is the movement the football actually held
+ * rather than a picture reconstructed afterwards.
+ */
+function watched(seed: string): { state: GameState; match: Match } {
   const { state } = createTestGame(seed);
   const fixture = Object.values(state.matches).find(
     (candidate) => candidate.homeClubId === state.userClubId || candidate.awayClubId === state.userClubId,
@@ -28,13 +36,10 @@ function watched(seed: string): { state: GameState; match: Match; env: ReturnTyp
   prepareMatchday(state, fixture.matchday);
   const match = cloneMatch(state.matches[fixture.id]!);
   const env = matchEnvironment(state, match, { autoManageAllBenches: true });
-  match.spatial = undefined;
-  advanceMinute(match, env); // kick-off, which puts the pitch in place
-  for (let minute = 0; minute < 4; minute += 1) {
-    advanceMinute(match, env);
-    for (let step = 0; step < STEPS_PER_MINUTE; step += 1) advanceSpatial(match, env, SPATIAL_STEP_SECONDS);
-  }
-  return { state, match, env };
+  const engine = createMatchEngine(match, env);
+  engine.observe((engineState) => recordEngineKeyframe(match, engineState));
+  engine.advance(WATCHED_MINUTES * SECONDS_PER_MINUTE, WATCHED_MINUTES * SECONDS_PER_MINUTE, false);
+  return { state, match };
 }
 
 describe('reading a recording into a picture', () => {
@@ -70,7 +75,7 @@ describe('reading a recording into a picture', () => {
     const recorded = recordedFrame(match, clock)!;
 
     const render = buildMatchRenderState(match, state, {
-      minute: clock / SPATIAL_SECONDS_PER_MINUTE,
+      minute: clock / SECONDS_PER_MINUTE,
       revealed: match.events.length,
       focus: { x: recorded.ball.x, y: recorded.ball.y },
       players: recorded.players,

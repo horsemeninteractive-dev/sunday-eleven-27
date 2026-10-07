@@ -19,6 +19,9 @@ import { Button, PageHeader, Pill } from '../components/primitives';
 import { FixtureRow } from '../components/FixtureRow';
 import { Statistics } from '../components/Statistics';
 import { competitionStats } from '@/simulation/tables';
+import { FixtureCard } from '../components/FixtureCard';
+import { openMatchReport } from '../reportActions';
+import { handleTabKeys } from '../components/Tabs';
 import { MetricTile, Section, StatusTile, TileGrid } from '../components/hierarchy';
 
 /**
@@ -73,12 +76,15 @@ export function CupView() {
         title="Competition"
         action={
           cups.length > 1 ? (
-            <div className="segmented" role="tablist" aria-label="Cups">
+            <div className="segmented" role="tablist" aria-label="Cups" onKeyDown={handleTabKeys}>
               {cups.map((cupOption) => (
                 <button
                   key={cupOption.id}
                   type="button"
                   role="tab"
+                  tabIndex={cupOption.id === shown.id ? 0 : -1}
+                  id={`cup-tab-${cupOption.id}`}
+                  aria-controls="cup-round-panel"
                   aria-selected={cupOption.id === shown.id}
                   className={`segmented__item${cupOption.id === shown.id ? ' segmented__item--active' : ''}`}
                   onClick={() => setPicked(cupOption.id)}
@@ -128,6 +134,8 @@ export function CupView() {
         </TileGrid>
       </Section>
 
+      <div role="tabpanel" id="cup-round-panel" aria-labelledby={cups.length > 1 ? `cup-tab-${shown.id}` : undefined}>
+      {ownTie && <FixtureCard state={game} match={ownTie} actions={<Button variant={ownTie.played ? 'ghost' : 'primary'} onClick={() => ownTie.played ? openMatchReport(ownTie.id) : gameActions().setView('team')}>{ownTie.played ? 'Match report' : 'Prepare your team'}</Button>} />}
       {!inHand && (
         <Section title="Draw">
           <TileGrid min={215}>
@@ -154,9 +162,8 @@ export function CupView() {
         </Section>
       )}
 
-      <Section title="Statistics" action={<span className="small muted">{shown.name}</span>}>
-        <Statistics stats={stats} subtitle={shown.name} />
-      </Section>
+      </div>
+      <details className="more"><summary>Cup statistics · players and discipline</summary><Statistics stats={stats} subtitle={shown.name} /></details>
 
       {archive.length > 0 && (
         <details className="more">

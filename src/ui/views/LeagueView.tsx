@@ -13,6 +13,7 @@ import { FixtureRow } from '../components/FixtureRow';
 import { Statistics } from '../components/Statistics';
 import { competitionStats } from '@/simulation/tables';
 import { applySort, UNSORTED, type SortAccessors, type SortState } from '../tableSort';
+import { handleTabKeys } from '../components/Tabs';
 
 /**
  * Which part of the table a row is in.
@@ -152,7 +153,7 @@ export function LeagueView() {
             <span className="small muted">
               {myPosition > 0 && competition.id === ownDivision?.id
                 ? `${clubRow.identity.shortName} are ${ordinal(myPosition)}, ${myRow?.points ?? 0} points from ${myRow?.played ?? 0} played`
-                : 'The season has not started yet'}
+                : `Viewing ${competition.name}`}
             </span>
             <span className="small muted">Matchday {matchday}</span>
           </>
@@ -165,12 +166,15 @@ export function LeagueView() {
       />
 
       {divisions.length > 1 && (
-        <div className="segmented" role="tablist" aria-label="Divisions">
+        <div className="segmented" role="tablist" aria-label="Divisions" onKeyDown={handleTabKeys}>
           {divisions.map((division) => (
             <button
               key={division.id}
               type="button"
               role="tab"
+              tabIndex={division.id === competition.id ? 0 : -1}
+              id={`league-tab-${division.id}`}
+              aria-controls="league-table-panel"
               aria-selected={division.id === competition.id}
               className={`segmented__item${division.id === competition.id ? ' segmented__item--active' : ''}`}
               onClick={() => setTier(division.tier)}
@@ -194,7 +198,8 @@ export function LeagueView() {
         </TileGrid>
       )}
 
-      <Section title="The table">
+      <p className="small muted">{(competition.promotionPlaces ?? 0) > 0 ? `Top ${competition.promotionPlaces} go up. ` : ''}{(competition.relegationPlaces ?? 0) > 0 ? `Bottom ${competition.relegationPlaces} go down. ` : ''}Coloured position marks follow the club's league place, even when you sort.</p>
+      <div role="tabpanel" id="league-table-panel" aria-labelledby={`league-tab-${competition.id}`}><Section title="The table">
       <Panel level="primary">
         <div className="table-wrapper">
           <table className="table table--league">
@@ -266,7 +271,7 @@ export function LeagueView() {
           </table>
         </div>
       </Panel>
-      </Section>
+      </Section></div>
 
       <div className="split">
         <Panel title="This week" subtitle={`Matchday ${matchday}`}>
@@ -323,9 +328,7 @@ export function LeagueView() {
           </ul>
         </Panel>
 
-      <Section title="Statistics" action={<span className="small muted">{competition.name}</span>}>
-        <Statistics stats={stats} subtitle={`${competition.name} · matchday ${matchday}`} />
-      </Section>
+      <details className="more"><summary>Division statistics · scoring, ratings and discipline</summary><Statistics stats={stats} subtitle={`${competition.name} · matchday ${matchday}`} /></details>
       </div>
     </div>
   );

@@ -106,6 +106,15 @@ export function inkForColours(...colours: string[]): string {
   return best;
 }
 
+/** Club-coloured text needs a different ink from paint on a crest or shirt. */
+export function readableClubColour(primary: string): string {
+  for (let step = 0; step <= 20; step += 1) {
+    const ink = mixColours(primary, LIGHT_INK, step / 20);
+    if (contrastRatio(ink, '#1f252c') >= 4.5) return ink;
+  }
+  return LIGHT_INK;
+}
+
 /** The second colour, or the first when a club only has one. */
 export function secondaryColour(colours: ClubColours): string {
   return colours.secondary && colours.secondary.trim() ? colours.secondary : colours.primary;
@@ -395,6 +404,7 @@ export function clubStyle(colours: ClubColours): Record<string, string> {
   const band = mixColours(primary, '#000000', 0.22);
   return {
     '--club': primary,
+    '--club-text': readableClubColour(primary),
     '--club-2': secondary,
     '--club-band': band,
     '--club-band-ink': inkForColours(band),

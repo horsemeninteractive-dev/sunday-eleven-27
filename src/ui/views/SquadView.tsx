@@ -6,16 +6,18 @@ import { squadOf, squadAvailability } from '@/simulation/queries';
 import { socialGroupsFor } from '@/simulation/relationships';
 import { availabilityTone } from '../format';
 import { gameActions, useGame, useNextFixture } from '../hooks';
-import { Meter, PageHeader, Panel, Pill, SortTh } from '../components/primitives';
+import { Button, Meter, PageHeader, Panel, Pill, SortTh } from '../components/primitives';
 import { MetricTile, Section, TileGrid } from '../components/hierarchy';
 import { applySort, UNSORTED, type SortAccessors, type SortState } from '../tableSort';
+import { PersonIdentity } from '../components/PersonIdentity';
 
 const GROUP_ORDER: Array<PositionGroup | 'ALL'> = ['ALL', 'GK', 'DEF', 'MID', 'FWD'];
 const GROUP_LABEL: Record<PositionGroup | 'ALL', string> = { ALL: 'All', GK: 'GK', DEF: 'DEF', MID: 'MID', FWD: 'ATT' };
 const AVAILABILITY_ORDER: AvailabilityStatus[] = ['available', 'doubtful', 'unavailable'];
 const POSITION_CODES = Object.keys(POSITIONS) as PositionCode[];
 
-type SquadSortKey = 'player' | 'pos' | 'condition' | 'form' | 'availability' | 'apps' | 'goals';
+type SquadSortKey = 'player' | 'pos' | 'condition' | 'form' | 'availability' | 'apps' | 'goals' | 'morale' | 'assists' | 'age' | 'passing' | 'tackling' | 'shooting' | 'pace' | 'stamina';
+type SquadViewMode = 'selection' | 'performance' | 'attributes';
 
 /** What each heading sorts by. Kept with the table it belongs to. */
 const SQUAD_SORT: SortAccessors<Player, SquadSortKey> = {
@@ -27,6 +29,14 @@ const SQUAD_SORT: SortAccessors<Player, SquadSortKey> = {
   availability: (player) => AVAILABILITY_ORDER.indexOf(player.availability.status),
   apps: (player) => player.record.appearances,
   goals: (player) => player.record.goals,
+  morale: player => player.morale,
+  assists: player => player.record.assists,
+  age: player => player.age,
+  passing: player => player.attributes.technical.passing,
+  tackling: player => player.attributes.technical.tackling,
+  shooting: player => player.attributes.technical.shooting,
+  pace: player => player.attributes.physical.pace,
+  stamina: player => player.attributes.physical.stamina,
 };
 
 /**
@@ -43,6 +53,7 @@ export function SquadView() {
   const [group, setGroup] = useState<PositionGroup | 'ALL'>('ALL');
   const [availableOnly, setAvailableOnly] = useState(false);
   const [sort, setSort] = useState<SortState<SquadSortKey>>(UNSORTED);
+  const [viewMode, setViewMode] = useState<SquadViewMode>('selection');
   const captainId = fixture
     ? fixture.homeClubId === game?.userClubId
       ? fixture.lineups.home.captainId
@@ -63,6 +74,8 @@ export function SquadView() {
       <PageHeader
         eyebrow="Team"
         title="Squad"
+        subtitle="Who's in contention for Sunday? Open a name for attributes, availability and their story."
+        actions={<Button variant="primary" onClick={() => gameActions().setView('team')}>Pick the team</Button>}
         meta={
           <>
             <span className="small muted">{squad.length} registered</span>
@@ -88,12 +101,13 @@ export function SquadView() {
       </TileGrid>
 
       <Section
-        title="Roster"
+        title="Players"
         action={
           <div className="row row--wrap row--tight">
             <button
               type="button"
               className={`tab${availableOnly ? ' tab--active' : ''}`}
+              aria-pressed={availableOnly}
               onClick={() => setAvailableOnly((value) => !value)}
             >
               In contention
@@ -103,6 +117,7 @@ export function SquadView() {
                 key={option}
                 type="button"
                 className={`tab${group === option ? ' tab--active' : ''}`}
+                aria-pressed={group === option}
                 onClick={() => setGroup(option)}
               >
                 {GROUP_LABEL[option]}
@@ -111,42 +126,39 @@ export function SquadView() {
           </div>
         }
       >
+        <div className="squad-viewbar" role="group" aria-label="Squad list view">
+          {(['selection', 'performance', 'attributes'] as const).map(mode => <button type="button" key={mode} className={`tab${viewMode === mode ? ' tab--active' : ''}`} aria-pressed={viewMode === mode} onClick={() => setViewMode(mode)}>{mode === 'selection' ? 'Selection' : mode === 'performance' ? 'Season performance' : 'Key attributes'}</button>)}
+          <span className="small muted">{viewMode === 'attributes' ? 'Visible attributes · out of 20' : 'Same players, different information'}</span>
+        </div>
         <Panel level="default" flush>
           <div className="table-wrapper">
-            <table className="table table--stack table--clickable">
+            <table className="table table--compact squad-table" aria-label={`Squad ${viewMode} view`}>
               <thead>
                 <tr>
                   <SortTh label="Player" sortKey="player" sort={sort} onSort={setSort} />
                   <SortTh label="Pos" sortKey="pos" sort={sort} onSort={setSort} />
-                  <SortTh label="Condition" sortKey="condition" sort={sort} onSort={setSort} />
-                  <SortTh label="Form" sortKey="form" sort={sort} onSort={setSort} />
-                  <SortTh label="Availability" sortKey="availability" sort={sort} onSort={setSort} />
-                  <SortTh label="Apps" sortKey="apps" sort={sort} onSort={setSort} className="col--opt" />
-                  <SortTh label="Goals" sortKey="goals" sort={sort} onSort={setSort} className="col--opt" />
+                  {viewMode === 'selection' && <><SortTh label="Fitness" sortKey="condition" sort={sort} onSort={setSort} /><SortTh label="Form" sortKey="form" sort={sort} onSort={setSort} /><SortTh label="Morale" sortKey="morale" sort={sort} onSort={setSort} /><SortTh label="Availability" sortKey="availability" sort={sort} onSort={setSort} /></>}
+                  {viewMode === 'performance' && <><SortTh label="Apps" sortKey="apps" sort={sort} onSort={setSort} /><SortTh label="Goals" sortKey="goals" sort={sort} onSort={setSort} /><SortTh label="Assists" sortKey="assists" sort={sort} onSort={setSort} /><SortTh label="Form" sortKey="form" sort={sort} onSort={setSort} /></>}
+                  {viewMode === 'attributes' && <><SortTh label="Age" sortKey="age" sort={sort} onSort={setSort} />{(['passing', 'tackling', 'shooting', 'pace', 'stamina'] as const).map(key => <SortTh key={key} label={key.charAt(0).toUpperCase() + key.slice(1)} sortKey={key} sort={sort} onSort={setSort} />)}</>}
                 </tr>
               </thead>
               <tbody>
                 {rows.map((player) => (
                   <tr
                     key={player.id}
-                    className="table__row--clickable"
-                    onClick={() => gameActions().openProfile({ kind: 'player', id: player.id })}
-                    title={`Open ${player.firstName} ${player.surname}`}
+
                   >
                     <td>
-                      <strong>{player.surname}</strong>
+                      <PersonIdentity person={player} detail={player.occupation} />
                       {captainId === player.id && <Pill tone="accent">captain</Pill>}
                       {player.morale < 35 && <Pill tone="warn">unhappy</Pill>}
-                      <div className="muted small">
-                        {player.firstName} · {player.occupation}
-                      </div>
                     </td>
                     <td data-label="Pos">
                       <Pill tone="muted" title={POSITIONS[player.preferredPosition].label}>
                         {player.preferredPosition}
                       </Pill>
                     </td>
-                    <td data-label="Condition">
+                    {viewMode === 'selection' && <><td data-label="Fitness">
                       <Meter value={player.fitness} tone={player.fitness < 60 ? 'warn' : 'ok'} />
                       <span className="muted small">{Math.round(player.fitness)}%</span>
                     </td>
@@ -154,16 +166,19 @@ export function SquadView() {
                       <Meter value={player.form} tone={player.form > 60 ? 'ok' : player.form < 40 ? 'warn' : 'accent'} />
                       <span className="muted small">{Math.round(player.form)}</span>
                     </td>
+                    <td data-label="Morale">{Math.round(player.morale)}</td>
                     <td data-label="Availability">
                       <Pill tone={availabilityTone(player.availability.status)}>{player.availability.status}</Pill>
                       {player.availability.note && <div className="muted small">{player.availability.note}</div>}
                     </td>
-                    <td className="col--opt" data-label="Apps">
+                    </>}
+                    {viewMode === 'performance' && <><td data-label="Apps">
                       {player.record.appearances}
                     </td>
-                    <td className="col--opt" data-label="Goals">
+                    <td data-label="Goals">
                       {player.record.goals}
-                    </td>
+                    </td><td data-label="Assists">{player.record.assists}</td><td data-label="Form">{Math.round(player.form)}</td></>}
+                    {viewMode === 'attributes' && <><td data-label="Age">{player.age}</td><td data-label="Passing">{player.attributes.technical.passing}</td><td data-label="Tackling">{player.attributes.technical.tackling}</td><td data-label="Shooting">{player.attributes.technical.shooting}</td><td data-label="Pace">{player.attributes.physical.pace}</td><td data-label="Stamina">{player.attributes.physical.stamina}</td></>}
                   </tr>
                 ))}
               </tbody>
@@ -173,7 +188,7 @@ export function SquadView() {
         </Panel>
       </Section>
 
-      <DressingRoom clubId={club.id} />
+      <details className="more"><summary>Dressing-room relationships</summary><DressingRoom clubId={club.id} /></details>
     </div>
   );
 }

@@ -57,5 +57,27 @@ export const CREDITS: Credit[] = [
   },
 ];
 
+/**
+ * Touchline, described in one line and one paragraph.
+ *
+ * Touchline is the football simulation this game is built on: one match engine,
+ * one set of laws, and one record that everything downstream — the table, the
+ * cup, the finances, the record books — reads instead of reading the simulation
+ * itself. It is this project's own code.
+ *
+ * The wording is deliberately narrow, and it has to stay true: Touchline is not
+ * a third-party engine, not middleware, not a physics engine and not a model
+ * trained on anything at all. So nothing here says it is, and nothing here
+ * promises a capability the game does not have.
+ *
+ * This is the only place the simulation is *described* rather than named. The
+ * first boot introduces it, the game itself never mentions it, and a manager
+ * could play a hundred seasons without needing to know that it has a name.
+ */
+export const TOUCHLINE_TAGLINE = 'Authoritative Football Simulation System';
+
+export const TOUCHLINE_NOTE =
+  'Touchline is Sunday Eleven 27’s own football simulation: the engine that plays a fixture, the laws it is played under, and the record the rest of the game reads. Written for this game rather than licensed into it.';
+
 export const CREDITS_NOTE =
   'Any resemblance to a real club, player, referee, ground or pub is a coincidence of naming and nothing more.';

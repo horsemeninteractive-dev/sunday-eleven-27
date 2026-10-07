@@ -1,162 +1,21 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { versionLabel } from '@/version';
-import type { SaveSlotInfo } from '@/state/persistence';
 import { gameActions } from '../hooks';
 import { Button } from '../components/primitives';
 import { Glyph } from '../components/icons';
+import { Dialog } from '../dialogs/Dialog';
+import { SaveManager } from '../dialogs/SaveManager';
 
-const SLOTS = ['slot-1', 'slot-2', 'slot-3'];
-
-/**
- * Settings.
- *
- * Saving, loading, how the game behaves and leaving it are all important and
- * none of them are football, so they live behind one control rather than
- * scattered through the header. The header is for the club.
- */
+/** Club business stays in the shell; local career tools have one home. */
 export function UtilityMenu({ compact = false, icon = false }: { compact?: boolean; icon?: boolean }) {
   const [open, setOpen] = useState(false);
-  const [autosave, setAutosave] = useState<SaveSlotInfo | undefined>(undefined);
-  const ref = useRef<HTMLDivElement | null>(null);
-  // Read when the menu opens, like the start screen: the autosave moves on as
-  // the manager plays, and the menu is not watching it. The list comes from the
-  // database, so it arrives rather than being there.
-  useEffect(() => {
-    if (!open) {
-      setAutosave(undefined);
-      return;
-    }
-    let current = true;
-    void gameActions()
-      .listSaves()
-      .then((saves) => {
-        if (current) setAutosave(saves.find((save) => save.auto));
-      });
-    return () => {
-      current = false;
-    };
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: MouseEvent) => {
-      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('mousedown', onPointerDown);
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', onPointerDown);
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [open]);
-
-  const openDialog = (dialog: 'preferences' | 'changelog') => {
-    setOpen(false);
-    gameActions().openDialog(dialog);
-  };
-
-  return (
-    <div className="utility" ref={ref}>
-      <button
-        type="button"
-        className={icon ? 'topbar__icon' : `utility__trigger${compact ? ' utility__trigger--compact' : ''}`}
-        aria-expanded={open}
-        aria-haspopup="menu"
-        aria-label="Settings"
-        title="Settings"
-        onClick={() => setOpen((value) => !value)}
-      >
-        <Glyph name="settings" />
-        {!icon && <span>Settings</span>}
-      </button>
-
-      {open && (
-        <div className="utility__panel" role="menu" aria-label="Settings">
-          <div className="utility__section">
-            <p className="utility__heading">Save to a local slot</p>
-            <div className="utility__row">
-              {SLOTS.map((slot, index) => (
-                <Button
-                  key={slot}
-                  size="sm"
-                  onClick={() => {
-                    void gameActions().saveGame(slot);
-                    setOpen(false);
-                  }}
-                >
-                  Slot {index + 1}
-                </Button>
-              ))}
-            </div>
-          </div>
-
-          <div className="utility__section">
-            <p className="utility__heading">Load a saved game</p>
-            <div className="utility__row">
-              {SLOTS.map((slot, index) => (
-                <Button
-                  key={slot}
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    void gameActions().loadGame(slot);
-                    setOpen(false);
-                  }}
-                >
-                  Slot {index + 1}
-                </Button>
-              ))}
-              {autosave && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    void gameActions().loadGame(autosave.slot);
-                    setOpen(false);
-                  }}
-                >
-                  Last autosave
-                </Button>
-              )}
-            </div>
-          </div>
-
-          <div className="utility__section">
-            <p className="utility__heading">The game</p>
-            <div className="utility__row">
-              <Button variant="ghost" size="sm" onClick={() => openDialog('preferences')}>
-                Preferences
-              </Button>
-              <Button variant="ghost" size="sm" onClick={() => openDialog('changelog')}>
-                Changelog
-              </Button>
-            </div>
-          </div>
-
-          <p className="utility__note">
-            Slots live in this browser and hold the whole world, not just your club. Three slots, overwritten when you
-            reuse one. The game also saves as you play, so a closed tab never costs you a season.
-          </p>
-
-          <Button
-            variant="danger"
-            size="sm"
-            onClick={() => {
-              void gameActions().quitToMenu();
-              setOpen(false);
-            }}
-          >
-            <Glyph name="exit" /> Return to the main menu
-          </Button>
-
-          <p className="utility__version">
-            {versionLabel()} — leaving for the menu keeps your career: it is waiting under Continue.
-          </p>
-        </div>
-      )}
-    </div>
-  );
+  const [savesOpen, setSavesOpen] = useState(false);
+  const openDialog = (dialog: 'preferences' | 'changelog' | 'credits' | 'profiles') => { setOpen(false); gameActions().openDialog(dialog); };
+  return <>
+    <button type="button" className={icon ? 'topbar__icon' : `utility__trigger${compact ? ' utility__trigger--compact' : ''}`} aria-haspopup="dialog" aria-expanded={open} aria-label="Settings and saved careers" title="Settings and saved careers" onClick={() => setOpen(true)}><Glyph name="settings" />{!icon && <span>Settings</span>}</button>
+    {open && <Dialog title="The game" subtitle={versionLabel()} narrow onClose={() => setOpen(false)}>
+      <div className="stack"><Button variant="primary" onClick={() => { setOpen(false); setSavesOpen(true); }}>Save or load a career</Button><div className="row row--wrap"><Button variant="ghost" onClick={() => openDialog('preferences')}>Preferences</Button><Button variant="ghost" onClick={() => openDialog('profiles')}>Managers</Button><Button variant="ghost" onClick={() => openDialog('changelog')}>Changelog</Button><Button variant="ghost" onClick={() => openDialog('credits')}>Credits</Button></div><p className="small muted">Your career is saved as you play. Returning to the menu leaves your saved club waiting under Continue.</p><Button variant="ghost" onClick={() => { setOpen(false); void gameActions().quitToMenu(); }}><Glyph name="exit" /> Return to the main menu</Button></div>
+    </Dialog>}
+    {savesOpen && <SaveManager onClose={() => setSavesOpen(false)} />}
+  </>;
 }

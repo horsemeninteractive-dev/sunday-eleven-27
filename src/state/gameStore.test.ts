@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Player } from '@/domain/person';
 import { listProfiles } from './managerProfiles';
 import { addDays } from '@/simulation/calendar';
-import { currentScore } from '@/simulation/match/engine';
+import { currentScore } from '@/simulation/match/core';
 import { fullTimeOutcome, fullTimeTalkMoraleDelta } from '@/simulation/match/preparation';
 import { nextFixtureFor } from '@/simulation/schedule';
 import { clubKit } from '@/ui/kit';
@@ -192,7 +192,7 @@ describe('the matchday', () => {
     for (let i = 0; i < 5; i += 1) gameStore().tickMatch();
 
     const before = gameStore().session!;
-    const clock = before.live.spatial?.clock;
+    const clock = before.live.minute;
     expect(gameStore().preferences.renderer).toBe('2d');
 
     // Choosing another view is a preference, not a match control: the session is
@@ -204,7 +204,7 @@ describe('the matchday', () => {
     expect(gameStore().session!.speed).toBe(before.speed);
     expect(gameStore().session!.paused).toBe(before.paused);
     expect(gameStore().session!.live.events.length).toBe(before.live.events.length);
-    expect(gameStore().session!.live.spatial?.clock).toBe(clock);
+    expect(gameStore().session!.live.minute).toBe(clock);
 
     gameStore().setPreferences({ renderer: '2d' });
     expect(gameStore().preferences.renderer).toBe('2d');

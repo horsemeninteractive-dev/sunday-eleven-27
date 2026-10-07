@@ -260,7 +260,9 @@ export function buildLineupForClub(state: GameState, clubId: ClubId): MatchLineu
   const club = state.clubs[clubId]!;
   const squad = club.squadIds.map((id) => state.people[id]).filter(isPlayer);
   const tactics = club.tactics;
-  const selection = autoPickLineup(squad, tactics.formation);
+  // The assistant picks for the shape the manager has set out, not merely for
+  // the name it was built from: a back three is a back three.
+  const selection = autoPickLineup(squad, tactics.formation, { shape: tactics.shape });
   const captain = selection.starting
     .map((slot) => state.people[slot.playerId])
     .filter(isPlayer)

@@ -1,21 +1,20 @@
 import type { Rng } from '../../rng';
 import { otherSide } from '../core';
+// The restarts themselves — which ones exist, where each is placed, how long each
+// is given, who takes it and what a strike from it is worth — are the laws of the
+// game and live in `../laws`, shared with the background resolution.
+import {
+  RESTART_SETUP_SECONDS,
+  RESTART_STRIKES,
+  penaltyTaker,
+  restartSpotFor,
+  strikeOutcome,
+} from '../laws';
 import { roleProfile } from '../roles';
 import { strikeBall } from './ball';
 import type { DecisionWorld } from './decisions';
 import { statsFor } from './events';
-import {
-  clamp,
-  clampPitch,
-  distance,
-  goalLine,
-  MAX_Y,
-  MIN_Y,
-  ownGoalLine,
-  penaltySpot,
-  progressOf,
-  xFromProgress,
-} from './pitch';
+import { clamp, distance, goalLine, ownGoalLine, progressOf, xFromProgress } from './pitch';
 import { activePlayers, keeperOf, playerOf } from './state';
 import type { MatchEngineState, PlayerMatchState, SetPieceKind, SetPieceState, Side } from './types';
 
@@ -39,59 +38,57 @@ import type { MatchEngineState, PlayerMatchState, SetPieceKind, SetPieceState, S
  */
 const CENTRE_CIRCLE_RADIUS = 0.09;
 
-/** How long each kind of dead ball is given to arrange. */
-const SETUP_SECONDS: Record<SetPieceKind, number> = {
-  // A kick-off takes longer than it looks: at the restart both sides are often
-  // still up the pitch from the last attack, and they have to walk back into
-  // their own half and out of the centre circle before the ball may be played.
-  kickoff: 6,
-  'throw-in': 2,
-  'goal-kick': 4,
-  corner: 6,
-  'free-kick': 5,
-  penalty: 6,
-};
+/**
+ * Where a dead ball is placed: the law's own geometry, taken from `../laws` so
+ * that both resolutions put a corner on the same blade of grass. Re-exported
+ * under the name the engine has always called it.
+ */
+export { restartSpotFor as spotFor };
 
-/** The spot a dead ball is placed on, given where the ball left play. */
-export function spotFor(kind: SetPieceKind, side: Side, ball: { x: number; y: number }): { x: number; y: number } {
-  switch (kind) {
-    case 'kickoff':
-      return { x: 0.5, y: 0.5 };
-    case 'throw-in': {
-      const x = clamp(ball.x, 0.06, 0.94);
-      // The touchline the ball is put back on — the edge of the playing surface,
-      // where a thrower can actually stand, rather than a hair off it.
-      const y = ball.y <= 0.5 ? MIN_Y : MAX_Y;
-      return { x, y };
-    }
-    case 'goal-kick': {
-      const x = ownGoalLine(side) + (side === 'home' ? 0.055 : -0.055);
-      return { x, y: 0.5 };
-    }
-    case 'corner': {
-      const x = goalLine(side);
-      const y = ball.y <= 0.5 ? MIN_Y : MAX_Y;
-      return { x, y };
-    }
-    case 'free-kick':
-      return clampPitch(ball.x, ball.y);
-    case 'penalty':
-      return penaltySpot(otherSide(side));
-  }
+/**
+ * The order to begin a dead ball with.
+ *
+ * Two things are the caller's rather than the laws': whether a free kick is
+ * *direct* (a foul's restart is; an offside's is not), and whether the club has
+ * named a taker for it.
+ */
+export interface SetPieceOrder {
+  /** A direct free kick may be struck at goal. */
+  direct?: boolean;
+  /** The club's nominated taker, when the tactics name one. */
+  takerId?: string | null;
 }
 
-/** Choose who takes it: the nearest able man, or the keeper for a goal kick. */
-function chooseTaker(state: MatchEngineState, sp: SetPieceState): PlayerMatchState | null {
+/**
+ * Choose who takes it: the nearest able man, or the keeper for a goal kick.
+ *
+ * A penalty follows the law in `../laws`: the club's nominated taker when it
+ * named one and he is out there, and otherwise the side's most advanced
+ * outfielder — its striker — never the keeper, who only takes goal kicks. The
+ * nomination used to be read by the background resolution alone, which left the
+ * manager's choice on the tactics screen while a watched match handed the ball to
+ * somebody else.
+ */
+function chooseTaker(
+  state: MatchEngineState,
+  sp: SetPieceState,
+  nominatedTakerId?: string | null,
+): PlayerMatchState | null {
   if (sp.kind === 'goal-kick') {
     return keeperOf(state, sp.side) ?? activePlayers(state, sp.side)[0] ?? null;
   }
   if (sp.kind === 'penalty') {
-    // A penalty is taken by the side's most advanced outfielder — its striker —
-    // not by the keeper, who only takes goal kicks.
     const outfield = activePlayers(state, sp.side).filter((player) => player.position !== 'GK');
     const pool = outfield.length > 0 ? outfield : activePlayers(state, sp.side);
-    return pool.reduce((best, player) =>
-      progressOf(sp.side, player.baseX) > progressOf(sp.side, best.baseX) ? player : best,
+    const nominated = nominatedTakerId
+      ? pool.find((player) => player.playerId === nominatedTakerId)
+      : undefined;
+    return (
+      penaltyTaker(nominated, () =>
+        pool.reduce((best, player) =>
+          progressOf(sp.side, player.baseX) > progressOf(sp.side, best.baseX) ? player : best,
+        ),
+      ) ?? null
     );
   }
   const candidates = activePlayers(state, sp.side).filter((player) => player.position !== 'GK');
@@ -101,13 +98,19 @@ function chooseTaker(state: MatchEngineState, sp: SetPieceState): PlayerMatchSta
   );
 }
 
-/** Begin a dead ball: place it, choose the taker, and hand the arrangement over. */
+/**
+ * Begin a dead ball: place it, choose the taker, and hand the arrangement over.
+ *
+ * The spot, the time it is given and who takes it are the laws of the game
+ * (`../laws`); the `order` is the caller's two bits of local knowledge — whether
+ * the free kick is direct, and whether the club named a taker.
+ */
 export function beginSetPiece(
   state: MatchEngineState,
   kind: SetPieceKind,
   side: Side,
   spot: { x: number; y: number },
-  direct = false,
+  order: SetPieceOrder = {},
 ): void {
   const sp: SetPieceState = {
     kind,
@@ -115,14 +118,14 @@ export function beginSetPiece(
     spot: { x: clamp(spot.x, 0.01, 0.99), y: clamp(spot.y, 0.01, 0.99) },
     phase: 'setup',
     elapsed: 0,
-    setupSeconds: SETUP_SECONDS[kind],
+    setupSeconds: RESTART_SETUP_SECONDS[kind],
     takerId: null,
     delivery: null,
-    direct,
+    direct: order.direct ?? false,
     played: false,
     arranged: false,
   };
-  sp.takerId = chooseTaker(state, sp)?.playerId ?? null;
+  sp.takerId = chooseTaker(state, sp, order.takerId)?.playerId ?? null;
   state.setPiece = sp;
   state.phase = kind === 'kickoff' ? 'kickoff' : kind;
   state.possession = side;
@@ -291,9 +294,10 @@ function planDelivery(state: MatchEngineState, sp: SetPieceState, rng: Rng): voi
       const canShoot = Boolean(shooting && (shooting.includes('final-third') || shooting.includes('box')));
       if (sp.direct && progress > 0.68 && canShoot && rng.chance(0.7)) {
         // A direct free kick at goal has the same outcomes as any other shot:
-        // usually kept out, sometimes beaten, sometimes off target.
-        const roll = rng.float(0, 1);
-        const outcome = roll < 0.12 ? 'goal' : roll < 0.67 ? 'saved' : roll < 0.87 ? 'wide' : 'over';
+        // usually kept out, sometimes beaten, sometimes off target. What it is
+        // worth is the law's, in `../laws`, so the background resolution and this
+        // one cannot drift about what a free kick at goal is.
+        const outcome = strikeOutcome(RESTART_STRIKES['free-kick'], rng.float(0, 1));
         const y =
           outcome === 'wide'
             ? 0.5 + (rng.chance(0.5) ? -1 : 1) * (0.055 + rng.float(0.01, 0.04))
@@ -309,9 +313,10 @@ function planDelivery(state: MatchEngineState, sp: SetPieceState, rng: Rng): voi
     case 'penalty': {
       const posts = { near: 0.5 - 0.055, far: 0.5 + 0.055 };
       // A penalty is a shot from the spot: mostly scored, sometimes saved, and
-      // every so often put wide. "Mostly" is not "always".
-      const roll = rng.float(0, 1);
-      if (roll < 0.1) {
+      // every so often put wide. "Mostly" is not "always", and how much "mostly"
+      // is is the law's (`../laws`), shared with the background resolution.
+      const outcome = strikeOutcome(RESTART_STRIKES.penalty, rng.float(0, 1));
+      if (outcome === 'wide' || outcome === 'over') {
         const sideOfPitch = rng.chance(0.5) ? -1 : 1;
         sp.delivery = {
           kind: 'shot',
@@ -321,7 +326,7 @@ function planDelivery(state: MatchEngineState, sp: SetPieceState, rng: Rng): voi
           seconds: 1.1,
           shotOutcome: 'wide',
         };
-      } else if (roll < 0.3) {
+      } else if (outcome === 'saved') {
         // A save is struck where the keeper is; a goal into a corner.
         sp.delivery = { kind: 'shot', targetId: null, x: goalLine(side), y: 0.5 + rng.float(-0.03, 0.03), seconds: 1.1, shotOutcome: 'saved' };
       } else {

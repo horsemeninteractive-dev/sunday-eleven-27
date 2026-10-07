@@ -6,7 +6,7 @@ import { matchEnvironment, prepareMatchday } from '@/simulation/matchday';
 import { nextMatchday } from '@/simulation/timeline';
 import { cloneMatch } from '../testHelpers';
 import { createMatchEngine } from './engine';
-import { commentaryFor } from './narrate';
+import { commentaryFor, recordCommentary } from './narrate';
 
 /** The human's own fixture on the next matchday, with lineups prepared. */
 function userMatch(state: GameState): Match {
@@ -44,5 +44,28 @@ describe('the match narrator', () => {
     expect(passing.some((line) => / finds /.test(line.text))).toBe(true);
     // And a carry reads as a man driving the ball forward.
     expect(movement.some((line) => /drives/.test(line.text))).toBe(true);
+  });
+
+  it('numbers the transcript once, in the order it was told', () => {
+    // The transcript is the told version of the record, and every line carries an
+    // id a reader can key a list on. Written in two batches — which is what the
+    // drain does, a few seconds of football at a time — the ids must run on from
+    // each other rather than starting again, or the second batch is a duplicate.
+    const { state } = createTestGame('narrate-transcript');
+    const match = userMatch(state);
+    const env = matchEnvironment(state, match, { autoManageAllBenches: true });
+    createMatchEngine(match, env).runToCompletion();
+
+    const lines = commentaryFor(match.events.slice(0, 20), match, env);
+    recordCommentary(match, lines.slice(0, 8));
+    recordCommentary(match, lines.slice(8, 14));
+
+    const told = match.commentary ?? [];
+    expect(told.length).toBe(14);
+    expect(told[0]!.id).toBe(`${match.id}_c1`);
+    expect(told[13]!.id).toBe(`${match.id}_c14`);
+    expect(new Set(told.map((entry) => entry.id)).size).toBe(14);
+    // The words are the ones handed over, in the order they were handed over.
+    expect(told.map((entry) => entry.text)).toEqual(lines.slice(0, 14).map((entry) => entry.text));
   });
 });

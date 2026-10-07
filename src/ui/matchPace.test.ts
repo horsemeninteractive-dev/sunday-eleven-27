@@ -1,12 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { SPATIAL_SECONDS_PER_MINUTE } from '@/simulation/match/spatial';
 import { MATCH_SPEED_LABEL, MATCH_SPEEDS } from '@/state/preferences';
-import { BASE_MINUTE_MS, matchMinuteMs, spatialSecondsPerRealSecond } from './matchPace';
+import { BASE_MINUTE_MS, SECONDS_PER_MINUTE, matchMinuteMs, matchSecondsPerRealSecond } from './matchPace';
 
 /**
  * How fast a match is watched.
  *
- * The pitch clock is now the match clock — one spatial second is one second of
+ * The pitch clock is the engine's own clock — one second of it is one second of
  * football — so watching it at true speed would take ninety real minutes.
  * `BASE_MINUTE_MS` is the compression that makes it followable: at 1x a minute of
  * football is watched over a few seconds, and every other setting divides that
@@ -20,17 +19,17 @@ describe('match pace', () => {
   it('watches a whole minute at 1x, and covers the whole pitch in it', () => {
     expect(matchMinuteMs(1)).toBe(BASE_MINUTE_MS);
     // At 1x, one minute of watching is worth exactly one minute of football.
-    expect(spatialSecondsPerRealSecond(1)).toBe((SPATIAL_SECONDS_PER_MINUTE * 1000) / BASE_MINUTE_MS);
+    expect(matchSecondsPerRealSecond(1)).toBe((SECONDS_PER_MINUTE * 1000) / BASE_MINUTE_MS);
     // And that is more than true speed: the match is compressed, not stretched.
-    expect(spatialSecondsPerRealSecond(1)).toBeGreaterThan(1);
+    expect(matchSecondsPerRealSecond(1)).toBeGreaterThan(1);
   });
 
   it('compresses the same minute rather than changing it above 1x', () => {
-    const atOne = spatialSecondsPerRealSecond(1);
+    const atOne = matchSecondsPerRealSecond(1);
     for (const speed of MATCH_SPEEDS) {
       // The rate is the setting times the base, exactly, so a match is never
       // watched at a pace nobody asked for.
-      expect(spatialSecondsPerRealSecond(speed)).toBe(atOne * speed);
+      expect(matchSecondsPerRealSecond(speed)).toBe(atOne * speed);
       // And every speed is the base minute divided, never anything else.
       expect(matchMinuteMs(speed)).toBe(BASE_MINUTE_MS / speed);
     }
@@ -47,6 +46,6 @@ describe('match pace', () => {
     // is the safe way to be wrong.
     expect(matchMinuteMs(0)).toBe(BASE_MINUTE_MS);
     expect(matchMinuteMs(Number.NaN)).toBe(BASE_MINUTE_MS);
-    expect(spatialSecondsPerRealSecond(Number.NaN)).toBe(spatialSecondsPerRealSecond(1));
+    expect(matchSecondsPerRealSecond(Number.NaN)).toBe(matchSecondsPerRealSecond(1));
   });
 });

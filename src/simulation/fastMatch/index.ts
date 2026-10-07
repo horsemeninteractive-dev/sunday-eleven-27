@@ -8,14 +8,22 @@ import {
 import { simulateMatchFast } from './simulate';
 
 /**
- * The background simulation mode, in one place.
+ * Touchline — the abstract resolution, and the door between the two.
  *
- * The game has two ways to play a fixture and both of them live behind this
- * barrel: `'full'` is the `MatchEngine` (see `MATCH_ENGINE.md`) and `'fast'` is
- * the abstract background model beside it. Neither replaces the other — the full
- * engine remains the authoritative simulation for a match somebody is watching,
- * and the fast mode exists so the *other* forty-odd fixtures on a Sunday, and the
- * season-long runs built on them, stop costing seconds apiece.
+ * **Touchline decides what happens. Presentation shows what happened.** The game
+ * has two ways to play a fixture and both of them live behind this barrel:
+ * `'full'` is the detailed resolution (the `MatchEngine` a manager watches, see
+ * `MATCH_ENGINE.md` and `matchEngine/`) and `'fast'` is the abstract resolution
+ * beside it. Neither replaces the other — the detailed engine remains the
+ * authoritative simulation for a match somebody is watching, and the abstract
+ * mode exists so the *other* forty-odd fixtures on a Sunday, and the season-long
+ * runs built on them, stop costing seconds apiece.
+ *
+ * They are two resolutions of one Touchline, not two football universes: they are
+ * handed the same `MatchEnvironment`, they judge a side with the same
+ * `computeTeamStrength` and `tacticalProfile`, they roll knocks with the same
+ * `pickInjury`, and they write the same `Match` record. `TOUCHLINE_ARCHITECTURE.md` §"Fast / background simulation" is the
+ * inventory of what the two share and what they realistically could.
  *
  * `simulateFixture` is the single explicit door: a caller says which mode it
  * wants and gets exactly that. Nothing infers the mode from what the caller is,

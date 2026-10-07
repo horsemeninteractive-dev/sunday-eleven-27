@@ -1,7 +1,7 @@
 import type { Match, PlayerPerformance } from '@/domain/match';
 import type { Player } from '@/domain/person';
 import type { PositionCode } from '@/domain/positions';
-import { FORMATIONS, getFormation, type FormationId } from '@/domain/positions';
+import { FORMATIONS, formationSlots, type FormationId, type FormationSlot } from '@/domain/positions';
 import type { MatchEnvironment } from '../core';
 import { sideClubId } from '../core';
 import { defaultRoleFor, roleProfile, type Role } from '../roles';
@@ -86,8 +86,9 @@ function createPlayer(
   position: Match['lineups']['home']['starting'][number]['position'],
   role: Match['lineups']['home']['starting'][number]['role'],
 ): PlayerMatchState {
-  const formation = getFormation((match.lineups[side].formation as FormationId) ?? '4-4-2');
-  const slot = formation.slots[slotIndex] ?? { x: 0.5, y: 0.5 };
+  // The shape the manager set, not the name he set it from: a side whose dots
+  // have been moved is laid out where he put them.
+  const slot = formationSlots(match.lineups[side].formation, match.lineups[side].tactics.shape)[slotIndex] ?? { x: 0.5, y: 0.5 };
   const base = slotBase(side, slot.x, slot.y);
   const person = env.getPlayer(playerId);
   const speed = person ? topSpeedFor(person) : 0.05;
@@ -164,8 +165,13 @@ export function makePlayerForSlot(
 }
 
 /** The formation base of a slot, in the engine's fixed frame. */
-export function formationBase(side: Side, formation: string, slotIndex: number): { x: number; y: number } {
-  const slots = getFormation((formation as FormationId) ?? '4-4-2').slots;
+export function formationBase(
+  side: Side,
+  formation: string,
+  slotIndex: number,
+  shape?: readonly FormationSlot[],
+): { x: number; y: number } {
+  const slots = formationSlots(formation, shape);
   const slot = slots[slotIndex] ?? { x: 0.5, y: 0.5 };
   return slotBase(side, slot.x, slot.y);
 }

@@ -62,7 +62,7 @@ export function KitView() {
         <KitSetRow club={club} kit={kit} size={124} />
       </Section>
 
-      <Section title="Details">
+      <details className="more"><summary>The kit deal · maker, sponsor and colours</summary><Section>
         <TileGrid min={170}>
           <StatusTile
             label="Shirt sponsor"
@@ -87,7 +87,7 @@ export function KitView() {
             note={`${club.identity.colours.primary} · ${club.identity.colours.secondary}`}
           />
         </TileGrid>
-      </Section>
+      </Section></details>
 
       <Section
         title="This season's designs"
@@ -117,13 +117,13 @@ export function KitView() {
         </div>
       </Section>
 
-      <Section title="Kit bag">
+      <details className="more"><summary>Strip descriptions</summary><Section>
         <TileGrid min={215}>
           <MetricTile label="Home" value={describeStrip(kit.home)} />
           <MetricTile label="Away" value={describeStrip(kit.away)} />
           <MetricTile label="Goalkeeper" value={describeStrip(kit.goalkeeper)} />
         </TileGrid>
-      </Section>
+      </Section></details>
     </div>
   );
 }

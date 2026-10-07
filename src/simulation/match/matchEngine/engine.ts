@@ -25,12 +25,15 @@ import {
 import { emptyStats, type MatchEngineState, type Side } from './types';
 
 /**
- * The match engine.
+ * Touchline — the detailed resolution: the match engine a manager watches.
  *
- * This is where the football happens. It owns the clock, the phase of play, the
- * players, the ball, possession, set pieces, the score and the events; everything
- * else — a renderer, the commentary, the statistics, a future 3D view — observes
- * the state it produces and never decides anything of its own.
+ * **Touchline decides what happens. Presentation shows what happened.** This is
+ * where the football happens. It owns the clock, the phase of play, the players,
+ * the ball, possession, set pieces, the score and the events; everything else — a
+ * renderer, the commentary, the statistics, a future 3D view — observes the state
+ * it produces and never decides anything of its own. The abstract resolution of
+ * the same Touchline is `src/simulation/fastMatch/`; `TOUCHLINE_ARCHITECTURE.md` is the audit
+ * of the whole system.
  *
  * The engine advances in fixed steps of football, never in browser frames. A
  * renderer may draw at 30, 60 or 144 frames a second and a manager may watch at
@@ -158,7 +161,33 @@ export class MatchEngine {
 
   /** Drain the events emitted since the last read. */
   drain(): MatchEvent[] {
+    this.mirrorPossession();
     return drainEvents(this.state);
+  }
+
+  /**
+   * Bring the match's possession ticks level with the engine's own clock.
+   *
+   * `match.possessionTicks` is what the statistics panel reads, and the engine
+   * counts possession in seconds, so the two are reconciled here — at the one
+   * moment the engine is handing the outside world everything it has decided.
+   *
+   * The engine is the **only** writer of that field. It used to have a second
+   * one: the store mirrored the running total onto the match once per drain
+   * (`liveEngine.syncEnginePossession`), which worked but left one field of the
+   * record with two authors. Draining *is* the hand-over, so the reconciliation
+   * lives inside the engine now, and nothing outside it writes this again — see
+   * `TOUCHLINE_ARCHITECTURE.md` § "State ownership".
+   *
+   * Ticks only ever increase, so a caller that drains twice cannot move them
+   * backwards, and a drain before kick-off leaves them at zero.
+   */
+  private mirrorPossession(): void {
+    const stats = this.state.stats;
+    const home = Math.round(stats.home.possessionSeconds);
+    const away = Math.round(stats.away.possessionSeconds);
+    if (home > this.match.possessionTicks.home) this.match.possessionTicks.home = home;
+    if (away > this.match.possessionTicks.away) this.match.possessionTicks.away = away;
   }
 
   /**

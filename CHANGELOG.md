@@ -10,6 +10,18 @@ move (any save from an older build is migrated forward on load). `1.0.0` means
 it is finished. This file is also the changelog inside the game, reachable from
 the main menu.
 
+## [0.10.1] - 2026-10-09 — the ladder reaches the top
+
+### Fixed
+
+**A promotion into the top division lifts a club's standing, as a promotion anywhere else in the ladder does.** The
+lift towards the company of the division being joined was guarded by a check that read a target tier of 1 as "no
+division above the club", so a side going up into the top division was paid the promotion itself and nothing more,
+while a side going up one rung lower was lifted towards the level it was joining — the strongest division in the
+county, and the one a career is actually about, was the only one where the lift never applied. Found by the standing
+model's own tests, which read the lift as the point of a promotion into a stronger division: the same tests now hold
+the top division to it.
+
 ## [0.10.0] - 2026-10-08 — the man in the other dugout and the ladder that pays
 
 ### A ladder that pays the clubs that climb it

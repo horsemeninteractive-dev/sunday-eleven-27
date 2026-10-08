@@ -31,6 +31,7 @@ import { applyMatchConsequences } from './consequences';
 import { applyMatchdayFinances } from './finance';
 import { deserialiseGame, serialiseGame } from '@/state/persistence';
 import { isLeagueMatchday, matchdaysPlayed, nextMatchday } from './timeline';
+import { STANDING } from './standing';
 
 describe('weekly progression', () => {
   it('plays the matchday, records results and moves the world on a week', () => {
@@ -237,6 +238,12 @@ describe('weekly progression', () => {
     // numbered after the league's matchdays. A club's league season is as long
     // as the league's Sundays, not the calendar's entries.
     const matchdays = state.season.calendar.filter((entry) => isLeagueMatchday(state, entry.matchday)).length;
+    // Closing the season moves the county's opinion of its clubs as well as its
+    // fixtures: the standing model reads each finish against the county's own
+    // expectation of the club. So the county has to be read *before* the season,
+    // or the change it makes at the boundary is invisible.
+    const standingBefore = new Map(Object.values(state.clubs).map((club) => [club.id, club.reputation]));
+    const finishedSeasonId = state.season.id;
     // A Sunday league season does not finish neatly on the last scheduled
     // Sunday: called-off games are rearranged into the weeks that follow, and
     // the season closes once the last of them has been played.
@@ -284,6 +291,25 @@ describe('weekly progression', () => {
     // Every club still has a usable squad after retirements and recruitment.
     for (const club of Object.values(state.clubs)) {
       expect(club.squadIds.length).toBeGreaterThanOrEqual(18);
+    }
+
+    // And the boundary reported the ladder it settled, with standing moved in the
+    // direction the ladder points. The cap and the floor are the only reasons a
+    // promoted club does not rise and a relegated one does not fall: both were
+    // checked in `standing.test.ts`, against a division built to order.
+    const movements = state.promotionHistory.filter((movement) => movement.seasonId === finishedSeasonId);
+    expect(movements.length).toBeGreaterThan(0);
+    for (const movement of movements) {
+      if (movement.blockedReason) continue; // the club stayed where it was
+      const club = state.clubs[movement.clubId];
+      if (!club) continue; // it folded, and was replaced in the same summer
+      const before = standingBefore.get(club.id)!;
+      if (movement.direction === 'promoted' && before < STANDING.ceiling) {
+        expect(club.reputation, movement.clubName).toBeGreaterThan(before);
+      }
+      if (movement.direction === 'relegated' && before > STANDING.floor) {
+        expect(club.reputation, movement.clubName).toBeLessThan(before);
+      }
     }
   });
 

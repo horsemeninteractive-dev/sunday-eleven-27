@@ -1,7 +1,7 @@
 {
   "name": "sunday-eleven-27",
   "private": true,
-  "version": "0.10.0",
+  "version": "0.10.1",
   "type": "module",
   "description": "Sunday Eleven 27 - grassroots English Sunday League football management simulation",
   "scripts": {
@@ -13,7 +13,7 @@
     "test": "vitest run",
     "test:slow": "vitest run --config vitest.slow.config.ts",
     "test:all": "vitest run --config vitest.slow.config.ts && vitest run",
-    "test:soak": "vitest run src/simulation/soak.test.ts",
+    "test:soak": "vitest run --config vitest.slow.config.ts src/simulation/soak.test.ts",
     "test:watch": "vitest",
     "balance": "vite-node tools/balance.ts",
     "benchmark": "vite-node tools/benchmark.ts",

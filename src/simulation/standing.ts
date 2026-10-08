@@ -105,7 +105,15 @@ function expectedOrder(state: GameState, clubIds: readonly ClubId[]): Map<ClubId
   return new Map(ordered.map((clubId, index) => [clubId, index + 1]));
 }
 
-/** The standing a division's company carries, as the level a promoted club joins. */
+/**
+ * The standing a division's company carries, as the level a promoted club joins.
+ *
+ * Called with the tier of the division being joined, so `tier` is 1 for a club
+ * promoted into the top division — that is a division like any other and the
+ * lift applies to it. There is no division above the top, and a club already
+ * playing there is never promoted anywhere, so a tier with no division behind it
+ * is the only case that has nothing to say.
+ */
 function divisionFloor(state: GameState, tier: number): number | null {
   const division = leagueCompetitions(state).find((competition) => competition.tier === tier);
   if (!division || division.clubIds.length === 0) return null;
@@ -119,7 +127,6 @@ function divisionFloor(state: GameState, tier: number): number | null {
   // thing in the division until it proves otherwise, and that is exactly what it
   // should be paid for.
   const index = Math.floor((reputations.length - 1) * 0.25);
-  if (tier <= 1) return null;
   return reputations[index]!;
 }
 

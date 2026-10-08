@@ -7,13 +7,14 @@ import {
   type PointerEvent,
 } from 'react';
 import type { BenchSlot, LineupSlot, MatchLineup } from '@/domain/match';
-import { isPlayer, type Player } from '@/domain/person';
+import { availabilityRank, isPlayer } from '@/domain/person';
 import {
   FORMATION_IDS,
   POSITIONS,
   getFormation,
   isNamedShape,
   positionForPoint,
+  positionRank,
   type FormationId,
   type FormationSlot,
   type PositionCode,
@@ -23,8 +24,14 @@ import { availabilityTone, playerName } from '../format';
 import { gameActions, useGame, useNextFixture, useSquad } from '../hooks';
 import { Button, Meter, PageHeader, Panel, Pill } from '../components/primitives';
 import { PlayerLink } from '../components/Links';
+import { PersonIdentity } from '../components/PersonIdentity';
 import { Glyph, UIGlyph } from '../components/icons';
-import { diagramFraction, diagramPosition, diagramStyle, pitchPointAt } from '../tacticalDiagram';
+import { diagramPosition, diagramStyle, nearestDrawnSlot, onShirt, pitchPointerFraction, pitchPointAt } from '../tacticalDiagram';
+import { flatClubInk } from '../colour';
+import { goalkeeperKitColour } from '../kit';
+import { applySort, toggleSort, type SortAccessors } from '../tableSort';
+import { SELECTION_SORT_KEYS, type SelectionSortKey } from '../selectionSort';
+import { useRememberedSort } from '../rememberedSort';
 import {
   applyFormation,
   applyShape,
@@ -37,10 +44,37 @@ import {
   removeFromBench,
   replaceOnBench,
   setCaptain,
+  squadInTeamOrder,
   swapWithBench,
+  type SquadPlace,
 } from '../lineupEditing';
 
 type PickerTarget = { kind: 'starting'; index: number } | { kind: 'bench' };
+
+/**
+ * A man in the list, with where he already is and how well he plays the shirt
+ * that is being picked for.
+ */
+type RosterRow = SquadPlace & { score: number };
+
+/**
+ * What each heading sorts by, on values the screen already works in.
+ *
+ * The same six facts the squad screen sorts its own list by, so a manager who
+ * has learnt that screen knows this one — and one more: `fit` is not a fact
+ * about the man but about the shirt, how well he plays the job being picked
+ * for. It is the order this list used to open in, kept as a heading now that
+ * the list opens in the side's own order instead.
+ */
+const PICKER_SORT: SortAccessors<RosterRow, SelectionSortKey> = {
+  player: (row) => `${row.player.surname} ${row.player.firstName}`,
+  pos: (row) => positionRank(row.player.preferredPosition),
+  condition: (row) => row.player.fitness,
+  form: (row) => row.player.form,
+  morale: (row) => row.player.morale,
+  availability: (row) => availabilityRank(row.player.availability.status),
+  fit: (row) => row.score,
+};
 
 /**
  * Something is in the manager's hand: a dot he has picked up, or a man he has
@@ -110,6 +144,13 @@ export function TeamSelectionView() {
   // wanted on its own.
   const [listOpen, setListOpen] = useState(false);
   const [shapeName, setShapeName] = useState('');
+  // The list opens in whichever heading the manager last left it on, or in the
+  // side's own order if he has never tapped one — and the side's own order is a
+  // real answer rather than the absence of one: see `squadInTeamOrder`, which is
+  // what the screen asks for that order. The choice belongs to the career, and
+  // is asked for before the first paint so that walking to another screen and
+  // coming back does not quietly put the names back into the team's order.
+  const [sort, setSort] = useRememberedSort('selection', game?.saveId ?? null, PICKER_SORT);
   // The two small controls that belong on the pitch itself rather than in a
   // column beside it, and the box each of them opens over the grass: a shape is
   // kept from the pitch it was drawn on, and the selection's problems are asked
@@ -170,6 +211,18 @@ export function TeamSelectionView() {
   const errors = problems.filter((problem) => problem.severity === 'error');
   const warnings = problems.filter((problem) => problem.severity !== 'error');
   const shape = lineupShape(lineup);
+  // The keeper's shirt, which is not the club's.
+  //
+  // A keeper is the one man on the pitch whose top belongs to the third strip
+  // rather than to the side, so the pitch the manager drags him around on draws
+  // him in it: he is told from the ten in front of him by his shirt, which is
+  // the only thing that can tell him, and a red goalkeeper in a pitch of red
+  // shirts is a keeper nobody can find. Read from the same kit the Kit screen
+  // draws, so the shirt the manager picked for his keeper is the shirt he drags.
+  const keeperShirt = goalkeeperKitColour(game, clubId);
+  const keeperStyle = keeperShirt
+    ? { background: keeperShirt, color: flatClubInk(keeperShirt) }
+    : undefined;
   const savedShape = lineup.tactics.shapeId
     ? game.customFormations.find((entry) => entry.id === lineup.tactics.shapeId)
     : undefined;
@@ -230,21 +283,22 @@ export function TeamSelectionView() {
     return box ? pitchPointAt(box, clientX, clientY) : null;
   };
 
-  /** The shirt nearest a point, measured in the space the manager is looking at. */
-  const nearestSlot = (point: { x: number; y: number }): number => {
-    const held = diagramFraction(point);
-    let best = 0;
-    let bestDistance = Number.POSITIVE_INFINITY;
-    shape.forEach((entry, index) => {
-      if (index >= lineup.starting.length) return;
-      const drawn = diagramFraction(entry);
-      const distance = (drawn.left - held.left) ** 2 + (drawn.top - held.top) ** 2;
-      if (distance < bestDistance) {
-        bestDistance = distance;
-        best = index;
-      }
-    });
-    return best;
+  /**
+   * The shirt the pointer is over.
+   *
+   * Read from where the finger is rather than from the pitch position it maps
+   * to, because that mapping floors a point into the rows a dot may *stand* in —
+   * and the keeper does not stand in one of those. He has a row of his own, on
+   * the goal line behind the deepest defender, so reading drops through the
+   * floor of the outfield was why his shirt could not be dropped on at all. The
+   * shirts are measured where they are drawn, which is the space the manager is
+   * looking at, and how near the drop was to one of them is answered as well,
+   * because being near a man is not the same as aiming at him.
+   */
+  const slotUnder = (clientX: number, clientY: number) => {
+    const box = pitchRef.current?.getBoundingClientRect();
+    if (!box) return null;
+    return nearestDrawnSlot(pitchPointerFraction(box, clientX, clientY), shape.slice(0, lineup.starting.length));
   };
 
   const beginDrag = (event: PointerEvent<HTMLElement>, next: DragState) => {
@@ -316,7 +370,21 @@ export function TeamSelectionView() {
         return;
       }
       const point = pointAt(event.clientX, event.clientY) ?? state.ghost;
-      if (point) moveDot(state.index, point.x, point.y);
+      if (!point) return;
+      // A dot let go *on* another man's shirt is the two of them swapping, and
+      // not the dot moving: the shirt he aimed at is the shirt he takes. Aiming
+      // at a shirt is the only way to hand a man the goalkeeper's job — the zone
+      // rule will not make anybody a keeper (`outfieldOnly`) — and the only way
+      // to take the keeper out of goal, since a keeper let go on grass is pinned
+      // back to his line. The reach is short on purpose: a drag that lands in the
+      // goalmouth but not on the keeper still only moves a defender, so the rule
+      // against losing a keeper to a mis-drag is untouched.
+      const under = slotUnder(event.clientX, event.clientY);
+      if (under && under.index !== state.index && onShirt(under)) {
+        swapDots(state.index, under.index);
+        return;
+      }
+      moveDot(state.index, point.x, point.y);
       return;
     }
 
@@ -353,12 +421,33 @@ export function TeamSelectionView() {
       setAnnouncement(`${playerName(player)} is on the bench.`);
       return;
     }
-    const point = pointAt(event.clientX, event.clientY) ?? state.ghost;
-    if (!point) return;
-    const index = nearestSlot(point);
+    const under = slotUnder(event.clientX, event.clientY);
+    if (!under || under.index < 0) return;
+    const index = under.index;
     withLineup((current) => placeInSlot(current, index, player.id, player));
     setAnnouncement(
       `${playerName(player)} is at ${POSITIONS[lineup.starting[index]?.position ?? 'CM'].label.toLowerCase()}.`,
+    );
+  };
+
+  /**
+   * Two men trade shirts.
+   *
+   * The dots stay where they are and the men move, because that is what a swap
+   * is: the man let go on a shirt takes that place on the pitch and the man who
+   * was in it takes his, with the roles and the shape untouched — nothing about
+   * the side has changed except who is wearing what. It is the same edit the
+   * squad list makes when a name is picked for a shirt, deliberately, so the
+   * screen has one rule for both ways of asking rather than two that can drift.
+   */
+  const swapDots = (from: number, to: number) => {
+    const arriving = players(lineup.starting[from]?.playerId ?? '');
+    const displaced = players(lineup.starting[to]?.playerId ?? '');
+    if (!arriving || !displaced) return;
+    withLineup((current) => placeInSlot(current, to, arriving.id, arriving));
+    const shirt = lineup.starting[to]?.position;
+    setAnnouncement(
+      `${playerName(arriving)} takes the ${shirt ? POSITIONS[shirt].label.toLowerCase() : 'shirt'} shirt from ${playerName(displaced)}.`,
     );
   };
 
@@ -403,28 +492,41 @@ export function TeamSelectionView() {
    * the right back who should be at left back — impossible from the list, and it
    * hid the fact that the man you wanted was in the side all along. A man who is
    * already picked is shown as picked, and choosing him swaps the two shirts.
+   *
+   * The order it opens in is the side's own: the XI as it stands on the pitch,
+   * keeper first, the substitutes behind them, and the rest of the squad after
+   * those — so the question the manager came to this screen with, who is picked
+   * and where, is answered by the top of the list rather than by reading down it.
+   * A heading above the list sorts the squad another way; tapping that heading
+   * round a third time puts this order back.
    */
-  const roster = squad
-    .map((player) => ({
-      player,
-      slotIndex: lineup.starting.findIndex((slot) => slot.playerId === player.id),
-      onBench: lineup.bench.some((slot) => slot.playerId === player.id),
-      score: pickerSlotPosition
-        ? positionScore(player, pickerSlotPosition)
-        : positionScore(player, player.preferredPosition),
-    }))
-    .sort((a, b) => {
-      const availabilityWeight = (player: Player) => (player.availability.status === 'doubtful' ? -0.08 : 0);
-      return b.score + availabilityWeight(b.player) - (a.score + availabilityWeight(a.player));
-    });
+  const roster: RosterRow[] = squadInTeamOrder(squad, lineup).map((place) => ({
+    ...place,
+    score: pickerSlotPosition
+      ? positionScore(place.player, pickerSlotPosition)
+      : positionScore(place.player, place.player.preferredPosition),
+  }));
+  const rows = applySort(roster, sort, PICKER_SORT);
 
   const held = drag?.kind === 'slot' ? drag.index : null;
-  const dropIndex = drag?.kind === 'player' && drag.ghost ? nearestSlot(drag.ghost) : null;
+  // The shirt the pointer is over. Asked of the pointer and not of the pitch
+  // position under it, for the reason `slotUnder` gives: the keeper's row is
+  // reachable by a finger and by nothing else.
+  const under = drag?.pointer ? slotUnder(drag.pointer.x, drag.pointer.y) : null;
+  const dropIndex = drag?.kind === 'player' && under && under.index >= 0 ? under.index : null;
+  // A dot in the air over another man's shirt: the two swap, and the shirt he is
+  // aiming at is marked before he lets go. Anywhere else on the grass the dot
+  // still moves and the job still becomes the one that zone is for.
+  const swapIndex = drag?.kind === 'slot' && under && under.index !== drag.index && onShirt(under) ? under.index : null;
+  const targetIndex = drag?.kind === 'slot' ? swapIndex : dropIndex;
+  const swapPlayer = swapIndex !== null ? players(lineup.starting[swapIndex]?.playerId ?? '') : undefined;
   const zoneLabel =
     drag?.kind === 'slot' && drag.ghost
-      ? lineup.starting[drag.index]?.position === 'GK'
-        ? POSITIONS.GK.label
-        : `${POSITIONS[positionForPoint(drag.ghost.x, drag.ghost.y, { outfieldOnly: true })].label}`
+      ? swapIndex !== null
+        ? `Swap with ${swapPlayer ? swapPlayer.surname : 'him'}`
+        : lineup.starting[drag.index]?.position === 'GK'
+          ? POSITIONS.GK.label
+          : `${POSITIONS[positionForPoint(drag.ghost.x, drag.ghost.y, { outfieldOnly: true })].label}`
       : drag?.kind === 'player' && drag.ghost && dropIndex !== null
         ? `To ${POSITIONS[lineup.starting[dropIndex]!.position].label.toLowerCase()}`
         : null;
@@ -486,7 +588,13 @@ export function TeamSelectionView() {
             <Button
               variant="ghost"
               onClick={() => {
-                const selection = autoPickLineup(squad, lineup.tactics.formation, { shape: lineup.tactics.shape });
+                // The same assistant, picking for the same system, as the one who
+                // fills the sheet on the day: a manager who asks for a team and
+                // then walks out to a different one has been told a lie.
+                const selection = autoPickLineup(squad, lineup.tactics.formation, {
+                  shape: lineup.tactics.shape,
+                  tactics: lineup.tactics,
+                });
                 withLineup((current) => ({
                   ...current,
                   starting: selection.starting,
@@ -534,7 +642,7 @@ export function TeamSelectionView() {
                     type="button"
                     className={`pitch__player${target?.kind === 'starting' && target.index === index ? ' pitch__player--active' : ''}${
                       slot.outOfPosition ? ' pitch__player--oops' : ''
-                    }${held === index ? ' pitch__player--dragging' : ''}${dropIndex === index ? ' pitch__player--target' : ''}${
+                    }${held === index ? ' pitch__player--dragging' : ''}${targetIndex === index ? ' pitch__player--target' : ''}${
                       keeper ? ' pitch__player--keeper' : ''
                     }`}
                     style={diagramStyle(diagramPosition(formationSlot))}
@@ -567,11 +675,16 @@ export function TeamSelectionView() {
                       player
                         ? `${playerName(player)} — ${POSITIONS[slot.position].label}${
                             slot.outOfPosition ? ' · out of position' : ''
-                          }${keeper ? ' · drag him along his line' : ' · drag, or use the arrow keys'}`
+                          }${keeper ? ' · drag him along his line, or onto a teammate to swap' : ' · drop him on a shirt to swap, or use the arrow keys'}`
                         : 'Empty'
                     }
                   >
-                    <span className="pitch__shirt">{slot.position}</span>
+                    <span
+                      className={`pitch__shirt${keeper ? ' pitch__shirt--keeper' : ''}`}
+                      style={keeper ? keeperStyle : undefined}
+                    >
+                      {slot.position}
+                    </span>
                     <span className="pitch__name">
                       {player ? player.surname : 'Empty'}
                       {slot.outOfPosition ? ' ⚠' : ''}
@@ -821,15 +934,56 @@ export function TeamSelectionView() {
           {/* No heading and no explanation over the list: the list is the screen,
               and a heading over twenty names was two lines of the squad that the
               manager had to scroll past. What the highlight means is said to the
-              screen reader instead, where it costs no room. */}
+              screen reader instead, where it costs no room — and the only thing
+              above the list is the row of buttons that sorts it. */}
+          {/* The headings over the list, which are buttons because the list
+              has no columns to head. One tap sorts by a fact, the second turns
+              it round, and the third puts the list back into the side's own
+              order. They sit above the pane rather than in it, so the names
+              scroll under headings that stay where they are. */}
+          <div className="picker-sort" role="group" aria-label="Sort the squad list">
+            <span className="picker-sort__label">Sort</span>
+            {SELECTION_SORT_KEYS.map(({ key, label }) => {
+              const direction = sort.key === key ? sort.direction : null;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  className={`tab picker-sort__tab${direction ? ' tab--active' : ''}`}
+                  aria-pressed={direction !== null}
+                  aria-label={
+                    direction === null
+                      ? undefined
+                      : `${label}, sorted ${direction === 'asc' ? 'ascending' : 'descending'}`
+                  }
+                  title={
+                    direction === null
+                      ? `Sort by ${label.toLowerCase()}`
+                      : direction === 'asc'
+                        ? `${label}: one way round — press again to turn it round`
+                        : `${label}: the other way round — press again to put the list back in the team's order`
+                  }
+                  onClick={() => setSort(toggleSort(sort, key))}
+                >
+                  {label}
+                  <UIGlyph
+                    name={direction === 'asc' ? 'sort-asc' : direction === 'desc' ? 'sort-desc' : 'sort-none'}
+                    className="picker-sort__mark"
+                  />
+                </button>
+              );
+            })}
+          </div>
+
           <Panel
             actions={(target || listOpen) ? <Button variant="ghost" size="sm" onClick={closeList}>Close</Button> : undefined}
             level="primary"
           >
             <ul className="picker">
-              {roster.map(({ player, score, slotIndex, onBench }) => {
+              {rows.map(({ player, score, slotIndex, benchIndex }) => {
                 const here = target?.kind === 'starting' && slotIndex === target.index;
                 const elsewhere = slotIndex >= 0 && !here;
+                const onBench = benchIndex >= 0;
                 const about = whereAbout(slotIndex, onBench);
                 return (
                   <li
@@ -849,19 +1003,39 @@ export function TeamSelectionView() {
                   >
                     <span className="picker__grip" aria-hidden="true" />
                     <span className="picker__who">
-                      <PlayerLink personId={player.id}>
-                        <strong>{playerName(player)}</strong>
-                      </PlayerLink>{' '}
+                      <PersonIdentity person={player} detail={player.occupation} />
                       <Pill tone={about.tone}>{about.label}</Pill>
-                      <span className="muted small">
-                        {player.preferredPosition} · {player.age} · {player.occupation} · form {Math.round(player.form)}
-                        {player.availability.status !== 'available' ? ' · ' : ''}
+                      {/* What the squad screen says about a man, said here in
+                          the same words. The two lists are read against each
+                          other, and a manager should not have to learn the row
+                          twice; what a column heading would carry there is
+                          written into the row here, because this list is a list
+                          rather than a table. */}
+                      <span className="picker__facts">
+                        <span className="picker__fact" data-label="Pos">
+                          <Pill tone="muted" title={POSITIONS[player.preferredPosition].label}>
+                            {player.preferredPosition}
+                          </Pill>
+                        </span>
+                        <span className="picker__fact" data-label="Fitness">
+                          <Meter value={player.fitness} tone={player.fitness < 60 ? 'warn' : 'ok'} />
+                          <span className="muted small">{Math.round(player.fitness)}%</span>
+                        </span>
+                        <span className="picker__fact" data-label="Form">
+                          <Meter
+                            value={player.form}
+                            tone={player.form > 60 ? 'ok' : player.form < 40 ? 'warn' : 'accent'}
+                          />
+                          <span className="muted small">{Math.round(player.form)}</span>
+                        </span>
+                        <span className="picker__fact" data-label="Morale">
+                          <span className="muted small">{Math.round(player.morale)}</span>
+                        </span>
+                        <span className="picker__fact picker__fact--word" data-label="Availability">
+                          <Pill tone={availabilityTone(player.availability.status)}>{player.availability.status}</Pill>
+                          {player.availability.note && <span className="muted small">{player.availability.note}</span>}
+                        </span>
                       </span>
-                      {player.availability.status !== 'available' && (
-                        <Pill tone={availabilityTone(player.availability.status)} title={player.availability.note ?? undefined}>
-                          {player.availability.status}
-                        </Pill>
-                      )}
                     </span>
                     <span className="picker__fit" title={`${Math.round(score * 100)}% fit${pickerSlotPosition ? ` at ${pickerSlotPosition}` : ''}`}>
                       <Meter value={score * 100} tone={score > 0.7 ? 'ok' : score > 0.55 ? 'accent' : 'warn'} />
@@ -968,8 +1142,11 @@ export function TeamSelectionView() {
 
 
             <p className="small muted lineup__hint">
-              Drag a dot anywhere on the pitch and the job becomes the one that zone is for, or drag a man out of
-              this list onto a shirt. The arrow keys move a focused dot.
+              Drag a dot anywhere on the pitch and the job becomes the one that zone is for, or drop him on a
+              teammate to swap the two of them — the goalkeeper included, either way round. A man can also be
+              dragged out of this list onto a shirt. The list opens with the XI in the order it stands on the
+              pitch and the substitutes behind them; tap a heading above it to sort the squad another way. The
+              arrow keys move a focused dot.
             </p>
           </Panel>
         </section>

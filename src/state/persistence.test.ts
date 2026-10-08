@@ -3,6 +3,7 @@ import { IDBFactory } from 'fake-indexeddb';
 import { generateDraft, startGameFromDraft } from '@/simulation/gameSetup';
 import { addDays } from '@/simulation/calendar';
 import { GAME_STATE_VERSION, type GameState } from '@/domain/game';
+import type { FaceChoices } from '@/domain/face';
 import { bootStore, flushAutosave, useGameStore } from './gameStore';
 import * as idb from './indexedDb';
 import {
@@ -474,6 +475,44 @@ describe('saves that are wrong', () => {
 
     expect(deserialiseGame('not json').state).toBeNull();
     expect(deserialiseGame('{}').state).toBeNull();
+  });
+
+  it('keeps the face a manager chose, because it belongs to the career', async () => {
+    // The customiser writes the face into the career rather than into the browser
+    // that happened to pick it, so it has to come back out of a save intact —
+    // including through the export path, which is the compatibility boundary a
+    // manager's backup file travels.
+    const face: FaceChoices = {
+      shape: 'square',
+      skin: 'olive',
+      hair: 'ginger',
+      hairStyle: 'bald',
+      beard: 'beard',
+      glasses: true,
+      eyeColour: 'green',
+      eyeShape: 'narrow',
+      browWeight: 'heavy',
+      browLift: 'low',
+      nose: 'broad',
+      mouth: 'thin',
+    };
+    const draft = generateDraft({ seed: 'face-in-the-save', startYear: 2026 });
+    const state = startGameFromDraft(draft, {
+      seed: 'face-in-the-save',
+      startYear: 2026,
+      clubId: draft.divisionClubIds[0]!,
+      saveName: 'Face',
+      manager: { firstName: 'Dave', surname: 'Fletcher', nickname: '', birthday: '1978-03-02', occupation: '', hometown: '', face },
+    });
+    const parsed = deserialiseGame(serialiseGame(playedOn(state, 3)));
+    expect(parsed.state?.people['user_manager']?.face).toEqual(face);
+    expect(parsed.state?.managerProfile.face).toEqual(face);
+
+    // And a career whose manager chose nothing reads back with no face at all, so
+    // an old save's manager is not handed a pair of glasses on the way through.
+    const plain = deserialiseGame(serialiseGame(career('no-face-in-the-save')));
+    expect(plain.state?.people['user_manager']?.face).toBeUndefined();
+    expect('face' in plain.state!.managerProfile).toBe(false);
   });
 });
 

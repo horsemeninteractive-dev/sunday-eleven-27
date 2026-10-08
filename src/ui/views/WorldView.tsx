@@ -7,8 +7,10 @@ import { useGame } from '../hooks';
 import { moneyShort } from '../format';
 import { PageHeader, Panel, Pill, SortTh, Stat } from '../components/primitives';
 import { MetricTile, Section, TileGrid } from '../components/hierarchy';
-import { ClubLink, PlayerLink } from '../components/Links';
-import { applySort, UNSORTED, type SortAccessors, type SortState } from '../tableSort';
+import { ClubLink } from '../components/Links';
+import { PersonLine } from '../components/PersonIdentity';
+import { useRememberedSort } from '../rememberedSort';
+import { applySort, type SortAccessors } from '../tableSort';
 import { ClubBadge } from '../components/Badge';
 
 type ClubSortKey =
@@ -22,18 +24,24 @@ type ClubSortKey =
   | 'position'
   | 'balance';
 
-/** What each heading reads. Some of it only means anything with the world to hand. */
-function clubSort(game: GameState): SortAccessors<Club, ClubSortKey> {
+/**
+ * What each heading reads. Some of it only means anything with the world to
+ * hand, which is why the world it is handed may be missing: the keys of this map
+ * are what tells the screen which columns it can remember, and a screen that had
+ * to wait for a world before it could name its own columns could not remember
+ * one. The values are only ever read with a world in hand.
+ */
+function clubSort(game: GameState | null): SortAccessors<Club, ClubSortKey> {
   return {
     club: (club) => club.identity.name,
-    town: (club) => game.world.towns[club.townId]?.name ?? '',
-    ground: (club) => game.world.grounds[club.groundId]?.name ?? '',
+    town: (club) => game?.world.towns[club.townId]?.name ?? '',
+    ground: (club) => game?.world.grounds[club.groundId]?.name ?? '',
     structure: (club) => CLUB_STRUCTURE_LABEL[club.structure],
     founded: (club) => club.identity.foundedYear,
     squad: (club) => club.squadIds.length,
-    averageAge: (club) => squadAverageAge(club.squadIds.map((id) => game.people[id]).filter(isPlayer)),
+    averageAge: (club) => (game ? squadAverageAge(club.squadIds.map((id) => game.people[id]).filter(isPlayer)) : null),
     // Clubs outside the division are not in a table and sort to the bottom.
-    position: (club) => leaguePosition(game, club.id) ?? 99,
+    position: (club) => (game ? leaguePosition(game, club.id) ?? 99 : 99),
     balance: (club) => club.finances.balance,
   };
 }
@@ -44,7 +52,7 @@ export function WorldView() {
   const [query, setQuery] = useState('');
   const [townId, setTownId] = useState('');
   const [limit, setLimit] = useState(12);
-  const [sort, setSort] = useState<SortState<ClubSortKey>>(UNSORTED);
+  const [sort, setSort] = useRememberedSort('world', game?.saveId ?? null, clubSort(game));
   if (!game) return null;
 
   const towns = Object.values(game.world.towns);
@@ -211,13 +219,14 @@ export function WorldView() {
             <Stat label="Ground" value={game.world.grounds[selected.groundId]?.name ?? '—'} />
             <Stat label="Standing" value={Math.round(selected.reputation)} hint="Local reputation out of 100" />
             <Stat label="Squad" value={selected.squadIds.length} />
+            {/* The two men a rival club is, drawn like everybody else: a club is
+                its people, and the manager reading this list is looking at who he
+                is up against. */}
             <Stat
               label="Manager"
               value={
                 selected.managerId && game.people[selected.managerId] ? (
-                  <PlayerLink personId={selected.managerId}>
-                    {game.people[selected.managerId]!.firstName} {game.people[selected.managerId]!.surname}
-                  </PlayerLink>
+                  <PersonLine personId={selected.managerId} />
                 ) : (
                   '—'
                 )
@@ -227,9 +236,7 @@ export function WorldView() {
               label="Chairman"
               value={
                 selected.chairmanId && game.people[selected.chairmanId] ? (
-                  <PlayerLink personId={selected.chairmanId}>
-                    {game.people[selected.chairmanId]!.firstName} {game.people[selected.chairmanId]!.surname}
-                  </PlayerLink>
+                  <PersonLine personId={selected.chairmanId} />
                 ) : (
                   '—'
                 )

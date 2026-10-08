@@ -6,6 +6,7 @@ import { moneyShort } from '../format';
 import { gameActions } from '../hooks';
 import { Button, PageHeader, Panel, Pill, SortTh } from '../components/primitives';
 import { ClubBadge } from '../components/Badge';
+import { PersonLine } from '../components/PersonIdentity';
 import { SceneBackdrop } from '../components/SceneBackdrop';
 import { applySort, UNSORTED, type SortAccessors, type SortState } from '../tableSort';
 import { useGameStore } from '@/state/gameStore';
@@ -244,8 +245,13 @@ export function ClubSelectView() {
                     {applySort(squad, sort, SQUAD_SORT).slice(0, 12).map((player) => (
                       <tr key={player.id}>
                         <td>
-                          {player.firstName} {player.surname}
-                          {player.nickname ? <span className="muted small"> “{player.nickname}”</span> : null}
+                          {/* The twelve men the manager would inherit, drawn: this
+                              is the screen where he meets them, and a squad
+                              snapshot of names is a list of strangers. */}
+                          <PersonLine personId={player.id}>
+                            {player.firstName} {player.surname}
+                            {player.nickname ? <span className="muted small"> “{player.nickname}”</span> : null}
+                          </PersonLine>
                         </td>
                         <td data-label="Age">{player.age}</td>
                         <td data-label="Position">{player.preferredPosition}</td>

@@ -4,7 +4,10 @@ import { getFormation, type FormationId } from '@/domain/positions';
 import { isPlayer } from '@/domain/person';
 import { LINE_LABEL, PRESSING_LABEL, type Tactics } from '@/domain/tactics';
 import { diagramPosition, diagramStyle, type DiagramPhase } from '../tacticalDiagram';
-import { PlayerLink } from './Links';
+import { flatClubInk } from '../colour';
+import { goalkeeperKitColour } from '../kit';
+
+import { PersonLine } from './PersonIdentity';
 
 /**
  * The shape, drawn.
@@ -35,6 +38,17 @@ export function FormationBoard({
 }) {
   const shape = getFormation(formation);
   const illustrated = Boolean(tactics) && phase !== 'shape';
+  // The keeper's shirt, which is not the club's.
+  //
+  // The board draws the same third strip the pitch and the portrait draw, so the
+  // one dot on the diagram that is not in the club's colours is the man in goal.
+  // A shirt is a flat colour here rather than the shaded one the ten wear: the
+  // club's colour is never a fade in this game, and a keeper the manager can
+  // pick out at a glance is the whole point of the strip.
+  const keeperShirt = goalkeeperKitColour(game, game.userClubId);
+  const keeperStyle = keeperShirt
+    ? { background: keeperShirt, color: flatClubInk(keeperShirt) }
+    : undefined;
   return (
     <div className="formation-board">
       <div
@@ -57,7 +71,12 @@ export function FormationBoard({
               key={index}
               style={diagramStyle(diagramPosition(slot, tactics, phase))}
             >
-              <span className="pitch__shirt">{slot.position}</span>
+              <span
+                className={`pitch__shirt${slot.position === 'GK' ? ' pitch__shirt--keeper' : ''}`}
+                style={slot.position === 'GK' ? keeperStyle : undefined}
+              >
+                {slot.position}
+              </span>
               {/* The shirt already says the position. A second copy underneath
                   it was noise on every unselected slot, so the label is the
                   player's name or nothing at all. */}
@@ -80,7 +99,11 @@ export function FormationBoard({
             {slots.map((slot, index) => (
               <li key={index} className="row">
                 <span className="muted small">{slot.position}</span>
-                <PlayerLink personId={slot.playerId} />
+
+                {/* The board draws a man by where he stands and by the shirt he
+                    is wearing. This list is the readable version of the same
+                    eleven, and a list of men in this game is drawn. */}
+                <PersonLine personId={slot.playerId} />
                 {slot.outOfPosition && <span className="tone tone--warn small">Out of position</span>}
               </li>
             ))}

@@ -3,7 +3,7 @@ import type { GameState } from '@/domain/game';
 import type { ClubId, CompetitionId, ISODate, MatchId, PersonId } from '@/domain/ids';
 import type { Match } from '@/domain/match';
 import { isOfficial, isPlayer, type Official, type Person, type Player } from '@/domain/person';
-import { POSITIONS, type PositionCode } from '@/domain/positions';
+import { POSITIONS, positionRank, type PositionCode } from '@/domain/positions';
 import type { Business, Ground, Town } from '@/domain/world';
 import { positionScore } from './selection';
 import { divisionOf, fixtureIdsOnMatchday, standingsFor, userCompetition } from './pyramid';
@@ -103,10 +103,16 @@ export function playerDisplayName(player: Player): string {
 export function squadOf(state: GameState, clubId: ClubId): Player[] {
   const club = state.clubs[clubId];
   if (!club) return [];
+  // Read as a team sheet: keeper, then the back, the middle, the front. This used
+  // to sort the four group *codes* alphabetically — DEF, FWD, GK, MID — which put
+  // the goalkeepers third in a list of a football team and scattered the lines, and
+  // which no other screen in the game agreed with. `positionRank` is the order the
+  // selection screen already reads a squad in, so the two now agree by construction
+  // rather than by both happening to be right.
   return club.squadIds
     .map((id) => state.people[id])
     .filter(isPlayer)
-    .sort((a, b) => POSITIONS[a.preferredPosition].group.localeCompare(POSITIONS[b.preferredPosition].group) || b.age - a.age);
+    .sort((a, b) => positionRank(a.preferredPosition) - positionRank(b.preferredPosition) || b.age - a.age);
 }
 
 export interface SquadBreakdown {

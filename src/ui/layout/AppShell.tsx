@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { GameState } from '@/domain/game';
 import { useGameStore, type ViewId } from '@/state/gameStore';
+import { viewArchetype } from '../archetype';
 import { clubStyle } from '../colour';
 import { gameActions } from '../hooks';
 import { useCommandState } from '../commandActions';
@@ -120,7 +121,18 @@ export function AppShell({ game, view, children }: { game: GameState; view: View
           onOpenChange={handleNavOpenChange}
         />
 
-        <main className="app__main" id="main" ref={mainRef} data-view={view} tabIndex={-1}>
+        {/* The view says which screen this is; the archetype says which room of
+            the game it is in, and the stylesheet paints the difference. Both are
+            here rather than inside a screen so that a screen cannot be in two
+            rooms at once, and so that the frame is decided in one place. */}
+        <main
+          className="app__main"
+          id="main"
+          ref={mainRef}
+          data-view={view}
+          data-archetype={viewArchetype(view)}
+          tabIndex={-1}
+        >
           {children}
         </main>
       </div>

@@ -5,7 +5,22 @@ import type { Rng } from '../../rng';
 // How many changes a side is allowed is a law of the game, shared with the
 // background resolution, which used to cap the same allowance with a constant.
 import { changesAllowed } from '../laws';
-import { defaultRoleFor } from '../roles';
+import { defaultRoleFor, type Role } from '../roles';
+import { otherSide } from '../core';
+import { familiarityFor } from '../teamStrength';
+import { roleFitScore } from '../../selection';
+import {
+  attackingWeightOf,
+  matchReaction,
+  pickBenchMan,
+  pickOutgoing,
+  type BenchCandidate,
+  type MatchSituation,
+  type PlayerCondition,
+  type Reaction,
+} from '../../ai/manager';
+import { clubStyle as styleForClub, type ClubStyle } from '../../ai/style';
+import type { ClubId } from '@/domain/ids';
 import { makePlayerForSlot, formationBase, invalidateIndex, refreshSlotGeometry } from './state';
 import type { DecisionWorld } from './decisions';
 import { emitEvent } from './events';
@@ -24,10 +39,15 @@ import type { MatchEngineState, PlayerMatchState, Side } from './types';
 
 /** How often an unmanaged bench is considered, in football seconds. */
 const BENCH_REVIEW_SECONDS = 30;
-/** A tired outfield man is worth replacing below this stamina. */
-const TIRED_STAMINA = 46;
-/** The earliest minute an AI will make a tired-legs change. */
-const TIRED_MINUTE = 55;
+/**
+ * The chance a change made only to freshen the side up is actually made.
+ *
+ * Sunday sides are reluctant, and that is part of the football. A manager does
+ * not make his last change the moment a winger's legs go; he makes it when he
+ * has to. Chasing a game and protecting a lead are decisions and are never
+ * rolled for — only the ordinary business of giving a tired man fresh legs is.
+ */
+const REFRESH_CHANCE = 0.45;
 
 /** A performance record for a player who has just come on. */
 function newPerformance(
@@ -184,35 +204,131 @@ export function refreshFormation(state: MatchEngineState, match: Match, side: Si
   }
 }
 
-/**
- * The best man on the bench for a slot: familiar with the job, and fresh.
- *
- * Returns null when there is nobody to bring on — or nobody who can do the job
- * the outgoing man was doing.
- */
-function bestBenchId(world: DecisionWorld, side: Side, outgoingId: string): string | null {
-  const slot = world.match.lineups[side].starting.find((entry) => entry.playerId === outgoingId);
-  if (!slot) return null;
-  const ranked = world.match.lineups[side].bench
-    .map((bench) => {
-      const player = world.env.getPlayer(bench.playerId);
-      if (!player) return { id: bench.playerId, score: -1 };
-      const familiarity = player.positionalFamiliarity[slot.position] ?? 0;
-      const suitability = familiarity / 20 + (player.preferredPosition === slot.position ? 1 : 0);
-      return { id: bench.playerId, score: suitability * 2 + player.fitness / 100 };
-    })
-    .sort((a, b) => b.score - a.score);
-  return ranked[0]?.id ?? null;
+/** Own quality against the opposition's, from the strength both sides already have. */
+function strengthRatioFor(world: DecisionWorld, side: Side): number {
+  const own = world.context[side].strength;
+  const other = world.context[otherSide(side)].strength;
+  const mine = (own.attack + own.defence + own.control) / 3;
+  const theirs = (other.attack + other.defence + other.control) / 3;
+  return mine / Math.max(0.05, theirs);
+}
+
+/** How many more men the opposition has on the pitch than this side does. */
+function menDown(state: MatchEngineState, side: Side): number {
+  const off = (which: Side) => state.players.filter((player) => player.side === which && player.sentOff).length;
+  return Math.max(0, off(side) - off(otherSide(side)));
 }
 
 /**
- * The AI's bench, for a side nobody is managing.
+ * The football a club plays.
  *
- * Two things bring a man off. An injury is answered first and without a roll: a
- * man who cannot run it off comes off, whatever the minute, as soon as somebody
- * is ready to take his place. Only once nobody is hurt does it look at tired
- * legs, and only after the hour — and then it is only a chance, because a Sunday
- * side often just lets a tiring player get on with it.
+ * The world can always answer this. A caller that built its own environment —
+ * a test, a friendly — cannot, and gets the club's own instructions read as its
+ * identity instead, which is the same answer for every club the world generated.
+ */
+function styleOf(world: DecisionWorld, side: Side, clubId: ClubId): ClubStyle {
+  return (
+    world.env.clubStyle?.(clubId) ??
+    styleForClub({ id: clubId, reputation: 50, tactics: world.match.lineups[side].tactics })
+  );
+}
+
+/** Everything the manager can see from the touchline, in the AI layer's terms. */
+function situationFor(state: MatchEngineState, world: DecisionWorld, side: Side): MatchSituation {
+  const env = world.env;
+  const match = world.match;
+  const score = state.score;
+  return {
+    minute: match.minute,
+    scoreFor: side === 'home' ? score.home : score.away,
+    scoreAgainst: side === 'home' ? score.away : score.home,
+    strengthRatio: strengthRatioFor(world, side),
+    menDown: menDown(state, side),
+    changesLeft: Math.max(0, changesAllowed(env.substitutionsAllowed) - match.substitutions[side]),
+    benchSize: match.lineups[side].bench.length,
+    home: side === 'home',
+  };
+}
+
+/**
+ * Read the afternoon and send the instructions on.
+ *
+ * This is the one place a match-state decision reaches the engine's lineup, and
+ * it is deliberately the *tactics* it changes and nothing else: the engine
+ * already recomputes what a side is worth from its instructions every minute, so
+ * a side told to sit deeper plays deeper from the next step rather than from the
+ * next kick-off. The shape on the pitch follows the same instructions, because
+ * the block the engine plays is read from the tactics too.
+ */
+function applyReaction(state: MatchEngineState, world: DecisionWorld, side: Side, clubId: ClubId): Reaction {
+  const match = world.match;
+  const reaction = matchReaction(styleOf(world, side, clubId), situationFor(state, world, side), match.lineups[side].tactics);
+  // The human's instructions are his own. He may have handed the afternoon over
+  // — an instant result, the whole-week shortcut — and then the bench is managed
+  // for him, but nobody rewrites his plan on his behalf.
+  if (world.env.userClubId === clubId) return reaction;
+  if (Object.keys(reaction.tactics).length === 0) return reaction;
+  match.lineups[side].tactics = { ...match.lineups[side].tactics, ...reaction.tactics };
+  // The change belongs in the record: it is the reason everything that happens
+  // next looks different, and a side that has just dropped deep should be able
+  // to say so on the way past.
+  if (reaction.reason) {
+    emitEvent(state, match, {
+      type: 'note',
+      side,
+      text: `${world.env.clubShortName(clubId)} ${reaction.reason}.`,
+      x: 0.5,
+      y: 0.5,
+      importance: 1,
+    });
+  }
+  return reaction;
+}
+
+/** The men on the pitch, as a manager reads them from the touchline. */
+function playerConditionsFor(state: MatchEngineState, world: DecisionWorld, side: Side): PlayerCondition[] {
+  return state.players
+    .filter((player) => player.side === side && !player.sentOff)
+    .map((player) => {
+      const performance = world.match.performances[player.playerId];
+      return {
+        playerId: player.playerId,
+        position: player.position,
+        energy: player.stamina,
+        rating: performance?.rating ?? 6,
+        booked: player.booked,
+        attacking: attackingWeightOf(player.position),
+        injured: Boolean(performance?.injuryDetail),
+      };
+    });
+}
+
+/** The bench, as candidates for one particular job on the pitch. */
+function benchCandidatesFor(world: DecisionWorld, side: Side, slot: { position: PositionCode; role: Role }): BenchCandidate[] {
+  return world.match.lineups[side].bench.map((bench) => {
+    const player = world.env.getPlayer(bench.playerId);
+    return {
+      playerId: bench.playerId,
+      position: bench.position,
+      familiarity: player ? familiarityFor(player, slot.position) : 0,
+      energy: player ? (world.match.performances[bench.playerId]?.energy ?? player.fitness) : 60,
+      attacking: attackingWeightOf(bench.position),
+      fit: player ? roleFitScore(player, slot.position, slot.role) : 0,
+    };
+  });
+}
+
+/**
+ * The AI's afternoon, for a side nobody is managing.
+ *
+ * Four things happen here, in the order a manager would do them. He reads the
+ * game and changes his instructions if the afternoon has turned. Somebody hurt
+ * comes off, whatever the minute and without a roll. Somebody out of legs, out of
+ * the game on his rating, or in a job the new plan no longer wants comes off —
+ * and then only when the manager has a reason and a man who can do the job. And
+ * the change he makes is the right *kind* of change: chasing a game is a forward,
+ * protecting one is a defender, and a side that is merely tired gets the best
+ * like-for-like man on the bench.
  */
 export function autoManageBench(
   state: MatchEngineState,
@@ -228,29 +344,33 @@ export function autoManageBench(
   if (match.lineups[side].bench.length === 0) return;
   if (match.substitutions[side] >= changesAllowed(env.substitutionsAllowed)) return;
 
+  // The manager reads the afternoon before he changes who is playing in it.
+  const reaction = applyReaction(state, world, side, clubId);
+  const conditions = playerConditionsFor(state, world, side);
+  const outgoingSlot = (playerId: string) => match.lineups[side].starting.find((entry) => entry.playerId === playerId);
+
   // An injured man is answered first: he cannot run it off, so he comes off.
-  const injured = state.players.find(
-    (player) =>
-      player.side === side &&
-      !player.sentOff &&
-      Boolean(match.performances[player.playerId]?.injuryDetail),
-  );
-  if (injured && match.minute > 2) {
-    const replacement = bestBenchId(world, side, injured.playerId);
-    if (replacement && substitute(state, world, side, injured.playerId, replacement)) return;
+  const hurt = conditions.find((player) => player.injured);
+  if (hurt && match.minute > 2) {
+    const slot = outgoingSlot(hurt.playerId);
+    if (slot) {
+      const replacement = pickBenchMan('refresh', { position: slot.position, role: slot.role }, benchCandidatesFor(world, side, slot));
+      if (replacement && substitute(state, world, side, hurt.playerId, replacement)) return;
+    }
   }
 
-  if (match.minute < TIRED_MINUTE) return;
+  const intent = reaction.benchIntent;
+  if (intent === 'none') return;
+  // A change made only to freshen the side up is a chance, not a certainty.
+  if (intent === 'refresh' && !rng.chance(REFRESH_CHANCE)) return;
 
-  const tired = state.players
-    .filter((player) => player.side === side && !player.sentOff && player.position !== 'GK')
-    .sort((a, b) => a.stamina - b.stamina)[0];
-  if (!tired || tired.stamina > TIRED_STAMINA) return;
-  if (!rng.chance(0.3)) return;
-
-  const chosen = bestBenchId(world, side, tired.playerId);
-  if (!chosen) return;
-  substitute(state, world, side, tired.playerId, chosen);
+  const outgoingId = pickOutgoing(intent, conditions, match.minute);
+  if (!outgoingId) return;
+  const slot = outgoingSlot(outgoingId);
+  if (!slot) return;
+  const incomingId = pickBenchMan(intent, { position: slot.position, role: slot.role }, benchCandidatesFor(world, side, slot));
+  if (!incomingId) return;
+  substitute(state, world, side, outgoingId, incomingId);
 }
 
 /**

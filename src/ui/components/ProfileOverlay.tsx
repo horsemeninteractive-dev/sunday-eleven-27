@@ -35,10 +35,13 @@ import { AttributeRow, Button, Meter, Panel, Pill, SortTh, Stat } from './primit
 import { ClubBadge } from './Badge';
 import { Dialog } from '../dialogs/Dialog';
 import { Tabs } from './Tabs';
+import { Portrait } from './Portrait';
 import { KitSetRow } from './Kit';
 import { PositionMap } from './PositionMap';
-import { ClubLink, PlayerLink, ProfileNavProvider, useOpenProfile } from './Links';
-import { applySort, UNSORTED, type SortAccessors, type SortState } from '../tableSort';
+import { ClubLink, ProfileNavProvider, useOpenProfile } from './Links';
+import { PersonIdentity, PersonLine } from './PersonIdentity';
+import { useRememberedSort } from '../rememberedSort';
+import { applySort, type SortAccessors } from '../tableSort';
 
 type CareerSortKey = 'season' | 'club' | 'apps' | 'goals' | 'assists';
 
@@ -97,7 +100,7 @@ export function ProfileOverlay({ target }: { target: ProfileTarget }) {
 
   return (
     <ProfileNavProvider open={push}>
-      <Dialog title={current.kind === 'club' ? 'Club profile' : 'Person profile'} onClose={() => gameActions().closeProfile()}
+      <Dialog title={current.kind === 'club' ? 'Club profile' : 'Person profile'} kind={current.kind === 'club' ? 'club' : 'person'} onClose={() => gameActions().closeProfile()}
         actions={stack.length > 1 ? <Button variant="ghost" size="sm" onClick={back}>← Back</Button> : undefined}>
         <div key={`${current.kind}-${current.id}`} className="profile-content">
           {current.kind === 'club' ? <ClubProfile clubId={current.id} /> : <PlayerProfile personId={current.id} />}
@@ -110,15 +113,27 @@ export function ProfileOverlay({ target }: { target: ProfileTarget }) {
 /* ------------------------------------------------------------------ player */
 
 function PlayerProfile({ personId }: { personId: string }) {
-  const [careerSort, setCareerSort] = useState<SortState<CareerSortKey>>(UNSORTED);
-  const [tab, setTab] = useState<'overview' | 'attributes' | 'history'>('overview');
   const game = useGame();
+  // Which heading this man's career table was left on, in this career.
+  const [careerSort, setCareerSort] = useRememberedSort('profile-career', game?.saveId ?? null, CAREER_SORT);
+  const [tab, setTab] = useState<'overview' | 'attributes' | 'history'>('overview');
   const openProfile = useOpenProfile();
   if (!game) return null;
 
   const person = game.people[personId];
   if (isOfficial(person)) return <div className="stack">
-    <div className="profilehead"><h2>{personDisplayName(person)}</h2><p className="muted">{person.role} · {person.occupation}</p></div>
+    {/* An official's page wears the same head as a player's, because it is the
+        same question — who is this? — and the drawing answers it with a coat
+        rather than a shirt. */}
+    <div className="profilehead profilehead--person">
+      <div className="profilehead__name">
+        <Portrait person={person} size="xl" />
+        <div>
+          <h2>{personDisplayName(person)}</h2>
+          <p className="muted">{person.role} · {person.occupation}</p>
+        </div>
+      </div>
+    </div>
     <dl className="facts"><Row label="Age" value={String(person.age)} /><Row label="Local standing" value={String(Math.round(person.reputation))} /></dl>
     {person.notes.length > 0 && <ul className="tight-list">{person.notes.map((note, index) => <li key={index}>{note}</li>)}</ul>}
     {person.id !== game.clubs[game.userClubId]!.managerId && <Button variant="primary" onClick={() => { gameActions().closeProfile(); gameActions().startConversationWith(person.id); }}>Have a word</Button>}
@@ -147,9 +162,13 @@ function PlayerProfile({ personId }: { personId: string }) {
   return (
     <>
       {/* The name and nothing else: who he is, whose he is, how good he is, and
-          where he plays. Everything personal belongs in a card, said once. */}
-      <div className="profilehead">
+          where he plays. Everything personal belongs in a card, said once — and
+          at the head of it, at four times the size a list row gives him, the man
+          himself, because this page is the one place in the game that is *about*
+          him rather than a row he is in. */}
+      <div className="profilehead profilehead--person">
         <div className="profilehead__name">
+          <Portrait person={player} size="xl" />
           <span className="crest crest--lg" aria-hidden="true">
             {club ? (
               <ClubBadge club={club} />
@@ -470,7 +489,10 @@ function PlayerProfile({ personId }: { personId: string }) {
                 {relationships.map((view) => (
                   <li key={view.otherId}>
                     <div className="row row--wrap">
-                      <PlayerLink personId={view.otherId} />
+                      {/* Who he knows, drawn: a dressing room is a set of faces,
+                          and "close with" only means something with the man
+                          beside it. */}
+                      <PersonLine personId={view.otherId} />
                       <Pill tone={view.summary.tone === 'close' || view.summary.tone === 'good' ? 'ok' : 'muted'}>
                         {view.summary.label}
                       </Pill>
@@ -517,7 +539,7 @@ const CLUB_TABS: Array<{ id: ClubTab; label: string }> = [
 function ClubProfile({ clubId }: { clubId: string }) {
   const game = useGame();
   const [tab, setTab] = useState<ClubTab>('season');
-  const [squadSort, setSquadSort] = useState<SortState<ClubSquadSortKey>>(UNSORTED);
+  const [squadSort, setSquadSort] = useRememberedSort('profile-squad', game?.saveId ?? null, CLUB_SQUAD_SORT);
   if (!game) return null;
   const club: Club | undefined = game.clubs[clubId];
   if (!club) {
@@ -564,7 +586,10 @@ function ClubProfile({ clubId }: { clubId: string }) {
         <div className="quickstats">
           <QuickStat label="Town" value={town?.name ?? '—'} />
           <QuickStat label="Ground" value={ground?.name ?? '—'} />
-          <QuickStat label="Manager" value={manager ? <PlayerLink personId={manager.id}>{personDisplayName(manager)}</PlayerLink> : '—'} />
+          {/* The one fact in this strip that is a person rather than a place or a
+              number, and the one a manager recognises: a club is its people, so he
+              is drawn here the way he is drawn everywhere else. */}
+          <QuickStat label="Manager" value={manager ? <PersonLine personId={manager.id} /> : '—'} />
           <QuickStat label="In the league" value={position ? `${position}` : '—'} />
           <QuickStat label="Registered" value={squad.length} />
 
@@ -689,11 +714,13 @@ function ClubProfile({ clubId }: { clubId: string }) {
                         {applySort(squad, squadSort, CLUB_SQUAD_SORT).map((player) => (
                           <tr key={player.id}>
                             <td>
-                              <PlayerLink personId={player.id}>
+                              {/* A club's squad, drawn: the two-line cell the
+                                  column already had, with the man himself at
+                                  the head of it. */}
+                              <PersonIdentity person={player} detail={player.firstName}>
                                 {player.surname}
                                 {player.nickname ? ` “${player.nickname}”` : ''}
-                              </PlayerLink>
-                              <div className="muted small">{player.firstName}</div>
+                              </PersonIdentity>
                             </td>
                             <td>{player.preferredPosition}</td>
                             <td>{player.age}</td>

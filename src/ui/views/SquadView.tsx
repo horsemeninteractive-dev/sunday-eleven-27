@@ -1,20 +1,34 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import type { ClubId } from '@/domain/ids';
-import { personDisplayName, type AvailabilityStatus, type Player } from '@/domain/person';
-import { POSITIONS, type PositionCode, type PositionGroup } from '@/domain/positions';
+import { availabilityRank, personDisplayName, type Player } from '@/domain/person';
+import { POSITIONS, positionRank, type PositionGroup } from '@/domain/positions';
 import { squadOf, squadAvailability } from '@/simulation/queries';
 import { socialGroupsFor } from '@/simulation/relationships';
 import { availabilityTone } from '../format';
 import { gameActions, useGame, useNextFixture } from '../hooks';
 import { Button, Meter, PageHeader, Panel, Pill, SortTh } from '../components/primitives';
 import { MetricTile, Section, TileGrid } from '../components/hierarchy';
-import { applySort, UNSORTED, type SortAccessors, type SortState } from '../tableSort';
+import { useRememberedSort } from '../rememberedSort';
+import { applySort, type SortAccessors } from '../tableSort';
 import { PersonIdentity } from '../components/PersonIdentity';
 
 const GROUP_ORDER: Array<PositionGroup | 'ALL'> = ['ALL', 'GK', 'DEF', 'MID', 'FWD'];
 const GROUP_LABEL: Record<PositionGroup | 'ALL', string> = { ALL: 'All', GK: 'GK', DEF: 'DEF', MID: 'MID', FWD: 'ATT' };
-const AVAILABILITY_ORDER: AvailabilityStatus[] = ['available', 'doubtful', 'unavailable'];
-const POSITION_CODES = Object.keys(POSITIONS) as PositionCode[];
+
+/**
+ * The lines of the squad list, in the words a team sheet uses.
+ *
+ * A list of eighteen names in position order is a team sheet, and a team sheet is
+ * ruled off by line. These are the names of those lines — the manager's own
+ * vocabulary rather than the filter strip's abbreviations, which is the whole
+ * point of printing them: the strip above filters, these say where you are.
+ */
+const BAND_LABEL: Record<PositionGroup, string> = {
+  GK: 'Goalkeepers',
+  DEF: 'Defence',
+  MID: 'Midfield',
+  FWD: 'Attack',
+};
 
 type SquadSortKey = 'player' | 'pos' | 'condition' | 'form' | 'availability' | 'apps' | 'goals' | 'morale' | 'assists' | 'age' | 'passing' | 'tackling' | 'shooting' | 'pace' | 'stamina';
 type SquadViewMode = 'selection' | 'performance' | 'attributes';
@@ -23,10 +37,10 @@ type SquadViewMode = 'selection' | 'performance' | 'attributes';
 const SQUAD_SORT: SortAccessors<Player, SquadSortKey> = {
   player: (player) => `${player.surname} ${player.firstName}`,
   // By line of the team first, then the position itself.
-  pos: (player) => GROUP_ORDER.indexOf(player.positionGroup) * 100 + POSITION_CODES.indexOf(player.preferredPosition),
+  pos: (player) => positionRank(player.preferredPosition),
   condition: (player) => player.fitness,
   form: (player) => player.form,
-  availability: (player) => AVAILABILITY_ORDER.indexOf(player.availability.status),
+  availability: (player) => availabilityRank(player.availability.status),
   apps: (player) => player.record.appearances,
   goals: (player) => player.record.goals,
   morale: player => player.morale,
@@ -52,7 +66,7 @@ export function SquadView() {
   const fixture = useNextFixture();
   const [group, setGroup] = useState<PositionGroup | 'ALL'>('ALL');
   const [availableOnly, setAvailableOnly] = useState(false);
-  const [sort, setSort] = useState<SortState<SquadSortKey>>(UNSORTED);
+  const [sort, setSort] = useRememberedSort('squad', game?.saveId ?? null, SQUAD_SORT);
   const [viewMode, setViewMode] = useState<SquadViewMode>('selection');
   const captainId = fixture
     ? fixture.homeClubId === game?.userClubId
@@ -143,10 +157,24 @@ export function SquadView() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((player) => (
+                {rows.map((player, index) => {
+                  // A band is drawn only while the list is in the side's own order.
+                  // Sorted by goals it would scatter keepers through the attack, and
+                  // a band that lies about the list is worse than no band at all.
+                  // The reverse of that order is fine: the lines simply arrive last
+                  // first, which is still the truth about the list.
+                  const banded = !sort.key || sort.key === 'pos';
+                  const previous = index > 0 ? rows[index - 1] : undefined;
+                  const group = player.positionGroup;
+                  const startsLine = banded && (!previous || previous.positionGroup !== group);
+                  return (
+                  <Fragment key={player.id}>
+                  {startsLine && (
+                    <tr className="squad-band">
+                      <th colSpan={viewMode === 'attributes' ? 8 : 6}>{BAND_LABEL[group]}</th>
+                    </tr>
+                  )}
                   <tr
-                    key={player.id}
-
                   >
                     <td>
                       <PersonIdentity person={player} detail={player.occupation} />
@@ -180,7 +208,9 @@ export function SquadView() {
                     </td><td data-label="Assists">{player.record.assists}</td><td data-label="Form">{Math.round(player.form)}</td></>}
                     {viewMode === 'attributes' && <><td data-label="Age">{player.age}</td><td data-label="Passing">{player.attributes.technical.passing}</td><td data-label="Tackling">{player.attributes.technical.tackling}</td><td data-label="Shooting">{player.attributes.technical.shooting}</td><td data-label="Pace">{player.attributes.physical.pace}</td><td data-label="Stamina">{player.attributes.physical.stamina}</td></>}
                   </tr>
-                ))}
+                  </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>

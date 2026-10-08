@@ -3,7 +3,12 @@ import { isPlayer } from '@/domain/person';
 import { createTestGame } from './testSupport';
 import { leagueCompetitions, tierOf } from './pyramid';
 import { startNextSeason } from './season';
-import { CLUB_LIFECYCLE, reviewClubFinances, type ClubLifecycleContext } from './clubLifecycle';
+import {
+  CLUB_LIFECYCLE,
+  divisionStanding,
+  reviewClubFinances,
+  type ClubLifecycleContext,
+} from './clubLifecycle';
 
 /**
  * The point of the cycle is that a club can die and the league survives it: a
@@ -146,7 +151,7 @@ describe('club folding and reform', () => {
     }
   });
 
-  it('forms a distinct replacement for each club that folds, even in one town', () => {
+  it('forms a distinct replacement for each club that folds, even in one town, each with its own chairman', () => {
     const { state } = createTestGame('club-reform-collision');
     // A town can hold more than one club and both can go under in one summer.
     // The replacement stream and id used to be keyed on the town, so the second
@@ -175,11 +180,80 @@ describe('club folding and reform', () => {
       );
       expect(memberships).toHaveLength(1);
     }
+    // Each replacement has its own man in the chair, and he is still in the
+    // world. The chairman id used to be keyed on the season and the town while
+    // the club id was keyed on the club it replaced, so two clubs folding in one
+    // town in one summer minted the same chairman: the second overwrote the
+    // first, both clubs named one man, and the day either club folded again the
+    // fold deleted the officials it owned and left the other club naming a
+    // chairman who no longer existed. The fifteen-season soak found the two
+    // clubs still pointing at him three seasons after he had gone.
+    expect(new Set(formed.map((club) => club.chairmanId)).size).toBe(formed.length);
+    for (const replacement of formed) {
+      const chairman = state.people[replacement.chairmanId ?? ''];
+      expect(chairman, replacement.id).toBeDefined();
+      expect(chairman!.kind).toBe('official');
+      expect(chairman!.clubId).toBe(replacement.id);
+    }
+
     // No club id is listed twice in any division, and the ladder holds its size.
     for (const competition of leagueCompetitions(state)) {
       expect(new Set(competition.clubIds).size).toBe(competition.clubIds.length);
     }
     expect(leagueCompetitions(state).map((competition) => competition.clubIds.length)).toEqual(sizesBefore);
+  });
+
+  /**
+   * A new club plays at the standard of the division it steps into.
+   *
+   * It used to be minted at whatever standing its *town* drew, which has nothing
+   * to do with the rung: measured on a generated county the bottom division's
+   * clubs stand at 24–38 while the town draws for those same clubs run 25–41, so
+   * a club folding in Division Three was routinely replaced by a Division Two
+   * side. The rung that churns hardest climbed, and over fifteen seasons the
+   * pyramid flattened towards itself (division 3 +3–6% while division 1 was
+   * flat). The soak found it. The rung is the anchor now.
+   */
+  it('mints a replacement at the standing of the division it enters, not its town’s', () => {
+    const { state } = createTestGame('club-reform-standing');
+    const divisions = leagueCompetitions(state);
+    const bottom = divisions[divisions.length - 1]!;
+    // A weak rung, and an unmistakable one: every club in it stands in the same
+    // place, so a replacement is either inside that band or it is not.
+    for (const id of bottom.clubIds) state.clubs[id]!.reputation = 30;
+    const foldedId = bottom.clubIds.find((id) => id !== state.userClubId)!;
+    const folded = state.clubs[foldedId]!;
+    folded.finances.balance = CLUB_LIFECYCLE.terminalDebt - 500;
+
+    const outcome = reviewClubFinances(state, contextFor(state));
+    const formed = outcome.formed.find((formation) => formation.townId === folded.townId);
+    expect(formed).toBeTruthy();
+    const replacement = state.clubs[formed!.clubId]!;
+
+    // Same town, same ground — and the rung's standard, inside its band.
+    expect(replacement.townId).toBe(folded.townId);
+    expect(replacement.reputation).toBe(30);
+  });
+
+  it('reads a division’s standard off the clubs in it, and only the living', () => {
+    const { state } = createTestGame('club-rung-reading');
+    const divisions = leagueCompetitions(state);
+    const bottom = divisions[divisions.length - 1]!;
+    const ids = bottom.clubIds;
+    // A known ladder inside one rung: 20, 21, 22 … so the middle is arithmetic.
+    ids.forEach((id, index) => {
+      state.clubs[id]!.reputation = 20 + index;
+    });
+
+    expect(divisionStanding(state, ids)).toEqual({ low: 20, median: 26, high: 31 });
+
+    // A club that has folded is no evidence of the standard it was playing at.
+    state.clubs[ids[0]!]!.active = false;
+    expect(divisionStanding(state, ids)).toEqual({ low: 21, median: 26, high: 31 });
+
+    // And a rung emptied in one pass has nothing to read, so it falls back to
+    // the town — which is the caller's business, not this function's.
+    expect(divisionStanding(state, [])).toBeNull();
   });
 
   it('holds the player’s own club out of the cycle', () => {

@@ -1,4 +1,5 @@
-import { ClubLink, PlayerLink } from './Links';
+import { ClubLink } from './Links';
+import { PersonLine } from './PersonIdentity';
 import { Panel } from './primitives';
 import type { CompetitionStats, StatRow } from '@/simulation/tables';
 
@@ -14,6 +15,10 @@ import type { CompetitionStats, StatRow } from '@/simulation/tables';
  * An empty chart says so rather than printing a dash: a competition three games
  * old has a top scorer with one goal and nothing worth calling a chart of
  * assists, and pretending otherwise would be a lie told in a table.
+ *
+ * A chart is a list of men, so each of them is drawn: a record is held by
+ * somebody, and a table of six goalscorers is six people before it is six
+ * numbers.
  */
 export function Statistics({ stats, subtitle }: { stats: CompetitionStats; subtitle: string }) {
   if (stats.matchesPlayed === 0) {
@@ -87,7 +92,7 @@ function StatChart({
         {rows.map((row) => (
           <tr key={row.playerId}>
             <td className="statcards__name">
-              <PlayerLink personId={row.playerId} />
+              <PersonLine personId={row.playerId} />
             </td>
             <td className="statcards__club">
               <ClubLink clubId={row.clubId} />

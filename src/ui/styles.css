@@ -1,12 +1,51 @@
 /* ==========================================================================
    Sunday Eleven 27 — visual language
    --------------------------------------------------------------------------
-   Football Manager's idiom, not a web dashboard: near-black surfaces, thin
-   1px rules instead of cards and shadows, tiny uppercase micro-labels, dense
-   tables with right-aligned numbers, and one colour that matters — the club's.
+   Football Manager's idiom, not a web dashboard: near-black surfaces, hairline
+   rules instead of drop shadows and floating cards, tiny uppercase micro-labels,
+   dense tables with right-aligned numbers, and one colour that matters — the
+   club's.
 
-   The club colour is handed to CSS by the shell as --club / --club-ink (ink is
-   light or dark depending on the colour, so text on it is always readable).
+   The law, stated once and obeyed by every rule below it:
+
+   1. Light comes from above, in a straight vertical line. A surface that is
+      raised — a panel, a panel head, a table head, a tile, a button, a chip — is
+      lit by the same 180deg ramp from a lighter tone to its own, and nothing is
+      lit from a corner: a 135deg lift is light from the top-left of a box, and
+      light does not come from the top-left of a box. Five rules used to lift at
+      their own private angles (135, 145, 150, 155, 160), which is five subtly
+      different rooms in what is supposed to be one building. Light on a surface
+      is not the same thing as light on a *drawing* — the two shirts and the
+      portrait's own shading are illustrations and keep their own light, because
+      a shirt is an object with a shape, not a surface with a height.
+
+   2. The club's colour is flat. It is a tint that fills what it sits on, or an
+      edge that stops on a hard line — never a fade. A fade in a padded box lands
+      at a different place in every box, turns the club's identity into a smudge,
+      and is guarded against by tests in `src/ui/workspaces.test.ts`. One
+      exception, and it is the shape that earns it: the band across the top of
+      the workspace, which begins at the top edge of a column as wide as the
+      screen and fades straight down, so there is no edge for it to land in the
+      middle of and no width for it to be tuned to.
+
+   3. Structure is a rule, not a box. Rules separate; boxes are for content that
+      genuinely is a container. Which of the two a screen uses is the main thing
+      that makes one room in this game different from another — see the five
+      archetypes at the foot of this sheet, which is where the screens stop being
+      the same page with different words on it.
+
+   4. Nothing floats unless it is over the page. `--shadow-float` belongs to
+      overlays, notices and pickers — surfaces the manager can see the page
+      through — and to nothing else.
+
+   5. One corner, one size: `--radius` for surfaces, `--radius-sm` for small
+      controls, `--radius-pill` for pills and chips. A panel is not 6px round in
+      one screen and 4px in another.
+
+   The club colour is handed to CSS by the shell as --club, with two inks: the
+   bar wears the club's shirt, so --club-ink is chosen across the stripes that
+   shirt is made of, while --club-flat-ink is chosen for the colour painted
+   flat — a button, a chip, a badge — where it always clears 4.5:1.
    ========================================================================== */
 
 :root {
@@ -14,7 +53,8 @@
      focus rings arriving in system-white and looking like holes in the page. */
   color-scheme: dark;
 
-  /* Surfaces — flat and dark, no gradients */
+  /* Surfaces — dark, and lit by one vertical ramp (see the law above). These
+     four tones are the whole palette a panel can be painted in. */
   --bg: #08090b;
   --bg-2: #0d0f12;
   --panel: #12161a;
@@ -45,12 +85,15 @@
   --club: #4caf7d;
   --club-text: #72c99a;
   --club-ink: #0a0d0f;
+  --club-flat-ink: #101a14;
   --club-wash: rgba(76, 175, 125, 0.13);
   --club-soft: rgba(76, 175, 125, 0.26);
 
-  /* Geometry: squared off, not pill-shaped */
+  /* Geometry: squared off, not pill-shaped. Pills are the one place a round end
+     is right, and they are the only thing allowed to use it. */
   --radius: 3px;
   --radius-sm: 2px;
+  --radius-pill: 999px;
 
   /* Scrollbars: a track that is not there and a thumb only a shade brighter
      than the rules, so a scrollable panel reads as the edge of a surface
@@ -75,6 +118,15 @@
   --fs-xl: 1.375rem;
   --fs-2xl: 1.625rem;
   --fs-3xl: 2rem;
+  /* The display size. There is exactly one, it is spent once per screen on the
+     fact that screen is about, and the rooms set their own with the archetypes
+     at the foot of this sheet. Below it, the size a club's name is set at on a
+     fixture board, and the tracking the small-caps letterpress is set with — the
+     two type decisions this sheet did not have a name for. */
+  --fs-display: 2.5rem;
+  --fs-focal: 1.5rem;
+  --tracking-display: -0.015em;
+  --tracking-letterpress: 0.11em;
   --focus: #a3d9bf;
   --shadow-float: 0 16px 48px rgba(0, 0, 0, .45);
 
@@ -202,10 +254,15 @@ a,
    primary button — the club colour is the one thing a hovered link cannot be,
    because it is already the background. There, ink is the highlight instead:
    the point of hovering is to see the text change, not to lose it. */
-.on-club,
+.on-club {
+  --link-hover: var(--club-ink);
+  --link-hover-line: currentColor;
+}
+/* The two chosen states are painted flat in the club's colour rather than
+   striped like the bar, so their highlight is that surface's own ink. */
 .btn--primary,
 .segmented__item--active {
-  --link-hover: var(--club-ink);
+  --link-hover: var(--club-flat-ink);
   --link-hover-line: currentColor;
 }
 .on-club:focus-visible,
@@ -230,7 +287,7 @@ a,
   left: var(--s3);
   z-index: 100;
   background: var(--club);
-  color: var(--club-ink);
+  color: var(--club-flat-ink);
   font-weight: 700;
   padding: 8px 14px;
   border-radius: 0 0 var(--radius) var(--radius);
@@ -627,7 +684,10 @@ a,
 }
 .topbar__club-sub {
   font-size: var(--fs-xs);
-  opacity: 0.75;
+  /* Quieter than the club's name by its size alone, never by a fade. At 75% it
+     was an ink mixed with the club's colour, which on a mid blue measured
+     2.95:1 — and a fade of one colour into another is not a shade, it is a
+     smaller amount of the same text. */
   white-space: nowrap;
 }
 
@@ -673,7 +733,9 @@ a,
   text-transform: uppercase;
   letter-spacing: 0.11em;
   font-weight: 700;
-  opacity: 0.72;
+  /* Quiet by size and tracking rather than by a fade: the same ink at 72% over
+     this band measured 4.09:1, under the 4.5 a 12px label needs, while the
+     band's own ink clears it on every colour the world deals. */
 }
 .nextmatch__title {
   /* The opponent's name is the one thing here that can give ground. */
@@ -690,7 +752,8 @@ a,
   align-items: baseline;
   gap: var(--s3);
   font-size: var(--fs-xs);
-  opacity: 0.85;
+  /* As above: the band's ink is chosen for the band, and fading it towards the
+     band is the one thing that takes it back under 4.5. */
   /* Each fact stays whole; the line breaks between them if it has to. These are
      the second thing in the band and the head grows first, so on a wide window
      this is one row of facts against the right-hand edge, and only a narrow one
@@ -785,6 +848,14 @@ a,
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
+/* The man himself, at the head of a search result. He is drawn and not linked:
+   the row is already a button, and a button inside a button is not a thing a
+   browser can be asked to draw. */
+.searchresults__item .portrait {
+  flex: none;
+  width: 28px;
+  height: 32px;
+}
 .searchresults__empty {
   padding: var(--s2);
   color: var(--text-faint);
@@ -816,7 +887,7 @@ a,
 }
 .topbar__date span {
   font-size: var(--fs-xs);
-  opacity: 0.75;
+  /* Quieter by size, for the same reason as the club's nickname above. */
 }
 .continue-btn {
   display: inline-flex;
@@ -1670,7 +1741,7 @@ a,
 .btn--primary {
   background: var(--club);
   border-color: var(--club);
-  color: var(--club-ink);
+  color: var(--club-flat-ink);
 }
 .btn--primary:hover:not(:disabled) {
   filter: brightness(1.08);
@@ -1781,7 +1852,7 @@ select.input {
 }
 .segmented__item--active {
   background: var(--club);
-  color: var(--club-ink);
+  color: var(--club-flat-ink);
   font-weight: 700;
 }
 
@@ -2002,7 +2073,10 @@ select.input {
   border: 1px solid var(--line);
 }
 .pip--w {
-  color: var(--club-ink);
+  /* The well-played pip is on the fixed "ok" green, not on the club's colour:
+     the club's ink belongs to the club's paint, and a dark club would have put
+     light ink on a light green. */
+  color: #101a14;
   background: var(--ok);
   border-color: var(--ok);
 }
@@ -3791,13 +3865,49 @@ html[data-motion='reduced'] .firstboot__skip {
 
 .create-club__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
 .create-club__column { display: flex; flex-direction: column; min-width: 0; gap: 20px; }
-.create-club__column .panel { background: linear-gradient(150deg, var(--panel-2), var(--panel)); }
+/* The designer's columns are one surface rather than four, so they take the same
+   vertical lift as a panel rather than a corner-lit one of their own. */
+.create-club__column .panel { background: linear-gradient(178deg, var(--panel-2) 0%, var(--panel) 62%); }
 .create-club__column .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .create-club__column .create-club__badge { gap: 16px; flex-wrap: nowrap; }
 .create-club__column .create-club__badge-picks { grid-template-columns: minmax(0, 1fr); min-width: 0; flex: 1; }
 .create-club__column .create-club__badge-art { padding-top: 8px; }
 .create-club__column .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .create-club__submit { padding: 12px 16px; background: var(--panel); border-top: 1px solid var(--line); }
+/* Three across, and the squad underneath -----------------------------------
+
+   The designer is four panels — Identity, Ground, Badge and Squad — and it was
+   two columns of about 570 pixels. Two columns can only be balanced if what is
+   in them is the same height, and it is not: Identity and Ground come to 862 and
+   the Badge and Squad panels to 1122, so the page ended with a 260 pixel hole at
+   the foot of the left column and a scrollbar on a 900 pixel screen. Nothing was
+   filling that hole; the panels were simply in the wrong shape of box.
+
+   So above 1024 pixels wide they stop being two columns at all. The two column
+   wrappers are only a way of ordering the panels, so they hand their children to
+   the grid above them, which places all four itself — three across, where the
+   panels measure 482, 380 and 429 and the tallest of them is the row, and the
+   squad underneath at the full width, which is what the panel's own
+   `grid-column: 1 / -1` was always meant to do and could never do while it lived
+   inside a flex column. The designer also stops being narrower than every screen
+   it sits between: 1180 was the two-column measure, and at 1920 it left 370
+   pixels of nothing at each side. */
+@media (min-width: 1024px) {
+  .create-club { max-width: 1440px; }
+  .create-club__grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .create-club__column { display: contents; }
+  /* Written as a descendant so that it outranks the badge panel's own
+     `grid-column: 1 / -1` further down the sheet. That rule was written for a
+     panel in the grid and has never applied, because the panel is a flex item in
+     a column; the moment the columns hand their children up it takes the whole
+     top row and pushes the other two out of it — measured, a taller page than the
+     two columns it replaced. (The squad panel's copy of the same rule is the one
+     that is wanted here, and does nothing when it is left alone.) */
+  .create-club__grid .create-club__badge-panel { grid-column: auto; }
+  /* The squad's numbers were set two across to fit a column half this wide. */
+  .create-club__column .create-club__squad .stat-grid { grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); }
+}
+
 @media (max-width: 760px) { .create-club__grid { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 420px) { .create-club__column .form-grid { grid-template-columns: minmax(0, 1fr); } .create-club__column .create-club__badge { flex-wrap: wrap; } .create-club__column .create-club__badge-art { width: 100%; } }
 
@@ -3850,11 +3960,15 @@ html[data-motion='reduced'] .firstboot__skip {
 .create-club__badge-panel {
   grid-column: 1 / -1;
 }
+/* The badge art and the picks beside it are two halves of one decision, and the
+   picks are the taller of the two: top-aligned, the badge sat in the corner of a
+   panel with a hole under it. Centred, the picture sits against the choices it is
+   describing. */
 .create-club__badge {
   display: flex;
   flex-wrap: wrap;
   gap: var(--s4);
-  align-items: flex-start;
+  align-items: center;
 }
 .create-club__badge-art {
   display: flex;
@@ -4265,7 +4379,10 @@ html[data-motion='reduced'] .matchpitch[data-celebrating='true']::after {
   opacity: 0.72;
   box-shadow: 0 0 4px rgba(255, 255, 255, 0.45);
 }
-/* Which way the manager's side is attacking, in the match's own fixed frame. */
+/* Which way the manager's side is attacking, as the box is currently drawn.
+   The renderer names the direction rather than the side, because the same
+   afternoon's football is drawn across a landscape box and up a portrait one
+   and the arrow has to agree with the men around it. */
 .pitch__attack {
   position: absolute;
   top: 50%;
@@ -4284,6 +4401,77 @@ html[data-motion='reduced'] .matchpitch[data-celebrating='true']::after {
   border-right: 11px solid rgba(255, 255, 255, 0.8);
   border-top: 7px solid transparent;
   border-bottom: 7px solid transparent;
+}
+.pitch__attack[data-dir='up'] {
+  top: 5px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-bottom: 11px solid rgba(255, 255, 255, 0.8);
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+}
+.pitch__attack[data-dir='down'] {
+  top: auto;
+  bottom: 5px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-top: 11px solid rgba(255, 255, 255, 0.8);
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+}
+
+/* The pitch drawn up the screen ---------------------------------------------
+
+   Which way round the live pitch is drawn is the renderer's own decision, taken
+   from the shape of the box it was handed — `frameForBox` in
+   `src/ui/match/pitchFrame.ts`, measured rather than asked of a media query,
+   because a phone gives the pitch whatever the score, the commentary and the
+   control strip have left over and that is a different shape in portrait, in
+   landscape and in an installed app. The men and the ball are placed by that
+   same turn: the renderer writes their `left`/`top` itself. What is left for the
+   stylesheet is the pitch they are drawn on — the halfway line, the circle, the
+   two penalty areas and the arrow that says which way the manager's side is
+   going. Every one of them turns with the picture, because markings that stayed
+   landscape under men who did not would be a second frame drawn over the first,
+   and the two would disagree at every kick-off.
+
+   `.pitch[data-shape='portrait']` is deliberately the same picture
+   `.pitch--preparation` has drawn since the first day, arrived at from the other
+   direction: a vertical pitch is a vertical pitch, home at the foot of it and
+   attacking up. The mowing bands are left where they are — they are a texture
+   rather than a marking, and the preparation pitch keeps them across the screen
+   with the length of the pitch running up it too. */
+.pitch[data-shape='portrait'] .pitch__halfway {
+  top: 50%;
+  left: 0;
+  right: 0;
+  bottom: auto;
+  width: 100%;
+  height: 1px;
+}
+/* Wider than it is in a landscape pitch, because here the circle is a fraction
+   of the width of the *pitch* rather than of its length. */
+.pitch[data-shape='portrait'] .pitch__circle {
+  width: 28%;
+}
+/* The penalty areas hang off the top and the bottom edge now, and the side of
+   each one that lies on a goal line is not drawn. */
+.pitch[data-shape='portrait'] .pitch__box {
+  left: 22%;
+  right: auto;
+  width: 56%;
+  height: 14%;
+}
+.pitch[data-shape='portrait'] .pitch__box--left {
+  top: auto;
+  bottom: 0;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-bottom: none;
+}
+.pitch[data-shape='portrait'] .pitch__box--right {
+  top: 0;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-top: none;
 }
 
 /* Matchday: a takeover screen, not a page --------------------------------- */
@@ -4337,9 +4525,17 @@ html[data-motion='reduced'] .matchpitch[data-celebrating='true']::after {
 .matchhead__team--away {
   justify-content: flex-end;
 }
+/* The crest is the one picture on the header: at thirty pixels it was the same
+   height as the club's name beside it and read as a bullet point rather than as
+   the club. Forty-four is the size at which a badge is recognisable at a glance,
+   which is the only reason it is up there — and it costs the match no room,
+   because the score and the clock in the middle of the row are already taller
+   than it. The phone rule below keeps its own, smaller figure: on a handset the
+   header is one line of furniture above the pitch and every pixel there is
+   football. */
 .matchhead__crest {
-  width: 30px;
-  height: 30px;
+  width: 44px;
+  height: 44px;
   flex: none;
 }
 .matchhead__names {
@@ -4367,7 +4563,7 @@ html[data-motion='reduced'] .matchpitch[data-celebrating='true']::after {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   font-weight: 700;
-  color: var(--club-ink);
+  color: var(--club-flat-ink);
   background: var(--club);
   padding: 1px 5px;
   border-radius: var(--radius-sm);
@@ -4639,9 +4835,20 @@ html[data-motion='reduced'] .incident {
   border: 1px solid var(--line);
   border-top: 3px solid var(--sheet-colour, var(--line));
 }
+/* The head is the shirt.
+
+   The sheet was always meant to be headed in the strip its side turned out in —
+   `--sheet-colour` was written for it — and it drew a three pixel rule above the
+   club's name and stopped there, which told the manager the colour of a shirt he
+   could not see. So the band is the strip now, edge to edge, with the club's name
+   on it in an ink measured for that colour: a side in a white away strip is headed
+   in white and a side in black is headed in black. A flat fill, not a fade, which
+   is the same rule the club's own colour is held to. */
 .teamsheet__head {
   flex: 0 0 auto;
   padding: var(--s1) var(--s2);
+  background: var(--sheet-colour, var(--panel-2));
+  color: var(--sheet-ink, var(--text));
   border-bottom: 1px solid var(--line);
 }
 .teamsheet__club {
@@ -4649,7 +4856,8 @@ html[data-motion='reduced'] .incident {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   font-weight: 800;
-  color: var(--text);
+  /* The strip's own ink, carried down from the head. */
+  color: inherit;
 }
 .teamsheet__list {
   list-style: none;
@@ -4658,11 +4866,31 @@ html[data-motion='reduced'] .incident {
 }
 .teamsheet__row {
   display: grid;
-  grid-template-columns: 26px minmax(0, 1fr) auto;
+  /* The shirt, then the position, then the man, then what he did. The shirt is
+     first because it is the first thing the eye wants off a teamsheet — whose
+     line is this — and it sits against the outer edge of the sheet rather than
+     the pitch, so the two sheets mirror one another down either side. */
+  grid-template-columns: 3px 26px minmax(0, 1fr) auto;
   align-items: baseline;
   gap: var(--s1);
   padding: 2px var(--s2);
   font-size: var(--fs-sm);
+}
+/* The shirt a man is in, down the edge of his row.
+
+   A bar and not a chip, and no ink on it: the row already carries a chip for his
+   position, and a second one beside it would be two marks for one line of a sheet
+   that has to fit down the side of a pitch. The ten are painted from
+   `--sheet-colour` — the strip their side turned out in — the way the ten on the
+   formation board are left to the stylesheet; a keeper's bar is his club's third
+   strip and is painted in the markup, because it is the one shirt on the sheet
+   that is not the side's own. One function answers that for the pitch, the board
+   and this list alike: `match/shirt.ts`. */
+.teamsheet__shirt {
+  align-self: stretch;
+  min-height: 15px;
+  border-radius: var(--radius-sm);
+  background: var(--sheet-colour, var(--line));
 }
 .teamsheet__pos {
   font-size: var(--fs-xs);
@@ -4715,11 +4943,30 @@ html[data-motion='reduced'] .incident {
   text-align: right;
 }
 .teamsheet--away .teamsheet__row {
-  grid-template-columns: auto minmax(0, 1fr) 26px;
+  grid-template-columns: auto minmax(0, 1fr) 26px 3px;
   text-align: right;
 }
 .teamsheet--away .teamsheet__pos {
   order: 3;
+}
+/* The far edge of the away sheet, the way the home one has the shirt on the far
+   edge of theirs. */
+.teamsheet--away .teamsheet__shirt {
+  order: 4;
+}
+/* The report's sheets are the report, not two columns beside a pitch.
+
+   The live match stands its sheets down on a phone because there is no room for
+   them beside a pitch that has to fill the screen, and the afternoon is still
+   watchable without them. A report has no pitch to make room for: the line-ups
+   are content, and a list that vanished because the manager opened the report on
+   his phone would be a section of the document quietly missing. So the two
+   sheets in a report are shown at every width, stacked by the same rule that
+   lets any other split fall into one column. Two classes rather than one, so
+   this outranks the phone's own `display: none` wherever either of them sits in
+   the sheet. */
+.match-report .teamsheet {
+  display: flex;
 }
 
 /* The match itself is the only thing drawn at full height. */
@@ -5040,15 +5287,14 @@ html[data-motion='reduced'] .incident {
   height: 5px;
   margin: 0;
 }
+/* Each side of the pressure bar is filled in the strip that side is wearing,
+   handed in by the panel rather than painted from the sheet. The bar answers
+   "whose afternoon is this?", and the honest answer is the shirt on the pitch
+   and not the manager's own colour — which is what the home half used to wear,
+   whichever dug-out he was standing in. */
 .pressure__side {
   display: block;
   border-radius: 1px;
-}
-.pressure__side--home {
-  background: var(--club);
-}
-.pressure__side--away {
-  background: var(--text-faint);
 }
 .stats__rows {
   margin: 0;
@@ -5072,16 +5318,20 @@ html[data-motion='reduced'] .incident {
 .stats__value--home {
   text-align: right;
 }
+/* Two halves, one figure: the home side fills from the left in its own shirt
+   and the visitors fill from the right in theirs, meeting where the home side's
+   share of the figure lands. It used to be a single `--club` fill on a grey
+   track, and read from the away dug-out that is the visitors wearing the
+   manager's colour and his own side wearing nothing. */
 .stats__bar {
-  display: block;
+  display: flex;
   height: 5px;
   background: var(--panel-3);
   overflow: hidden;
 }
-.stats__bar-home {
+.stats__bar-half {
   display: block;
   height: 100%;
-  background: var(--club);
 }
 
 /* The control bar: speed and pause always to hand, panels behind tabs. */
@@ -5207,7 +5457,7 @@ html[data-motion='reduced'] .incident {
 .chip--on {
   background: var(--club);
   border-color: var(--club);
-  color: var(--club-ink);
+  color: var(--club-flat-ink);
 }
 .speed {
   display: flex;
@@ -5434,9 +5684,93 @@ html[data-motion='reduced'] .incident {
   padding: var(--s2) var(--s3);
   border-top: 1px solid var(--line);
 }
-.interval .scoreline {
-  font-size: var(--fs-lg);
+/* A stopped match, in the match's own marks ---------------------------------
+   Half time, full time and the report all put a match in front of the manager,
+   and none of them should be spelling the score out in a sentence: the rest of
+   the game draws its clubs and its shirts, and three screens that say "Northolt
+   2 — 1 Hanwell" in body text are three screens that forgot how. They read the
+   scoreline from the same grammar the header uses instead — a crest, a name, the
+   score, a name, a crest — with the two strips the sides actually turned out in
+   drawn as one hard line across the top of the block.
+
+   It is one drawing with three callers (`match/MatchScoreline.tsx`), so the
+   minute the whistle goes the manager is reading exactly what he was already
+   reading at the top of the screen, and the report opens with a headline rather
+   than with a caption. The line is the shirts and never the two clubs' colours,
+   for the same reason the header's is: a side in a white away strip is white. */
+.matchscore {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--s2) var(--s3);
+  margin: 0;
+  padding-top: var(--s2);
+  font-size: var(--fs-base);
+}
+.matchscore__stripe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+}
+.matchscore__side {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  min-width: 0;
+}
+/* The visitors face the other way, so the two names read outwards from the score
+   in the middle: the same mirror the header's teams are drawn on. */
+.matchscore__side--away {
+  flex-direction: row-reverse;
+  text-align: right;
+}
+.matchscore__crest {
+  width: 34px;
+  height: 34px;
+  flex: none;
+}
+.matchscore__side strong {
+  color: var(--text);
+  font-size: var(--fs-md);
   font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The size of a number read from across the room, which is the size a result is
+   read at. */
+.matchscore__score {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  font-size: var(--fs-2xl);
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.matchscore__dash {
+  color: var(--text-faint);
+}
+/* A phone keeps the crests — they are the identity — and gives up the names and
+   the size instead. */
+@media (max-width: 600px) {
+  .matchscore__crest {
+    width: 26px;
+    height: 26px;
+  }
+  /* The name wraps rather than being cut off, which is what the header does with
+     its own on a handset: a club's name is worth two lines and a truncated one
+     is worth neither. */
+  .matchscore__side strong {
+    font-size: var(--fs-sm);
+    white-space: normal;
+  }
+  .matchscore__score {
+    font-size: var(--fs-xl);
+  }
 }
 .interval .stats {
   margin-top: var(--s2);
@@ -5764,7 +6098,7 @@ html[data-motion='reduced'] .incident {
 }
 .inspector__tab--active,
 .inspector__tab--active:hover {
-  color: var(--club-ink);
+  color: var(--club-flat-ink);
   background: var(--club);
 }
 .inspector__tab:focus-visible {
@@ -5794,7 +6128,7 @@ html[data-motion='reduced'] .incident {
   letter-spacing: 0.02em;
   border: 1px solid rgba(0, 0, 0, 0.3);
   background: var(--club);
-  color: var(--club-ink);
+  color: var(--club-flat-ink);
 }
 .posmap__dot--fill-in {
   background: #e0a52a;
@@ -5950,6 +6284,78 @@ html[data-motion='reduced'] .incident {
   flex-wrap: wrap;
 }
 
+/* The kit screen: one decision, seen from two sides ------------------------
+
+   The kit the club wears this season on the left and the three it could have
+   worn on the right. `KitView` puts the chosen strip and the three alternatives
+   in these two boxes and nothing else, because the old shape of the screen — the
+   chosen kit in a full width section, then a row of three design cards below it
+   — had the decision the wrong way round: the thing being compared against
+   scrolled off the top before the choice it was compared with, and each card
+   carried two thirds of its own width empty, a strip 230 pixels wide in a 438
+   pixel box. Two columns make the comparison what it actually is, three answers
+   to one question, read down the right hand side.
+
+   The split is 0.9 to 1.1 rather than even because the left column is three
+   shirts of one kit and the right is three kits, and the right is the one with
+   the buttons in it. */
+.kitscreen {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: var(--s5);
+  align-items: start;
+}
+.kitscreen__chosen,
+.kitscreen__options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s5);
+  min-width: 0;
+}
+/* Centred in its column rather than pinned left: the chosen strip is the widest
+   thing on the screen and the heading over it is a caption for the whole set.
+
+   `nowrap` for the same reason the phone rule caps these figures at 96 pixels: a
+   club's kit is a set, and a set broken over two lines reads as a list. Left to
+   wrap, three shirts 150 wide need 482 of column, and a column of 400 folds the
+   third one onto a line of its own — which is what it did, and it made the left
+   hand column half as tall again as the designs beside it. Now they shrink as a
+   row instead, exactly as they do on a phone. */
+.kitscreen__chosen .kitrow {
+  flex-wrap: nowrap;
+  justify-content: center;
+}
+/* The three designs, stacked. Each card is laid across rather than down: its
+   label and its button on one side, the three strips it would put the club in on
+   the other. A card that stacked its own parts inside a column of cards would be
+   a column inside a column, and the width of the row would be the empty space
+   again. `flex-wrap` is what keeps that honest on a phone, where the two halves
+   of a card run out of room and the strips drop under the name. */
+.kitoptions--stack {
+  grid-template-columns: minmax(0, 1fr);
+}
+.kitoptions--stack .kitoption {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2) var(--s4);
+}
+.kitoptions--stack .kitoption__head {
+  flex: 1 1 170px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s1);
+}
+/* Below this the two columns are no longer worth having: the chosen set is three
+   shirts wide and shrinks rather than wrapping, so at 960 it is already down to
+   120 pixels a shirt, and the same shrinking inside the design cards would make
+   the alternatives the smaller picture on a screen that exists to compare them.
+   The screen goes back to one column instead — the same two boxes, one above the
+   other — which is also what it is on a phone. */
+@media (max-width: 960px) {
+  .kitscreen { grid-template-columns: minmax(0, 1fr); }
+}
 /* Negotiation: agent say / you say */
 .negotiation {
   display: grid;
@@ -5962,7 +6368,13 @@ html[data-motion='reduced'] .incident {
   flex-direction: column;
   gap: var(--s2);
 }
+/* A face beside the words, which is the same message bubble the inbox draws —
+   see the note on `.bubble__face` there for why a Sunday League thread carries
+   one at all. */
 .bubble {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s2);
   padding: var(--s2) var(--s3);
   border: 1px solid var(--line);
   background: var(--panel);
@@ -6286,6 +6698,24 @@ html[data-motion='reduced'] .incident {
   color: var(--text-faint);
   margin-bottom: 3px;
 }
+/* Him, at the head of the conversation: his face, his name, and the one thing
+   worth knowing while you are talking to him. Ruled off from the transcript
+   under it, because a heading over what was said is a line and not a box.
+   `lg` and not the profile's `xl` on purpose — this is not his page, the page
+   about him is a dialog away, and what is being read here is a conversation
+   with him rather than a dossier about him. */
+.negotiation__man {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding-bottom: var(--s2);
+  border-bottom: 1px solid var(--line-soft);
+}
+.negotiation__man-name {
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: 700;
+}
 .negotiation__side {
   display: flex;
   flex-direction: column;
@@ -6607,8 +7037,8 @@ html[data-motion='reduced'] .incident {
     padding: var(--s1) var(--s2);
   }
   .matchhead__crest {
-    width: 22px;
-    height: 22px;
+    width: 28px;
+    height: 28px;
   }
   .matchhead__score {
     font-size: var(--fs-xl);
@@ -7164,8 +7594,19 @@ html[data-motion='reduced'] *::after {
   gap: var(--s2);
   padding: var(--s2) var(--s3);
 }
+/* The mark and the name on one line, which is how a man is drawn everywhere else
+   in the game: the square is what the eye finds him by, and a square on a line of
+   its own is a square the eye has to travel to. */
+.player-tile__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
 .player-tile__top {
   display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
   align-items: baseline;
   justify-content: space-between;
   gap: var(--s2);
@@ -7185,7 +7626,7 @@ html[data-motion='reduced'] *::after {
   font-size: var(--fs-xs);
   font-weight: 700;
   background: var(--club);
-  color: var(--club-ink);
+  color: var(--club-flat-ink);
   border-radius: 2px;
   vertical-align: middle;
 }
@@ -7370,6 +7811,18 @@ html[data-motion='reduced'] *::after {
   background: var(--panel-2);
 }
 
+/* The man on the row, at the size a list gives him — the same box the squad
+   table draws him in, and decided here rather than by the drawing, because only
+   the list knows how tall its own rows are. It is not `sm`: that is the reduction
+   a message bubble gets, and this is where a manager finds the same man again, so
+   he is drawn with the nose, the brows and the ears at a smaller size instead of
+   with less of his face. `.portrait` already carries `flex: none`, so a long name
+   takes its room from the words and never from him. */
+.inbox__row .portrait {
+  width: 28px;
+  height: 32px;
+}
+
 .inbox__row:focus-visible {
   outline: 1px solid var(--club);
   outline-offset: -1px;
@@ -7449,7 +7902,7 @@ html[data-motion='reduced'] *::after {
   padding: 0 5px;
   border-radius: 9px;
   background: var(--club);
-  color: var(--club-ink);
+  color: var(--club-flat-ink);
   font-size: var(--fs-xs);
   font-weight: 700;
   line-height: 18px;
@@ -7504,7 +7957,7 @@ html[data-motion='reduced'] *::after {
   padding: 0 5px;
   border-radius: 9px;
   background: var(--club);
-  color: var(--club-ink);
+  color: var(--club-flat-ink);
   font-size: var(--fs-xs);
   font-weight: 700;
   line-height: 17px;
@@ -7562,6 +8015,14 @@ html[data-motion='reduced'] *::after {
 .inbox__back span {
   font-size: 1.2em;
   line-height: 1;
+}
+
+/* A one-to-one is a conversation with a man, so the thread is headed with him.
+   A room full of people is headed with its name alone, because putting one of
+   them up there would be claiming the thread is about him — see `threadFace`. */
+.inbox__thread-face {
+  display: flex;
+  flex: none;
 }
 
 .inbox__thread-name {
@@ -7625,16 +8086,43 @@ html[data-motion='reduced'] *::after {
 
 /* --- A message ---------------------------------------------------------- */
 
-/* Lightweight on purpose: a name above, the words, a time underneath, and a
-   left or right alignment. No avatars, no ticks, no reaction counts — a Sunday
-   League thread is a handful of sentences, and the chrome should cost less
-   attention than the sentence does. */
+/* Lightweight on purpose: a face for whoever said it, a name above the words, a
+   time underneath, and a left or right alignment. No ticks, no reaction counts —
+   a Sunday League thread is a handful of sentences, and the chrome should cost
+   less attention than the sentence does.
+
+   The face was the first thing cut when this was written, and at the time that
+   was right: the game could not draw a person, so an "avatar" could only ever
+   have been a grey circle with two letters in it, which is the visual grammar of
+   a database and says nothing about who is talking. It draws people now, from
+   their own names, so the face is not chrome any more. It is the answer to the
+   question a thread with several people in it asks, and it is what makes talking
+   to a man look like talking to a man.
+
+   It stays small — `sm`, the size a list row gives him — and it is only ever on
+   somebody else's words. The manager is the one reading, and he does not need a
+   picture of himself beside his own sentence. */
 .bubble {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s2);
   max-width: 85%;
   padding: var(--s2) var(--s3);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--panel);
+}
+
+/* The face, and the words beside it. The drawing is sized by `.portrait` itself,
+   so all this does is stop it shrinking under a long message and let the words
+   have the rest of the bubble. */
+.bubble__face {
+  display: flex;
+  flex: none;
+}
+.bubble__words {
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 /* The manager's own words carry the club colour as a thin edge rather than a
@@ -7924,6 +8412,7 @@ html[data-motion='reduced'] .pitch--preparation .pitch__player { transition: non
   .save-list__item { flex-wrap: wrap; }
   .save-list__item > .row { width: 100%; }
   .save-list__item > .row .btn { flex: 1; }
+  /* Sticky, so opaque: the page scrolls under it. */
   .club-select .page-head, .create-club .page-head { position: sticky; top: 0; z-index: 2; background: var(--bg); padding: 12px; }
   .club-select .page-head__subtitle, .create-club .page-head__subtitle { display: none; }
 }
@@ -7938,7 +8427,11 @@ html[data-motion='reduced'] .pitch--preparation .pitch__player { transition: non
 .adaptive-panels, .staff-workspace { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; align-items: start; }
 .adaptive-panels__slot { min-width: 0; }
 .adaptive-panels__slot--wide { grid-column: 1 / -1; }
-.workspace-panel { background: linear-gradient(155deg, var(--panel-2), var(--panel)); border: 1px solid var(--line); }
+/* A workspace panel is a panel: it used to be lit from its top-left corner at
+   155 degrees, which made the manager's and the staff screens the only rooms
+   where light came from the side. Same ramp as every other panel, plus the edge
+   that says it is the panel this screen is worked in. */
+.workspace-panel { background: linear-gradient(178deg, var(--panel-2) 0%, var(--panel) 62%); border: 1px solid var(--line); }
 /* No second wash on a workspace panel's head: `.panel__head` above already
    tints it, and stacking a fading gradient on a flat tint is what produced two
    different coloured areas inside one heading. */
@@ -7946,13 +8439,20 @@ html[data-motion='reduced'] .pitch--preparation .pitch__player { transition: non
 .panel-picker > li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--line-soft); }
 .panel-picker label { display: flex; align-items: center; gap: 10px; min-height: 44px; }
 .panel-picker input { accent-color: var(--accent); width: 18px; height: 18px; }
-.manager-identity { display: flex; gap: 22px; align-items: center; padding: 22px; border: 1px solid var(--line); border-left: 3px solid var(--club); background: linear-gradient(135deg, var(--panel-3), var(--panel)); }
+.manager-identity { display: flex; gap: 22px; align-items: center; padding: 22px; border: 1px solid var(--line); border-left: 3px solid var(--club); background: linear-gradient(180deg, var(--panel-3), var(--panel)); }
 /* The hero card is already the header, so the page-head rule and its club
    segment would be a second heading mark inside one box. */
 .manager-identity .page-head { flex: 1; min-width: 0; border: 0; padding: 0; box-shadow: none; }
 .manager-identity .page-head::after { display: none; }
 .manager-identity > .badge { flex: none; }
-.manager-identity__portrait { display: grid; place-items: center; flex: none; width: 84px; height: 104px; color: #d0dcd5; background: linear-gradient(160deg, #ffffff0c, #0003); border: 1px solid var(--line); border-radius: 50% 50% 4px 4px; }
+/* The portrait's placeholder: a box lit the way every other box is lit, so the
+   empty frame and the filled one read as the same object. */
+/* The manager screen's own frame. It was an arch, which suited a bust glyph and
+   cut the top off a face; it is a rectangle with a rule round it now, and the
+   portrait inside it is the same chip every list uses, so there is one portrait
+   frame in the game rather than two. */
+.manager-identity__portrait { display: grid; place-items: center; flex: none; overflow: hidden; background: linear-gradient(180deg, rgba(255, 255, 255, 0.047), rgba(0, 0, 0, 0.2)); border: 1px solid var(--line); border-radius: var(--radius); }
+.manager-identity__portrait .portrait { width: 88px; height: 100px; border-radius: 0; background: none; box-shadow: none; }
 .manager-identity__portrait .glyph { width: 64px; height: 80px; stroke-width: 1; }
 .manager-job { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 .manager-form { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--line); }
@@ -7968,9 +8468,12 @@ html[data-motion='reduced'] .pitch--preparation .pitch__player { transition: non
 /* Two across on a laptop, one on a phone. `auto-fit` at 310px gave three
    columns and then stranded the fourth person alone on a row of his own. */
 .staff-roster { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 14px; }
-.staff-roster__person { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px 12px; padding: 16px; background: linear-gradient(145deg, var(--panel-2), var(--panel)); border: 1px solid var(--line); border-top: 2px solid var(--club-soft); }
+.staff-roster__person { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px 12px; padding: 16px; background: linear-gradient(178deg, var(--panel-2) 0%, var(--panel) 62%); border: 1px solid var(--line); border-top: 2px solid var(--club-soft); }
 .staff-roster__identity { min-width: 0; }
-.staff-roster__identity .person-mark { width: 44px; height: 52px; background: var(--club-wash); }
+/* A card has room for the large mark; the colour of it is the mark's own business
+   now, not the list's, because a committee card and a player card sit in the same
+   grid and only one of them is wearing a shirt. */
+.staff-roster__identity .portrait { width: 46px; height: 53px; }
 .staff-roster__status { grid-row: 2; grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
 .staff-roster__action { grid-row: 1; grid-column: 2; }
 .staff-roster__detail, .staff-roster__duty { grid-column: 1 / -1; margin: 0; }
@@ -7979,11 +8482,10 @@ html[data-motion='reduced'] .pitch--preparation .pitch__player { transition: non
 .squad-viewbar > span { margin-left: auto; }
 .squad-table { min-width: 690px; }
 .squad-table td:first-child { min-width: 220px; }
-.squad-table .person-mark { width: 28px; height: 34px; background: var(--club-wash); }
-.squad-table .person-mark .glyph { width: 24px; height: 24px; }
+.squad-table .portrait { width: 28px; height: 32px; }
 .squad-table .meter { width: 64px; }
 .squad-table th { position: sticky; top: 0; background: var(--panel-2); z-index: 1; }
-@media (max-width: 760px) { .adaptive-panels, .staff-workspace { grid-template-columns: minmax(0, 1fr); } .manager-identity { gap: 12px; padding: 16px; flex-wrap: wrap; } .manager-identity__portrait { width: 48px; height: 64px; } .manager-identity__portrait .glyph { width: 38px; height: 48px; } .manager-identity > .badge { display: none; } .squad-viewbar > span { width: 100%; margin-left: 0; } }
+@media (max-width: 760px) { .adaptive-panels, .staff-workspace { grid-template-columns: minmax(0, 1fr); } .manager-identity { gap: 12px; padding: 16px; flex-wrap: wrap; } .manager-identity__portrait .portrait { width: 62px; height: 71px; } .manager-identity__portrait .glyph { width: 38px; height: 48px; } .manager-identity > .badge { display: none; } .squad-viewbar > span { width: 100%; margin-left: 0; } }
 
 /* SE27 shared presentation: readable type, ruled summaries, bounded context. */
 .app__main { padding: 22px 28px 32px; }
@@ -8073,14 +8575,123 @@ button.chip { cursor: pointer; min-width: 36px; }
 .matchbar__drawer:focus { outline: none; }
 .global-feedback { position: fixed; right: 16px; top: 16px; z-index: 90; max-width: min(560px, calc(100vw - 32px)); box-shadow: var(--shadow-float); }
 .loading-screen { padding: 24px; color: var(--text-dim); }
-.person-mark { display: inline-flex; width: 36px; height: 40px; align-items: center; justify-content: center; flex: none; background: var(--panel-3); color: var(--text-dim); border-radius: 3px; }
-.person-mark svg { width: 28px; height: 28px; }
-.person-identity { display: flex; gap: 10px; align-items: center; min-width: 0; }
+/* A person is drawn: his face, and the shirt of whoever he plays for.
+
+   Every person in the game used to be one bust glyph in one grey box, so a
+   committee of four, a squad of eighteen and a list of names found through the
+   local game all read as the same record repeated. Initials were tried next and
+   were worse: two letters in a square is the visual grammar of a database, and it
+   made the game look *more* like a dashboard rather than less. So the game draws
+   people the way it already draws crests and kits — a generated, deterministic
+   drawing, in a box the stylesheet sizes.
+
+   The box is the same at every size and for everybody: a neutral panel chip with
+   a hairline rule along its foot, which is the standard every list in the game
+   holds itself to. It is deliberately *not* tinted with the club's colour, as the
+   initials mark was, because the club is now on the man: he is wearing its shirt.
+   A tinted box behind a shirt in a club's second colour is two answers to one
+   question, and the drawing is the better one.
+
+   Four sizes, and the drawing is the same at all four: `sm` in a table, `md` in
+   a row, `lg` on a card, and `xl` at the head of a profile, where the point is
+   that this page is about him. See `components/Portrait.tsx`, and `face.ts` for
+   what makes a man's face his. */
+.portrait { display: inline-flex; width: 35px; height: 40px; flex: none; overflow: hidden; border-radius: var(--radius); background: var(--panel-3); box-shadow: inset 0 -2px 0 var(--line); }
+.portrait__art { display: block; width: 100%; height: 100%; }
+.portrait--sm { width: 28px; height: 32px; }
+.portrait--md { width: 35px; height: 40px; }
+.portrait--lg { width: 42px; height: 48px; }
+/* The profile's own size. Large enough that the drawing is doing the work rather
+   than the name beside it, and no larger: past this the drawing stops being a
+   portrait in a head and starts being a picture the page is about. */
+.portrait--xl { width: 105px; height: 120px; }
+/* A person drawn beside his name. Two spellings of the one layout: `PersonIdentity`
+   adds a second line about him under the name, `PersonLine` is the drawing and the
+   name alone, for the rows where everything else is already in the columns. */
+.person-identity, .person-line { display: flex; gap: 10px; align-items: center; min-width: 0; }
+/* On a line, he is drawn at the size a list gives him — the box the squad table
+   uses — and the name takes what is left of the row, cut with an ellipsis rather
+   than pushing him out of a cell, which is what a long surname does to a flex row
+   by default. */
+.person-line .portrait { width: 28px; height: 32px; }
+.person-line > .playerlink { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A profile's head is a portrait with the name centred against it, so the drawing
+   leads the page and the crest and the facts follow it. On a phone the portrait
+   gives up a fifth of its size rather than squeezing the name into a column: at
+   390 there is room for the drawing and the name, and not for both at full size. */
+@media (max-width: 860px) { .profilehead--person .portrait--xl { width: 84px; height: 96px; } }
 .person-identity > div { min-width: 0; }
 .club-identity { display: flex; align-items: center; gap: 16px; padding-block: 8px 16px; border-bottom: 1px solid var(--line); }
 .club-identity .badge { flex: none; }
 .club-identity__name { font-size: var(--fs-xl); font-weight: 600; }
 .club-identity__motto { color: var(--text-dim); font-style: italic; }
+
+/* The face customiser — `components/FaceDesigner.tsx` is the only thing that
+   wears these rules, and it is drawn in two places: on the pre-game profile
+   screen, before there is a career, and on the manager's own page afterwards.
+
+   The preview is the *real* drawing rather than a copy of it — the same
+   `PortraitArt` the squad list renders, from the same `facePlan`, in the profile's
+   own `portrait--xl` box — so what a manager picks here is exactly what he will
+   be shown next week. Beside it sit the caption and the two buttons, laid out as
+   a row rather than a column under the portrait: a hundred pixels of prose beneath
+   a hundred-pixel drawing is a column too narrow to read.
+
+   The twelve rows underneath are the tactics screen's option groups, and the comb
+   they would make is the one thing worth turning down. Each row already rules
+   itself off along its foot, and three rules a row — the subheading's, the button
+   strip's, the group's — times twelve is a grid rather than a list. So inside the
+   designer a row keeps exactly one rule: the group's. The subheading and the
+   segmented strip lose theirs.
+
+   Above 1280 the rows go two across, which is the same list at half the height.
+   The reading order is still left to right, top to bottom, because that is the
+   order a face is built in, and `grid-auto-flow: row` is what keeps it that way. */
+.facedesigner { display: grid; gap: var(--s3); min-width: 0; }
+.facedesigner__preview {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--s2) var(--s3);
+  align-items: start;
+  padding-bottom: var(--s3);
+  border-bottom: 1px solid var(--line);
+}
+.facedesigner__preview > .portrait { grid-row: 1 / span 2; }
+.facedesigner__caption { grid-column: 2; margin: 0; max-width: 76ch; }
+.facedesigner__tools { grid-column: 2; }
+.facedesigner__rows { display: grid; min-width: 0; }
+.facedesigner__rows .option-group { min-width: 0; margin-bottom: var(--s3); }
+.facedesigner__rows .subhead { margin: 0 0 var(--s2); padding-bottom: 0; border-bottom: none; }
+.facedesigner__rows .segmented { border-bottom: none; padding-bottom: 0; }
+/* The button strip has to hold a chip as well as a word, for the two rows that are
+   a paint rather than a shape. The chip is lit from above like every other one in
+   the sheet — the shadow runs along its foot — and it is a hairline, because at
+   twelve pixels a chip is a fact about the row rather than a surface. */
+.facedesigner .segmented__item { display: inline-flex; align-items: center; gap: 6px; }
+.facedesigner__dot {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  border-radius: var(--radius-pill);
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.35);
+}
+@media (min-width: 1280px) {
+  .facedesigner__rows { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: var(--s4); }
+  /* The foot of the list, whichever column the last two rows land in. */
+  .facedesigner__rows .option-group:nth-last-child(-n + 2) {
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border-bottom: none;
+  }
+}
+@media (max-width: 860px) {
+  /* The phone keeps the drawing and gives it less of the row, the same bargain
+     `.profilehead--person .portrait--xl` strikes for a profile's head. */
+  .facedesigner__preview { gap: var(--s2); }
+  .facedesigner__preview .portrait--xl { width: 84px; height: 96px; }
+  .facedesigner__caption { font-size: var(--fs-xs); }
+}
+
 @media (max-width: 1000px) {
   .profile-grid--person { grid-template-columns: minmax(0, 1fr); }
   .profile-grid--person > :nth-child(3) { grid-column: auto; }
@@ -8121,18 +8732,131 @@ button.chip { cursor: pointer; min-width: 36px; }
   html:not([data-motion='full']) { scroll-behavior: auto; }
 }
 html[data-motion='reduced'] { scroll-behavior: auto; }
-.fixture-card { background: var(--panel); border-block: 1px solid var(--line); border-left: 3px solid var(--club); padding: 16px 20px; }
-.fixture-card__when { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; color: var(--text-dim); font-size: var(--fs-sm); }
-.fixture-card__label { color: var(--text); font-weight: 600; }
-.fixture-card__teams { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 16px; align-items: center; padding-block: 20px; }
-.fixture-card__side { display: flex; gap: 12px; align-items: center; justify-content: center; min-width: 0; font-size: var(--fs-xl); font-weight: 600; }
+/* --- D · The board: a fixture as a fixture sheet ---------------------------
+
+   The one thing on any screen that carries a result, and it is set the way a
+   Sunday fixture list sets one: the competition and the round as a letterpress
+   across the club's own band, the two clubs at a name's size, the score where
+   the eye lands first, and the conditions — the day, the ground, the weather, the
+   surface — as the small print under a rule at the foot.
+
+   Nothing on it is new. Every line is a field the fixture already carried, given
+   the place a fixture sheet would give it, which is the whole difference between
+   a row of labelled facts and a fixture. */
+
+.fixture-card {
+  background: var(--panel);
+  border-block: 1px solid var(--line);
+  border-left: 3px solid var(--club);
+  /* No padding of its own: the stamp is a band across the full width, the way the
+     top bar's own fixture band is, and the parts below pad their own content. */
+  padding: 0;
+}
+.fixture-card__stamp {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px var(--s3);
+  padding: 5px 20px 6px;
+  /* The band is the shell's own, so a board drawn inside a takeover, a report or
+     a dialog reads it from whatever is wrapping it — the two takeovers and the
+     dialogs are all given the club's colours for exactly this reason. The
+     fallback is a surface rather than nothing, for the one case of a board drawn
+     with no club around it at all. */
+  background: var(--club-band, var(--panel-3));
+  color: var(--club-band-ink, var(--text));
+  font-size: var(--fs-xs);
+  /* On a surface of its own, ink is the highlight for a hovered link. */
+  --link-hover: var(--club-band-ink, var(--text));
+  --link-hover-line: currentColor;
+}
+.fixture-card__label {
+  font-weight: 700;
+  letter-spacing: var(--tracking-letterpress);
+  text-transform: uppercase;
+}
+.fixture-card__when { display: flex; flex-wrap: wrap; gap: 2px var(--s3); align-items: center; }
+/* The countdown is the one thing on this band allowed a box, because it is the
+   question the manager is actually asking: how long have I got. */
+.fixture-card__days {
+  margin-left: auto;
+  padding: 1px 8px 2px;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-sm);
+  font-weight: 700;
+}
+.fixture-card__body { padding: 18px 20px 16px; }
+.fixture-card__teams {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+}
+.fixture-card__side {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  font-size: var(--fs-focal);
+  font-weight: 650;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
 .fixture-card__side .badge { flex: none; }
 .fixture-card__side .clubcell { justify-content: center; }
 .fixture-card__side .crest { display: none; }
-.fixture-card__score { font-size: 2rem; font-variant-numeric: tabular-nums; }
-.fixture-card__score small { display: block; font-size: var(--fs-xs); color: var(--text-dim); }
-.fixture-card__foot { border-top: 1px solid var(--line); padding-top: 12px; display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap; }
+/* Our own half of the board is named in the club's readable ink: the same fact
+   the band states with a colour, stated again where the manager is looking. */
+.fixture-card__side--ours, .fixture-card__side--ours a { color: var(--club-text); }
+.fixture-card__score {
+  font-size: var(--fs-display);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: var(--tracking-display);
+  font-variant-numeric: tabular-nums;
+  padding-inline: 4px;
+}
+.fixture-card__score small {
+  display: block;
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--text-dim);
+  text-align: center;
+}
+.fixture-card__conditions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 18px;
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-soft);
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+.fixture-card__conditions b { color: var(--text); font-weight: 600; }
+.fixture-card__foot {
+  border-top: 1px solid var(--line);
+  padding: 12px 20px 14px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
 .fixture-card__foot p { font-size: var(--fs-sm); color: var(--text-dim); }
+@media (max-width: 860px) {
+  .fixture-card__stamp { padding-inline: 12px; }
+  .fixture-card__body { padding: 14px 12px 12px; }
+  .fixture-card__teams { gap: 8px; }
+  .fixture-card__side { flex-direction: column; font-size: var(--fs-lg); gap: 6px; text-align: center; }
+  .fixture-card__side .badge { width: 44px !important; height: 44px !important; }
+  .fixture-card__score { font-size: var(--fs-2xl); }
+  .fixture-card__foot { padding-inline: 12px; }
+  .fixture-card__foot .row { width: 100%; }
+  .fixture-card__foot .btn { flex: 1; }
+}
 .profile-content > .overlay__body, .profile-content > .profilehead { padding: 0; }
 .profile-content .overlay__body { overflow: visible; }
 .profile-content .profile-sections > .split { grid-template-columns: 1fr; }
@@ -8140,12 +8864,6 @@ html[data-motion='reduced'] { scroll-behavior: auto; }
 .profile-content .quickstats { margin-block: 12px; background: transparent; border-block: 1px solid var(--line); }
 .profile-content .profilehead { background: transparent; border: 0; }
 @media (max-width: 860px) {
-  .fixture-card { padding: 12px; }
-  .fixture-card__teams { gap: 8px; padding-block: 16px; }
-  .fixture-card__side { flex-direction: column; font-size: var(--fs-base); gap: 6px; text-align: center; }
-  .fixture-card__side .badge { width: 40px !important; height: 40px !important; }
-  .fixture-card__foot .row { width: 100%; }
-  .fixture-card__foot .btn { flex: 1; }
   .profile-content .profile-sections--history .stack { grid-template-columns: 1fr; }
 }
 
@@ -8316,12 +9034,15 @@ html[data-motion='reduced'] { scroll-behavior: auto; }
   background: var(--club);
 }
 
-/* Where a header is sticky it must also stay opaque, whatever this sheet says
-   elsewhere about headers. */
-.club-select .page-head,
-.create-club .page-head {
-  background: var(--bg);
-}
+/* A header is opaque only where it has to be, and that is on a phone: the
+   club-selection and club-creation headers go sticky there and the page scrolls
+   under them, so they carry the page's own background. On a desktop neither is
+   sticky, so neither wears a box — and a box is what a background here is. The
+   rule used to be unscoped, which pasted a black `--bg` rectangle over the pitch
+   photograph behind two screens whose header is otherwise deliberately shadowed
+   lettering on the scene, exactly the wash the header's own rule above rules
+   out. The background is stated in the media query that makes them sticky, beside
+   the thing that needs it. */
 
 .page-head__eyebrow {
   display: flex;
@@ -8621,14 +9342,14 @@ html[data-motion='reduced'] { scroll-behavior: auto; }
 .segmented__item--active {
   background: var(--club);
   border-color: var(--club);
-  color: var(--club-ink);
+  color: var(--club-flat-ink);
   font-weight: 700;
 }
 
 .chip--on {
   background: var(--club);
   border-color: var(--club);
-  color: var(--club-ink);
+  color: var(--club-flat-ink);
 }
 
 .tile--selected {
@@ -8722,7 +9443,37 @@ html[data-motion='reduced'] { scroll-behavior: auto; }
 
    The feed was one column of left-aligned summaries with its headlines at body
    size, which is the shape of a changelog. A news screen leads with a story,
-   then offers the rest as cards beside a rail of what the club remembers. */
+   then offers the rest as cards beside a rail of what the club remembers.
+
+   A story also carries a picture of what kind of story it is — a pitch for a
+   match, the men for the squad, a stand for the club, a trophy for the league,
+   a globe for the world, money for the money. Drawn rather than photographed:
+   this game draws its faces, its badges and its kits, and a single photograph
+   among all that ink would read as an advertisement. Decorative, though — the
+   kind of story is written in words in the meta line beside it. */
+
+.news-plate {
+  width: 64px;
+  height: 40px;
+  flex: 0 0 auto;
+  justify-self: start;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: var(--text-dim);
+}
+
+/* The lead story's picture is twice the size, so its line is drawn at half
+   weight: 0.75 of a sheet drawn out to 128px is the same 1.5px line every other
+   drawing in the game is made of, and a picture cannot be the one thing on the
+   screen with a heavier hand than everything around it. */
+.news-plate--lead {
+  width: 128px;
+  height: 80px;
+  stroke-width: 0.75;
+}
 
 .news-layout {
   display: grid;
@@ -8832,15 +9583,27 @@ html[data-motion='reduced'] { scroll-behavior: auto; }
 
 .news-story > summary {
   display: grid;
-  gap: 6px;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 12px;
+  row-gap: 6px;
+  align-items: start;
   cursor: pointer;
   list-style: none;
+}
+
+/* The words beside the picture: the meta line, the headline, and the "Read the
+   story" the summary grows underneath them. */
+.news-story__text {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
 }
 
 /* A card that opens has to look like one. The chevron is the whole affordance,
    so it is drawn rather than left to the user to discover by hovering. */
 .news-story > summary::after {
   content: 'Read the story';
+  grid-column: 2;
   font-size: var(--fs-xs);
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -9272,6 +10035,59 @@ html[data-motion='reduced'] { scroll-behavior: auto; }
 .picker__row--fits { box-shadow: inset 3px 0 0 var(--accent); }
 .picker__row--here { box-shadow: inset 3px 0 0 var(--focus); }
 
+/* The headings over the squad list. The picker is a list rather than a table,
+   so its headings are buttons: one tap sorts the list by a fact, the second tap
+   turns the sort round, and the third puts the list back into the side's own
+   order. They sit above the pane rather than inside it, so the names scroll
+   under headings that stay where they are. */
+.picker-sort {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 0 0 var(--s2);
+}
+.picker-sort__label {
+  color: var(--text-faint);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin-right: 2px;
+}
+.picker-sort__mark {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  margin-left: 5px;
+  vertical-align: -1px;
+  opacity: 0.45;
+}
+.picker-sort__tab.tab--active .picker-sort__mark { color: var(--accent); opacity: 1; }
+
+/* A fact about a man, said the way the squad screen says it: the label the
+   column would carry, and then what it holds. This list has no columns, so the
+   label is written into the row instead of over it — and the whole strip takes
+   a line of its own, so every row of the list reads the same way down the pane
+   whatever length the name in it happens to be. */
+.picker__facts { flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; }
+.picker__fact { display: inline-flex; align-items: center; gap: 5px; }
+.picker__fact::before {
+  content: attr(data-label);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-faint);
+}
+/* The one fact that does not need its name written over it: the word in the pill
+   is the fact. It keeps its label for the row's shape and for anything reading
+   the row, and does not draw it, because "AVAILABILITY available" is a line of
+   the pane spent saying one thing twice — and a line of the pane is a name the
+   manager cannot see. */
+.picker__fact--word::before { content: none; }
+
 /* --- The desktop frame: the pitch on the left, the squad on the right ---- */
 
 @media (min-width: 860px) and (min-height: 620px) {
@@ -9428,4 +10244,444 @@ html[data-motion='reduced'] .team-selection__aside { transition: none; }
   clip: rect(0 0 0 0);
   white-space: nowrap;
   border: 0;
+}
+
+/* ==========================================================================
+   Five rooms in one building — the screen archetypes
+   --------------------------------------------------------------------------
+   The game is one design language; a screen's room decides *how* that language
+   is used, not which language it is. `AppShell` puts the room on the content
+   column as `data-archetype` (from `src/ui/archetype.ts`) and everything below
+   is the difference.
+
+   Why it exists. Measured across all eighteen career screens, the frame was
+   identical: the same 64-pixel club rule under the header, the same 44-pixel
+   club bar over every section, the same lit box for a panel. A squad screen, the
+   treasurer's book and the league table were the same page with different words
+   on it — and a manager who cannot tell the dressing room from the committee
+   room is a manager looking at a web application rather than at his club.
+
+   The four things a room may change, and nothing else:
+
+     the surfaces    boxed (a form or a table is an object) or ruled (a page is read)
+     the club rule   a 64-pixel stub, or a letterhead rule across the whole width
+     the type        how big a number is read, and whether a heading is a label or a line
+     the measures    how wide a column of words is, and where a rule stops
+
+   What no room may change: the club's colour, the light coming from above, the
+   hairlines, the corner radius, the navigation, or anything the tests in
+   `src/ui/workspaces.test.ts` pin. These are five variations on one language,
+   which is the point of them — a different language would be a redesign, and
+   this is not one.
+   ========================================================================== */
+
+/* --- A · The manager's desk: Home, Your profile, Messages -----------------
+
+   The reference room, and deliberately the only one that overrides nothing. The
+   desk is where the other four report back to, so it is the room the rest are
+   variations from: boxed surfaces, the club rule as a stub, and the club's
+   colour spent once per screen on the head of the primary panel — the one thing
+   on the screen that is waiting on him. */
+
+/* --- B · The board: Squad, Selection, Tactics, Training -------------------
+
+   The screens with a picture on them, and the picture is the point: so the
+   interface gets out of the way. A panel stops being a box and becomes a
+   heading, a rule, and what is under it, which leaves the pitch, the men and the
+   shirts as the only objects in the room. That is the whole difference between
+   looking at a squad and looking at a table of people — and it is why the boxes
+   come off here rather than on the desk, where a box is what the content is.
+
+   What stays is the club's own edge on the one decision of the screen, and its
+   flat tint on that panel's head: a room with no boxes still has a front door. */
+
+.app__main[data-archetype='football'] .panel {
+  background: none;
+  border: 0;
+}
+/* A head is ruled rather than raised. The filter row on a squad and the controls
+   on the bench still need an edge to sit under, and a band with no box around it
+   reads as a heading rather than as the top of a card. */
+.app__main[data-archetype='football'] .panel__head {
+  background: none;
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+.app__main[data-archetype='football'] .panel--level-primary {
+  border-left: 2px solid var(--club);
+}
+.app__main[data-archetype='football'] .panel--level-primary .panel__head {
+  background: var(--club-soft);
+}
+/* A number about a footballer is read from across the room and at a glance — how
+   many are fit, how many minutes are left in him — so on these screens the
+   numbers are set one size up, and the words around them are not. */
+.app__main[data-archetype='football'] .metric-tile .metric__value {
+  font-size: var(--fs-2xl);
+}
+
+/* --- C · The club's paperwork: Club, Staff, Finances, Recruitment, Kit ----
+
+   Everywhere else the club's colour is spent once per screen. On these five the
+   club *is* the subject — its committee, its wage bill, the strip it wears — so
+   its rule runs the full width of the header rather than stopping after 64
+   pixels, which is what makes these headers read as a letterhead instead of as a
+   page title. Flat and edge to edge: the fade that used to be here is precisely
+   what turned the club's colour into a smudge, and it is still forbidden. */
+
+.app__main[data-archetype='club'] .page-head::after {
+  width: 100%;
+}
+/* Sections are the club's own headings — who runs it, what it owes — so the bar
+   over them is longer, the way a letterhead's rule is longer than a dot. */
+.app__main[data-archetype='club'] .section__head::after {
+  width: 72px;
+}
+/* The crest belongs on the club's own screens, and this is the one place a room
+   is allowed to reach for it: the head of the primary panel, beside the club's
+   own colour. */
+.app__main[data-archetype='club'] .panel--level-primary .panel__head {
+  background: var(--club-soft);
+}
+
+/* --- D · The season: Schedule, League table, Cups, History ---------------
+
+   A season is read rather than operated: a fixture list, a table, a bracket, a
+   list of honours. Those are pages, so the boxes come off and the rules do the
+   work — and the figures are tabular, because a table is read *down* a column
+   and a column whose digits shift sideways is a column nobody can compare. */
+
+.app__main[data-archetype='competition'] .panel {
+  background: none;
+  border: 0;
+}
+.app__main[data-archetype='competition'] .panel__head {
+  background: none;
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+.app__main[data-archetype='competition'] .page-head::after {
+  width: 100%;
+}
+.app__main[data-archetype='competition'] .table {
+  font-variant-numeric: tabular-nums;
+}
+/* The head of a table on a season screen is the top of a printed column, and it
+   is ruled off top and bottom rather than boxed. */
+.app__main[data-archetype='competition'] .table thead th {
+  box-shadow: inset 0 -1px 0 var(--line), inset 0 1px 0 var(--line-soft);
+}
+
+/* --- E · The local paper: World, Media ------------------------------------
+
+   Read rather than scanned, and the only room where the type does the talking:
+   the micro-labels come off the headings, the screen's title earns the size a
+   masthead gets, and the measure opens out to a column a person can follow. What
+   the local game says about a Sunday club is written, not tabulated, and the
+   room says so before a word of it is read. */
+
+.app__main[data-archetype='world'] .panel {
+  background: none;
+  border: 0;
+}
+.app__main[data-archetype='world'] .panel__head {
+  background: none;
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+.app__main[data-archetype='world'] .page-head {
+  padding-bottom: 22px;
+}
+.app__main[data-archetype='world'] .page-head::after {
+  width: 100%;
+}
+.app__main[data-archetype='world'] .page-head__title {
+  font-size: var(--fs-3xl);
+  letter-spacing: -0.01em;
+}
+.app__main[data-archetype='world'] .page-head__subtitle {
+  max-width: 68ch;
+  font-size: var(--fs-base);
+}
+/* A heading in a paper is a line of type rather than a system label: sentence
+   case, set larger, with the space above it doing the separating. */
+.app__main[data-archetype='world'] .section__title {
+  font-size: var(--fs-lg);
+  font-weight: 650;
+  letter-spacing: -0.005em;
+  color: var(--text);
+}
+
+/* ==========================================================================
+   What kind of dialog is this
+   --------------------------------------------------------------------------
+   The mechanics of a dialog are one system and are not up for variation: the
+   scrim that closes it, the escape key, the trap that keeps Tab inside it, where
+   focus goes when it shuts. What a dialog *holds* is not one thing, though, and
+   a man's dossier, the club's own page, a match report and a question with two
+   answers were all opening with the same head on them — which is why they read
+   as the same pop-up with different words in it.
+
+   `Dialog` puts the kind on the overlay as `data-modal`; nothing behaves
+   differently because of it. Only three things may change, so that four kinds
+   are still one system: what the head is made of, how far the club's colour is
+   allowed to go, and how big the title is. A dialog with no kind is a utility —
+   preferences, saves, the changelog — and keeps the plain head it always had.
+     person   a man's dossier: the club's tint on his head, because he is ours
+     club     the club as a document: the tint, and the club's colour as its rule
+     report   a match report: a headline over a ruled column, like the paper it is
+     confirm  a question with two answers: no club colour at all, because "are you
+              sure" is not part of the club's identity
+   ========================================================================== */
+
+.overlay[data-modal='person'] .overlay__bar,
+.overlay[data-modal='club'] .overlay__bar {
+  background: var(--club-wash);
+  box-shadow: inset 0 -1px 0 var(--club-soft);
+}
+.overlay[data-modal='club'] .overlay__bar {
+  box-shadow: inset 0 -1px 0 var(--club);
+}
+.overlay[data-modal='report'] .overlay__bar {
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+.overlay[data-modal='report'] .overlay__title {
+  font-size: var(--fs-xl);
+  font-weight: 700;
+}
+/* A question is a line of type and two buttons. Anything more — a rule, a tint, a
+   headline — makes it look like a document to read rather than a decision to
+   take, and it is the one dialog that should never look like the rest. */
+.overlay[data-modal='confirm'] .overlay__panel {
+  border-top-width: 1px;
+  border-top-color: var(--line);
+}
+.overlay[data-modal='confirm'] .overlay__title {
+  font-size: var(--fs-md);
+  font-weight: 600;
+}
+.overlay[data-modal='confirm'] .overlay__body {
+  padding-top: 14px;
+}
+
+/* ==========================================================================
+   Motion — one speed, and only where something has changed
+   --------------------------------------------------------------------------
+   The game had motion where it was hard to do without it — an overlay arriving,
+   a shape moving under a dragged player — and none at all in the places the
+   manager touches all day. A navigation item is *how he gets anywhere*, and it
+   snapped between two states with no relationship between them; a tile went
+   straight to its hover tone, which reads as the screen flinching rather than as
+   the tile answering.
+
+   So there is one speed, 120ms, which is the speed the rest of this sheet
+   already uses, and it is spent on four things only: the navigation, the thing
+   under the pointer, the selection, and a row of a table. Nothing animates that
+   the manager did not just do, nothing loops, and nothing animates on arrival —
+   this is a desk, not a title sequence.
+
+   No reduced-motion rule is needed here: `prefers-reduced-motion` and the
+   `data-motion` preference already zero every transition in the sheet at once.
+   ========================================================================== */
+
+.sidenav__item,
+.sidenav__toggle,
+.tabbar__item {
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.tile--pressable,
+.tab,
+.chip,
+.segmented__item {
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+.table tbody tr {
+  transition: background 120ms ease;
+}
+
+/* ==========================================================================
+   The fixture sheet — one fact at display size, and the letterpress to label it
+   --------------------------------------------------------------------------
+   Measured across the nineteen career screens, the largest type on seventeen of
+   them was the page title at 26 pixels, and the body of every one of them was
+   set between 13 and 15. Nothing on a screen was larger than the screen's own
+   name, so a squad list, the treasurer's book and a fixture list were read at
+   one size in one voice — and the things a football game is *about* (a scoreline,
+   a league position, the shirt a man is wearing) had no size of their own at all.
+
+   So there is one display size, spent once per screen on the fact that screen
+   exists for, drawn from the game's own numbers rather than from a new one: the
+   scoreline on a fixture, the position in a table, the balance in a book. Under
+   it sits a letterpress — the small line that labels a fact the way a fixture
+   sheet and a competition programme label one: caps, tracked out, on the band the
+   club already provides for its own fixture.
+
+   Both obey the law at the top of this sheet. Flat colour, hard edges, rules
+   rather than boxes, light from above, one radius. Nothing here is a new kind of
+   surface: a focal fact is a rule and a number, and the board is the paper a
+   fixture is printed on.
+   ========================================================================== */
+
+/* --- A · The letterpress ---------------------------------------------------
+
+   The one small-caps line in the game. It is the same treatment the top bar's
+   own fixture band already uses, written down once so that a screen cannot drift
+   from the shell it sits in. */
+
+.letterpress {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-letterpress);
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+/* --- B · A focal fact ------------------------------------------------------
+
+   The one number or name a screen is about, set at the size a fact is read at,
+   on the rule that separates it from the screen's name above it. Deliberately
+   not a tile: a tile is a small box scanned in a grid of its peers, and this is
+   the opposite — one thing, early, with room around it and nothing beside it
+   competing.
+
+   The tone is a colour on the number and nothing else, because a fact that needs
+   a raised surface to be noticed is a fact the hierarchy has already lost. */
+
+.focal-fact {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 16px;
+  padding: 16px 0 18px;
+  border-top: 1px solid var(--line);
+}
+.focal-fact__label { flex: 1 1 100%; margin-bottom: 2px; }
+.focal-fact__value {
+  font-size: var(--fs-display);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: var(--tracking-display);
+  font-variant-numeric: tabular-nums;
+}
+.focal-fact__note { color: var(--text-dim); font-size: var(--fs-sm); }
+.focal-fact__aside { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.focal-fact--ok > .focal-fact__value { color: var(--ok); }
+.focal-fact--warn > .focal-fact__value { color: var(--warn); }
+.focal-fact--bad > .focal-fact__value { color: var(--bad); }
+.focal-fact--accent > .focal-fact__value { color: var(--club-text); }
+
+/* Two or three facts read side by side on a laptop and stack on a phone, and the
+   strip closes itself off with the rule at its foot. */
+.focal-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
+  column-gap: 28px;
+  border-bottom: 1px solid var(--line);
+}
+
+/* --- C · What a room's name is set at --------------------------------------
+
+   The rooms already differ in their surfaces and in their rules; type was the
+   one thing all five shared exactly, which is why moving from the dressing room
+   to the committee room was still the same page twice. Three sizes and no more:
+   the football rooms bring their subtitle up to reading size, because on those
+   screens the subtitle *is* the decision ("direct, high tempo, deep line"), and
+   the season rooms set their name as a masthead over their full-width rule.
+
+   Scoped to a real window: a phone has one column and one size, and the rules
+   below are the size a room earns when there is room for it. */
+
+@media (min-width: 861px) {
+  .app__main[data-archetype='football'] .page-head__title,
+  .app__main[data-archetype='competition'] .page-head__title {
+    font-size: 1.75rem;
+  }
+  .app__main[data-archetype='football'] .page-head__subtitle {
+    font-size: var(--fs-md);
+    color: var(--text);
+  }
+}
+
+/* --- E · The season, printed ------------------------------------------------
+
+   A month of fixtures is a page of a fixture list, so its summary is set as the
+   month's own line — caps, tracked out, with what has been played and what is to
+   come beside it — rather than as the label of a disclosure. The month the
+   manager is in, the one holding the next game, is painted with the club's own
+   edge: that is where he is in the season, and a list of months is the one place
+   that is not obvious.
+
+   A room in the season paints its one primary panel the same way, because the
+   competition rooms are the rooms where "primary" had no visual meaning at all. */
+
+.fixture-month > summary {
+  font-weight: 700;
+  letter-spacing: var(--tracking-letterpress);
+  text-transform: uppercase;
+}
+.fixture-month[open] > summary { color: var(--text); }
+.app__main[data-archetype='competition'] .panel--level-primary { border-left: 2px solid var(--club); }
+
+/* The next game in a list is the one being prepared for, so it is marked with the
+   season's own edge and its opponent a size up. */
+.fixture--current .fixture__teams strong { font-size: var(--fs-md); }
+
+/* --- F · A line of a team sheet --------------------------------------------
+
+   A squad read in the side's own order is a team sheet, and a team sheet is ruled
+   off by line — keepers, the back, the middle, the front. The band is a rule and
+   a small-caps label rather than a section: it costs one thin row and it turns
+   eighteen rows that all looked alike into the four groups a manager already
+   reads a team sheet in. */
+
+.table tbody tr.squad-band { background: none; }
+.squad-band th {
+  padding: 14px 8px 5px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-letterpress);
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+/* --- G · This week, under the tactics board ---------------------------------
+
+   The instructions screen says how the side will play; the caption under the
+   board says who it is playing, where, and in what. Both are needed at once — a
+   deep line is a decision for a heavy pitch — so they sit on one line under the
+   picture rather than three scrolls apart, and the pitch stays the thing the
+   screen is about. */
+
+.tactics-caption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px var(--s4);
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+.tactics-caption b { color: var(--text); font-weight: 600; }
+.tactics-caption > .letterpress { flex: 1 1 100%; }
+
+/* --- H · The display size, per room ----------------------------------------
+
+   One size, five weights of it. The workspace and the football rooms are the ones
+   a manager looks at a number on all week, so they get the loudest; the committee
+   and the season rooms set theirs a step back, because the fact on those screens
+   is a reference rather than a decision; and the world — a table, a distance, a
+   club that is not yours — is the one place a number is allowed to be the whole
+   picture. */
+
+.app__main[data-archetype='workspace'] { --fs-display: 2.5rem; }
+.app__main[data-archetype='football'] { --fs-display: 2.5rem; }
+.app__main[data-archetype='club'] { --fs-display: 2.25rem; }
+.app__main[data-archetype='competition'] { --fs-display: 2.25rem; }
+.app__main[data-archetype='world'] { --fs-display: 2.5rem; }
+@media (max-width: 860px) {
+  /* A phone has one column and one size, and 40 pixels of balance is not a fact
+     read at a glance, it is a fact shouted at a small screen. */
+  .focal-fact__value { font-size: var(--fs-2xl); }
+  .focal-fact { padding: 12px 0 14px; }
 }

@@ -27,7 +27,35 @@ import { inkForColour, secondaryColour, type ClubColours } from './colour';
  * turns it into SVG.
  */
 
-export const BADGE_SHAPES: BadgeShape[] = ['shield', 'roundel', 'oval', 'arch', 'pennant'];
+export const BADGE_SHAPES: BadgeShape[] = [
+  'shield',
+  'roundel',
+  'oval',
+  'arch',
+  'pennant',
+  // The silhouettes added when the county turned out to be five badges between
+  // them: a county of forty clubs wears ten shapes now rather than five, which is
+  // the difference between recognising an opponent and recognising a colour.
+  // Appended, so the five the generator already dealt keep their places — a club
+  // that wore a shield still wears one; a club whose shape came out of the new
+  // half of the list may wake up in a different one, because there are more
+  // shapes in the bag than the five it was drawn from.
+  //
+  // A diamond was drawn as well and taken back out again, which is worth
+  // recording: it is the most distinctive silhouette of the lot, and it cannot
+  // carry a badge. A name runs round the top of a crest and a symbol stands in
+  // the middle, and a diamond's sides cut in at forty-five degrees — the one
+  // place a run of lettering is guaranteed to pass through. Fitting a name and a
+  // sixteen-unit symbol inside one left the name at three and a half units of
+  // the sixty-four, a smudge on the page, and a crest nobody can read is not more
+  // variety, it is a worse crest. The octagon is the diamond's roomy cousin and
+  // it is here instead.
+  'octagon',
+  'plaque',
+  'swallowtail',
+  'gable',
+  'ovalWide',
+];
 
 export const BADGE_PATTERNS: BadgePattern[] = [
   'stripes',
@@ -38,14 +66,55 @@ export const BADGE_PATTERNS: BadgePattern[] = [
   'chevron',
   'pinstripes',
   'plain',
+  'bordure',
+  'perFess',
+  'saltire',
 ];
+
+/**
+ * The patterns that run across the middle of the field, where the symbol is.
+ *
+ * A symbol on one of these needs a plate of its own to stand on: its ink was
+ * picked to read against the club's first colour, and the middle of the field
+ * is the one place a pattern is guaranteed to be sitting under it.
+ * `components/Badge.tsx` draws that plate, and the ring of a round badge closes
+ * over the same area for the same reason.
+ */
+const BUSY_PATTERNS: BadgePattern[] = [
+  'stripes',
+  'pinstripes',
+  'hoops',
+  'halves',
+  'quarters',
+  'sash',
+  'chevron',
+  'perFess',
+  'saltire',
+];
+
+export function patternIsBusy(pattern: BadgePattern): boolean {
+  return BUSY_PATTERNS.includes(pattern);
+}
 
 export const BADGE_SHAPE_PATHS: Record<BadgeShape, string> = {
   shield: 'M32 3 L60 11 V33 C60 46 48.5 55.5 32 61 C15.5 55.5 4 46 4 33 V11 Z',
   roundel: 'M4 32 A28 28 0 1 1 60 32 A28 28 0 1 1 4 32 Z',
-  oval: 'M32 3 A22 29 0 1 1 32 61 A22 29 0 1 1 32 3 Z',
+  // A shade wider than it used to be: lettering set on an arc reaches outwards
+  // from it, and the narrow sides of a thin oval left the ends of a name with
+  // nowhere to stand but through the edge.
+  oval: 'M32 3 A24 29 0 1 1 32 61 A24 29 0 1 1 32 3 Z',
   arch: 'M6 62 V20 A26 17 0 0 1 58 20 V62 Z',
   pennant: 'M5 5 H59 V40 L32 60 L5 40 Z',
+  // Every one of these five keeps the whole width of the badge at the height the
+  // name is set, so a long name is not squeezed into a point: a club's name is
+  // the one thing a crest must carry, and a silhouette that eats it is not a
+  // shape, it is a fault. Each is a different silhouette at 18px — eight sides, a
+  // square with cut corners, two tails, a shallow peak and a diamond.
+  octagon: 'M22 5 H42 L59 22 V42 L42 59 H22 L5 42 V22 Z',
+  plaque: 'M8 5 H56 A4 4 0 0 1 60 9 V55 A4 4 0 0 1 56 59 H8 A4 4 0 0 1 4 55 V9 A4 4 0 0 1 8 5 Z',
+  swallowtail: 'M5 5 H59 V60 L32 47 L5 60 Z',
+  gable: 'M6 61 V14 L32 6 L58 14 V61 Z',
+  ovalWide: 'M3 32 A29 25 0 1 1 61 32 A29 25 0 1 1 3 32 Z',
 };
 
 export const BADGE_DEVICES: BadgeDevice[] = [
@@ -100,6 +169,21 @@ export const BADGE_DEVICES: BadgeDevice[] = [
   'millstone',
   'spade',
   'sword',
+  // The third wave. Same rule as the second: appended, so a club whose name
+  // they do not catch wears exactly the crest it wore yesterday.
+  'eagle',
+  'owl',
+  'peacock',
+  'dolphin',
+  'hare',
+  'boar',
+  'bear',
+  'unicorn',
+  'griffin',
+  'dragon',
+  'windmill',
+  'fleece',
+  'pickaxe',
 ];
 
 /**
@@ -130,8 +214,18 @@ const DEVICE_WORDS: Array<[BadgeDevice, string[]]> = [
   ['keys', ['key', 'latch', 'lock', 'lockyer']],
   ['rose', ['rose', 'rosette', 'briar']],
   ['barrels', ['tun', 'barrel', 'cask', 'cooper', 'coopers']],
+  /* The one symbol that has to be read before the sheaf.
+
+     "corn" is one of the sheaf's words and it matches the end of "unicorn",
+     which is the only way a horse with a horn was ever going to be a sheaf of
+     corn. Nothing else moves: a club called the Unicorn was wearing a sheaf,
+     and no name that says corn means anything but corn. */
+  ['unicorn', ['unicorn', 'unicorns']],
   ['sheaf', ['wheat', 'barley', 'sheaf', 'corn', 'mow', 'harvest', 'farmer', 'farm']],
   ['tree', ['oak', 'elm', 'thorn', 'ash', 'willow', 'birch', 'cedar', 'pine', 'beech', 'hawthorn', 'hazel', 'alder', 'sycamore', 'chestnut', 'poplar', 'aspen', 'holly', 'yew', 'tree', 'wood', 'grove', 'copse', 'forest', 'cottage', 'cottager', 'ranger']],
+  // The mill is its own club, and it was wearing a waggon wheel: a name the
+  // sign says plainly, so it is read before the wheel that would have taken it.
+  ['windmill', ['windmill', 'windmills']],
   ['wheel', ['wheel', 'mill', 'waggon', 'wagon', 'coach', 'cart', 'railway', 'rail', 'rails', 'locomotive', 'station', 'signal', 'junction', 'siding', 'traction']],
   ['hop', ['hop', 'brewer', 'brewery', 'ale', 'malt', 'malthouse', 'beer', 'bitters']],
   ['anvil', ['forge', 'smith', 'anvil', 'nail']],
@@ -148,10 +242,31 @@ const DEVICE_WORDS: Array<[BadgeDevice, string[]]> = [
   ['bull', ['bull', 'cow', 'cattle', 'heifer']],
   ['ram', ['ram', 'sheep', 'lamb']],
   ['fox', ['fox', 'vixen']],
+  // A hare before a hound, for the same reason a fox is: "Hare and Hounds" is a
+  // hare first, and the sign says so.
+  ['hare', ['hare', 'hares', 'harebell', 'leveret']],
+  /* The other one that has to be read before the hound.
+
+     "colliers" begins with the name of a sheepdog, so the pit village's side
+     was wearing a collie. A club called the Colliers works the coal, and no
+     name that says collie means anything but the dog. */
+  ['pickaxe', ['pickaxe', 'miner', 'miners', 'collier', 'colliers', 'pitman', 'pitmen', 'coal']],
   ['hound', ['hound', 'dog', 'poach', 'greyhound', 'whippet', 'terrier', 'spaniel', 'collie', 'lurcher', 'beagle', 'mastiff']],
   ['badger', ['badger', 'brock']],
   ['swan', ['swan', 'pelican', 'goose', 'duck']],
-  ['bird', ['bird', 'robin', 'swift', 'magpie', 'crow', 'lark', 'finch', 'thrush', 'martin', 'dove', 'starling', 'swallow', 'jackdaw', 'heron', 'harrier', 'sparrow', 'wren', 'kestrel', 'falcon', 'hawk', 'owl', 'pigeon']],
+  /* The birds that used to be one bird.
+
+     Every club named for a bird wore the same drawing, so the Owls, the
+     Eagles and the Robins of a county were one crest between them. Each of
+     these is a different *silhouette*, not a different keyword, which is the
+     only thing that tells at 18px. They sit above the general bird because a
+     name that says "owl" says more than one that says "owl" only in the
+     sense that an owl is a bird. */
+  ['owl', ['owl', 'owls']],
+  ['eagle', ['eagle', 'eagles', 'buzzard', 'buzzards', 'kite', 'kites']],
+  ['peacock', ['peacock', 'peacocks']],
+  ['dolphin', ['dolphin', 'dolphins', 'porpoise']],
+  ['bird', ['bird', 'robin', 'swift', 'magpie', 'crow', 'rook', 'lark', 'finch', 'thrush', 'martin', 'dove', 'starling', 'swallow', 'jackdaw', 'heron', 'harrier', 'sparrow', 'wren', 'kestrel', 'falcon', 'hawk', 'pigeon', 'cardinal', 'chough', 'cormorant', 'curlew', 'gull', 'merlin', 'nightjar', 'plover', 'snipe']],
   ['horse', ['horse', 'pony', 'stallion', 'mare', 'groom', 'stirrup', 'saddle', 'harness', 'farrier', 'galloway']],
   ['bridge', ['bridge', 'ford']],
   ['tower', ['kirk', 'church', 'abbey', 'priory', 'minster', 'tower', 'steeple', 'chapel', 'st mary', 'st peter']],
@@ -178,6 +293,20 @@ const DEVICE_WORDS: Array<[BadgeDevice, string[]]> = [
   ['millstone', ['millstone', 'millstones', 'stone', 'stones', 'quarry', 'quarries']],
   ['spade', ['spade', 'spades', 'gardener', 'gardeners', 'allotment', 'digger', 'diggers']],
   ['sword', ['sword', 'swords', 'blade', 'blades', 'sabre', 'cutler', 'cutlers']],
+
+  /* The third wave: the beasts of the pub signs and the trades the county is
+     named after. Appended, like the second wave, so nothing already drawn
+     moves — a name these catch was wearing a generic symbol before, and now
+     wears its own. */
+  ['boar', ['boar', 'boars']],
+  ['bear', ['bear', 'bears', 'bruin']],
+  ['griffin', ['griffin', 'griffins', 'gryphon']],
+  ['dragon', ['dragon', 'dragons', 'wyvern']],
+  // Not "wool" on its own: a keyword that matches the front of a word takes
+  // every place name that begins with it, and the county is full of Woolcrofts
+  // and Woolstons that are named for the place and not for the fleece. The
+  // word has to be the whole of what the club is called.
+  ['fleece', ['fleece', 'woolpack', 'comber', 'combers', 'shearer', 'shearers']],
 ];
 
 /** Devices for clubs whose name says nothing at all: still varied, still theirs. */
@@ -206,6 +335,22 @@ const GENERIC_DEVICES: BadgeDevice[] = [
   'millstone',
   'spade',
   'sword',
+  // Appended so a club with nothing in its name still gets a look at the
+  // newest drawings — a county of anonymous Social Clubs was wearing the same
+  // two dozen crests whatever else the library held.
+  'eagle',
+  'owl',
+  'peacock',
+  'dolphin',
+  'hare',
+  'boar',
+  'bear',
+  'unicorn',
+  'griffin',
+  'dragon',
+  'windmill',
+  'fleece',
+  'pickaxe',
 ];
 
 /**
@@ -215,12 +360,27 @@ const GENERIC_DEVICES: BadgeDevice[] = [
  * nickname is what everyone actually calls them, and a "Pelicans" badge is
  * exactly what a real club with that nickname would wear.
  */
+/**
+ * Words that say when a club plays rather than what it is called.
+ *
+ * A name takes only a handful of shapes and a few of the words in them belong
+ * to the league rather than to the club: the day it plays on, and what kind of
+ * side it is. "Thimfleet Sunday" is not named after the sun, but it was wearing
+ * one — and because that name shape is one of the commonest in the county, a
+ * fifth of the world was wearing the same crest. A club with a Sunday in its
+ * name and nothing in its weather now takes a symbol of its own.
+ */
+const NOT_SYMBOLS = new Set(['sunday', 'reserves', 'sfc']);
+
 export function deviceFor(name: string, nickname = ''): BadgeDevice | null {
   return matchDevice(name) ?? matchDevice(nickname);
 }
 
 function matchDevice(text: string): BadgeDevice | null {
-  const words = text.toLowerCase().split(/[^a-z]+/).filter(Boolean);
+  const words = text
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter((word) => word.length > 0 && !NOT_SYMBOLS.has(word));
   for (const [device, keywords] of DEVICE_WORDS) {
     for (const word of words) {
       for (const keyword of keywords) {
@@ -259,14 +419,65 @@ interface BadgeFrame {
  */
 const BADGE_FRAMES: Record<BadgeShape, BadgeFrame> = {
   shield: { kind: 'chief', bandTop: 9, nameWidth: 50, fieldBottom: 56, deviceWidth: 34, yearY: 57.5, arcRadius: 0 },
-  arch: { kind: 'chief', bandTop: 11, nameWidth: 48, fieldBottom: 58, deviceWidth: 36, yearY: 59.5, arcRadius: 0 },
-  pennant: { kind: 'chief', bandTop: 9, nameWidth: 46, fieldBottom: 50, deviceWidth: 26, yearY: 52, arcRadius: 0 },
+  arch: { kind: 'chief', bandTop: 12, nameWidth: 46, fieldBottom: 58, deviceWidth: 36, yearY: 59.5, arcRadius: 0 },
+  pennant: { kind: 'chief', bandTop: 9, nameWidth: 46, fieldBottom: 48, deviceWidth: 26, yearY: 50, arcRadius: 0 },
   roundel: { kind: 'round', bandTop: 0, nameWidth: 0, fieldBottom: 47, deviceWidth: 24, yearY: null, arcRadius: 19.5 },
   oval: { kind: 'round', bandTop: 0, nameWidth: 0, fieldBottom: 45.5, deviceWidth: 20, yearY: null, arcRadius: 18 },
+  // Where the band may start, and how wide the name's slot is at that height: an
+  // octagon is still narrowing where its band begins, and a diamond is a diamond
+  // the whole way down, so both of those give the name less width than a shield
+  // does. `yearY` is null on the swallowtail because its tails have taken the
+  // bottom corners, and there is nowhere left for a year to sit.
+  octagon: { kind: 'chief', bandTop: 12, nameWidth: 34, fieldBottom: 52, deviceWidth: 34, yearY: 55.5, arcRadius: 0 },
+  plaque: { kind: 'chief', bandTop: 10, nameWidth: 50, fieldBottom: 50, deviceWidth: 34, yearY: 52, arcRadius: 0 },
+  swallowtail: { kind: 'chief', bandTop: 9, nameWidth: 46, fieldBottom: 44, deviceWidth: 30, yearY: null, arcRadius: 0 },
+  gable: { kind: 'chief', bandTop: 13, nameWidth: 42, fieldBottom: 57, deviceWidth: 34, yearY: 58.5, arcRadius: 0 },
+  // The other way up from the oval: a badge whose widest stretch is across the
+  // middle, so its arcs have the room a tall oval cannot give them.
+  ovalWide: { kind: 'round', bandTop: 0, nameWidth: 0, fieldBottom: 44, deviceWidth: 20, yearY: null, arcRadius: 18 },
 };
 
-/** Roughly how wide a bold sans-serif character is, as a fraction of its size. */
-const GLYPH_WIDTH = 0.54;
+/**
+ * The largest lettering a round badge's arcs may carry, by silhouette.
+ *
+ * A circle is the same distance from the middle in every direction, so a name
+ * set on an arc of a roundel can be as large as its band could ever make it. No
+ * other shape is: lettering on an arc stands up *outwards* from it, so the ends
+ * of a name run out towards the narrow part of the shape, and on a thin oval or
+ * a diamond the outermost letters of a large run are through the edge — cropped
+ * by the silhouette, which is a crest with a letter missing rather than a crest
+ * that is too full. This is the largest a line can be set on each shape and still
+ * stand inside it, with the halo behind it, measured on the rendered badges by
+ * `isPointInFill` rather than worked out on paper.
+ *
+ * The number for a shape is worked out from the point on the run that is worst
+ * for it, which is not the end of the run: a circle round the top of a badge is
+ * closest to the edge at the top, and a diamond is closest to the edge at 45
+ * degrees, where its two sides have both cut in. A run of two and a half radians
+ * covers both, so every shape between them has to be measured rather than
+ * reasoned about.
+ *
+ * Where a shape is missing from the table its arcs are as roomy as a roundel's
+ * and the ordinary cap applies. Chief shapes are not here at all: their lettering
+ * is a straight run in a band, measured against the band's width instead.
+ */
+const ARC_NAME_CAP: Partial<Record<BadgeShape, number>> = {
+  oval: 6.5,
+  ovalWide: 6.5,
+};
+
+/**
+ * Roughly how wide a bold sans-serif character is, as a fraction of its size.
+ *
+ * It is used to decide how large a name can be set, so being on the low side is
+ * the one mistake that shows: the name is fitted to the band, then rendered
+ * wider than the fitting believed and either pushed out through the silhouette
+ * or clipped by it. This was 0.54 for a long time, which is what a *regular*
+ * weight measures at; the lettering on a badge is set at weight 800, and a
+ * browser asked for 800 in a stack of system faces gives it a wide or synthetic
+ * bold. Measured against the real thing on a crest sheet — a run fitted to 46
+ * units coming out at 57 — and rounded up to leave a little air. */
+const GLYPH_WIDTH = 0.68;
 /** A line of name text costs this much height for every point of its size. */
 const LINE_HEIGHT = 1.14;
 /** The most a line of name text may be drawn at, by how many lines there are. */
@@ -286,6 +497,104 @@ const BAND_PAD_BOTTOM = 2.2;
  * instead.
  */
 const MIN_DEVICE = 16;
+
+/** Air between the symbol's box and the keyline round it. */
+const SYMBOL_GAP = 1.1;
+
+/**
+ * The smallest box a round badge's symbol is ever drawn in.
+ *
+ * A round badge used to let the lettering take whatever it liked and hand the
+ * symbol what was left over, which for a short name was thirteen units of the
+ * sixty-four the badge is drawn in — a fifth of the crest, and a smudge on the
+ * page. The ring is what the symbol stands in, so the ring is what has a floor.
+ */
+const MIN_SYMBOL_BOX = 16;
+
+/**
+ * The smallest ring a round badge may close.
+ *
+ * Derived rather than picked: the ring holds the symbol, corner and all, and the
+ * corner of a square is its side times the root of two — so this is the ring that
+ * exactly holds `MIN_SYMBOL_BOX`, with the air between box and keyline.
+ */
+const MIN_RING = MIN_SYMBOL_BOX / Math.SQRT2 + SYMBOL_GAP;
+
+/**
+ * How far *in* from its arc a line of lettering reaches, as a share of its size.
+ *
+ * This is what the ring is measured against, and it depends on which way up the
+ * line is set. A name goes round the *top* of a round badge with its capitals
+ * pointing out at the edge — outward is where a capital reaches, and the only
+ * thing such a line takes inward is a descender, with the halo round it. A year,
+ * or the second line of a long name, goes round the *bottom*, where the capitals
+ * point in at the middle of the badge and the whole height of the letters is
+ * taken out of the field the symbol stands in.
+ *
+ * The two numbers are not interchangeable, and treating them as one is why a
+ * round badge's ring used to close a long way inside its lettering: it held back
+ * the full height of a capital for a line of letters that only ever reached in
+ * with a tail, leaving a bare annulus of field and a symbol small enough to miss.
+ * The fractions are measured on the pixel sweep, which counts the ink actually
+ * drawn inside the ring rather than the ink the metrics claim.
+ */
+const INWARD_DESCENDER = 0.45;
+const INWARD_CAPS = 0.9;
+
+/**
+ * The plate a symbol stands on, where the field under it is patterned.
+ *
+ * The ink a symbol is drawn in was picked to read against the club's first
+ * colour, and the middle of a patterned field is the one place a band of the
+ * second colour is guaranteed to be sitting under it. So the symbol gets a
+ * plate of its own — the field colour again, with a keyline round it, which is
+ * exactly what the real badges that carry a device on a striped field do.
+ */
+function plateFor(deviceSize: number, room: number): { size: number; radius: number } | null {
+  const size = Math.min(deviceSize * 1.14, room);
+  // Two thirds of a box is not a plate, it is a smudge behind the corners: a
+  // field too tight for one leaves the symbol standing on the field as before.
+  if (size < deviceSize * 0.9) return null;
+  return { size, radius: size * 0.22 };
+}
+
+/**
+ * The largest a line of lettering may be set on this silhouette's arcs.
+ *
+ * The shape's own room where it has less than a roundel's, and the ordinary cap
+ * where it has no entry: a circle's arcs are the roomiest a round badge can have.
+ */
+function arcNameCapFor(shape: BadgeShape): number {
+  return ARC_NAME_CAP[shape] ?? NAME_SIZE_CAP[0]!;
+}
+
+/**
+ * The circle the lettering of a round badge is drawn around.
+ *
+ * It is measured off the lettering and nothing else, because the ring is the
+ * boundary the eye reads: it has to sit inside the name above it and inside the
+ * year below it, or it cuts through the letters and looks like a mistake. What
+ * "inside" means depends on which line it is — see the two shares above — and the
+ * symbol in the middle is then the ring's business, not the lettering's.
+ */
+function ringRadiusFor(arcRadius: number, lines: Array<{ size: number; side: 'top' | 'bottom' }>): number {
+  const inward = Math.max(
+    ...lines.map((line) => line.size * (line.side === 'top' ? INWARD_DESCENDER : INWARD_CAPS)),
+  );
+  return Math.max(MIN_RING, arcRadius - inward - 1.2);
+}
+
+/**
+ * The largest box the symbol can stand in inside that ring, centred in it.
+ *
+ * The box is a square and the ring is a circle, so the corner is what decides:
+ * half a side times the root of two has to stay inside the keyline with a hair
+ * of field left between them. A short name leaves a smaller ring, which means a
+ * smaller symbol — the one place on a badge where the name wins outright.
+ */
+function symbolBoxFor(ringRadius: number): number {
+  return (ringRadius - SYMBOL_GAP) * Math.SQRT2;
+}
 
 export interface BadgePlan {
   shape: BadgeShape;
@@ -317,6 +626,20 @@ export interface BadgePlan {
   deviceX: number;
   deviceY: number;
   deviceSize: number;
+  /**
+   * The plate behind the symbol, where the field under it carries a pattern.
+   *
+   * Null wherever the symbol stands on a plain field colour, which is most
+   * badges: a plate there would be a rectangle of the colour already behind it.
+   */
+  devicePanel: { size: number; radius: number } | null;
+  /** The keyline inside the lettering of a round badge. Zero on a chief. */
+  ringRadius: number;
+  /**
+   * Whether the middle of a round badge is painted plain, leaving the pattern
+   * in the ring — which is what a round badge with a striped band looks like.
+   */
+  ringPlain: boolean;
   /** The year the club was founded, where the badge shows one. */
   year: string | null;
   yearOnArc: boolean;
@@ -410,45 +733,74 @@ export function badgePlan(
   const name = identity.name;
   const words = name.split(/\s+/).filter(Boolean);
 
-  if (frame.kind === 'round' && name.length > ARC_MAX_CHARS) {
-    // Too long for one arc: the name wraps round the badge, top and bottom,
-    // which is exactly how a real round badge with a long name does it.
-    const lines = balanceLines(words, 2);
-    const longest = Math.max(...lines.map((line) => line.length));
-    const nameSize = fitSize(longest, ARC_SPAN * frame.arcRadius, NAME_SIZE_CAP[1]!);
-    return {
-      shape,
-      pattern,
-      device,
-      name,
-      nameLines: lines,
-      nameLayout: 'ring',
-      nameSize,
-      nameWidth: ARC_SPAN * frame.arcRadius,
-      nameBaselines: [],
-      bandTop: 0,
-      bandBottom: 0,
-      arcRadius: frame.arcRadius,
-      primary,
-      secondary,
-      ink,
-      bandFill,
-      bandInk,
-      deviceX: 32,
-      deviceY: 35.5,
-      deviceSize: Math.min(frame.deviceWidth, MIN_DEVICE, frame.fieldBottom - 24.5),
-      year: null,
-      yearOnArc: false,
-      yearY: 0,
-      yearSize: YEAR_SIZE,
-      inset: (seed >>> 17) % 100 < 62,
-    };
-  }
-
   if (frame.kind === 'round') {
+    // A round badge is built outwards from its ring: the lettering goes round
+    // the outside of it, the symbol stands inside it, and the keyline between
+    // the two is the line the whole crest is read against. The symbol is
+    // centred in the ring, which is also the middle of the shape — the arcs of
+    // lettering above and below it are the same distance away.
+    const deviceY = 32;
+    // A patterned ring with a plain middle is a round badge's oldest trick, and
+    // it is also what keeps the symbol off the stripes.
+    const ringPlain = patternIsBusy(pattern);
+
+    if (name.length > ARC_MAX_CHARS) {
+      // Too long for one arc: the name wraps round the badge, top and bottom,
+      // which is exactly how a real round badge with a long name does it.
+      const lines = balanceLines(words, 2);
+      const longest = Math.max(...lines.map((line) => line.length));
+      const nameSize = fitSize(
+        longest,
+        ARC_SPAN * frame.arcRadius,
+        Math.min(NAME_SIZE_CAP[1]!, arcNameCapFor(shape)),
+      );
+      // Both lines of a long name are the name: one round the top, one round the
+      // bottom, so the ring clears whichever of them reaches furthest in.
+      const ringRadius = ringRadiusFor(frame.arcRadius, [
+        { size: nameSize, side: 'top' },
+        { size: nameSize, side: 'bottom' },
+      ]);
+      return {
+        shape,
+        pattern,
+        device,
+        name,
+        nameLines: lines,
+        nameLayout: 'ring',
+        nameSize,
+        nameWidth: ARC_SPAN * frame.arcRadius,
+        nameBaselines: [],
+        bandTop: 0,
+        bandBottom: 0,
+        arcRadius: frame.arcRadius,
+        primary,
+        secondary,
+        ink,
+        bandFill,
+        bandInk,
+        deviceX: 32,
+        deviceY,
+        deviceSize: symbolBoxFor(ringRadius),
+        devicePanel: null,
+        ringRadius,
+        ringPlain,
+        year: null,
+        yearOnArc: false,
+        yearY: 0,
+        yearSize: YEAR_SIZE,
+        inset: (seed >>> 17) % 100 < 62,
+      };
+    }
+
     // A short name goes round the top, and the year — if the club shows one —
     // round the bottom, which is the classic round badge.
-    const nameSize = fitSize(name.length, ARC_SPAN * frame.arcRadius, NAME_SIZE_CAP[0]!);
+    const nameSize = fitSize(name.length, ARC_SPAN * frame.arcRadius, arcNameCapFor(shape));
+    // The name above, the year below, and the ring inside whichever of the two
+    // reaches nearest the middle.
+    const ringRadius = ringRadiusFor(frame.arcRadius, [
+      { size: nameSize, side: 'top' },
+      ...(year !== null ? [{ size: YEAR_SIZE, side: 'bottom' as const }] : []),
+    ]);
     return {
       shape,
       pattern,
@@ -468,8 +820,11 @@ export function badgePlan(
       bandFill,
       bandInk,
       deviceX: 32,
-      deviceY: 35.5,
-      deviceSize: Math.min(frame.deviceWidth, MIN_DEVICE, frame.fieldBottom - 24.5),
+      deviceY,
+      deviceSize: symbolBoxFor(ringRadius),
+      devicePanel: null,
+      ringRadius,
+      ringPlain,
       year,
       yearOnArc: year !== null,
       yearY: 0,
@@ -504,6 +859,11 @@ export function badgePlan(
   const showYear = year !== null && yearRoom !== null && yearRoom - deviceTop >= floorDevice;
   const deviceBottom = showYear && yearRoom !== null ? yearRoom : frame.fieldBottom;
   const deviceSize = Math.max(8, Math.min(frame.deviceWidth, deviceBottom - deviceTop));
+  const deviceY = deviceTop + deviceSize / 2;
+  // The plate stops at the band above it and at the year line below, so it can
+  // never eat into either — and where a year has taken the room, the plate is
+  // the symbol's own box, because that is all the field there is.
+  const plateRoom = Math.min(deviceY - bandBottom - 1.2, frame.fieldBottom - deviceY) * 2;
 
   return {
     shape,
@@ -524,8 +884,13 @@ export function badgePlan(
     bandFill,
     bandInk,
     deviceX: 32,
-    deviceY: deviceTop + deviceSize / 2,
+    deviceY,
     deviceSize,
+    devicePanel: patternIsBusy(pattern) ? plateFor(deviceSize, plateRoom) : null,
+    // A chief has no ring: the band carries the name, so there is nothing for a
+    // keyline to close.
+    ringRadius: 0,
+    ringPlain: false,
     year: showYear ? year : null,
     yearOnArc: false,
     yearY: frame.yearY ?? 0,

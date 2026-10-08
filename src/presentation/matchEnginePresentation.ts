@@ -38,7 +38,10 @@ function teamOf(game: GameState, match: Match, side: Side): RenderTeam {
     side,
     clubId,
     name: club.identity.name,
-    colours: { ...club.identity.colours },
+    // `keeper` starts as the club's own colour: the third strip lives in the
+    // career rather than in the match, so the view that holds the kits overrides
+    // it — see `MatchView`.
+    colours: { ...club.identity.colours, keeper: club.identity.colours.primary },
     formation: match.lineups[side].tactics.formation,
   };
 }

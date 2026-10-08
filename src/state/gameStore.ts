@@ -6,6 +6,7 @@ import { settleShortSides } from '@/simulation/forfeit';
 import type { GameEvent } from '@/domain/news';
 import { isPlayer, personDisplayName } from '@/domain/person';
 import type { Tactics } from '@/domain/tactics';
+import type { FaceChoices } from '@/domain/face';
 import type { CustomFormation, FormationSlot } from '@/domain/positions';
 import {
   DEFAULT_PREFERENCES,
@@ -82,7 +83,7 @@ import {
   requestRecommendations as askSquadForNames,
 } from '@/simulation/recruitment/discovery';
 import { inviteToTrial as inviteCandidate, runTrialSession as runSession } from '@/simulation/recruitment/trials';
-import type { CommunicationIntent } from '@/domain/communication';
+import { MANAGER_PERSON_ID, type CommunicationIntent } from '@/domain/communication';
 import { markConversationRead } from '@/simulation/communication/store';
 import { openPlayerThread, sendPlayerMessage } from '@/simulation/communication/playerConversation';
 import { officeRoleOf, openOfficerThread, sendOrganisationMessage } from '@/simulation/communication/organisationComms';
@@ -379,6 +380,14 @@ export interface GameStore {
   beginSetup: (mode: SetupMode) => void;
   cancelSetup: () => void;
   setManagerProfile: (profile: ManagerProfile) => void;
+  /**
+   * Change the manager's own face, in a career that is already running.
+   *
+   * `null` throws the choices away and puts back the face his name draws, which
+   * is the state every career starts in — the manager is the one man in the game
+   * who picks his own face, and this is the screen where he does it again.
+   */
+  setManagerFace: (face: FaceChoices | null) => void;
   createDraft: (seed: string) => void;
   chooseClub: (clubId: ClubId) => void;
   createCustomClub: (design: ClubDesign) => void;
@@ -1077,6 +1086,27 @@ export const useGameStore = create<GameStore>((set, get) => ({
   setManagerProfile: (profile) => {
     const setup = get().setup;
     set({ setup: { mode: setup?.mode ?? 'career', profile }, error: null });
+  },
+
+  setManagerFace: (face) => {
+    const game = get().game;
+    if (!game) return;
+    const state = clone(game);
+    const manager = state.people[MANAGER_PERSON_ID];
+    if (!manager) return;
+    // Written in two places on purpose. The *person* is what every screen draws
+    // from — a portrait, an inbox row, a club's list of who runs it — and the
+    // *profile* is what a returning manager's saved profile remembers, so a face
+    // written to only one of them would be a face that came back wrong the next
+    // time he started a career with his own name.
+    if (face) {
+      manager.face = face;
+      if (state.managerProfile) state.managerProfile.face = face;
+    } else {
+      delete manager.face;
+      if (state.managerProfile) delete state.managerProfile.face;
+    }
+    set({ game: state });
   },
 
   createDraft: (seed) => {

@@ -6,11 +6,14 @@ import {
   chosenKitOption,
   clubKit,
   clubKitOptions,
+  goalkeeperKitColour,
   KIT_MAKERS,
   KIT_OPTION_COUNT,
   kitPlanFor,
+  matchKeeperColours,
   matchKitColours,
   matchKits,
+  matchTeamColours,
   MIN_KIT_DISTANCE,
   sponsorFromBusiness,
   sponsorFor,
@@ -231,6 +234,36 @@ describe('a club’s kit in a career', () => {
     expect(awayStrips).toBeGreaterThan(others.length / 2);
   });
 
+  it('answers with the whole shirt for a side, in the shape a renderer wants it', () => {
+    // The strips a fixture is drawn in are read once, by this function, and handed
+    // to the live pitch, the replay and the report alike: the two outfield shirts,
+    // each keeper's third strip, and the club's own second colour, which no strip is
+    // built from and which is therefore passed straight through.
+    const { state, clubId } = createTestGame('match-team-colours');
+    const awayId = Object.keys(state.clubs).find((id) => id !== clubId)!;
+    const strips = matchTeamColours(state, clubId, awayId);
+    const outfield = matchKitColours(state, clubId, awayId);
+
+    // The two shirts the sides turned out in, which for a visitor is its away
+    // strip rather than the colour in its identity.
+    expect(strips.home.primary).toBe(outfield.home);
+    expect(strips.away.primary).toBe(outfield.away);
+    // The third strips, which are the half of the answer a view reading only
+    // `matchKitColours` would get wrong for both keepers.
+    expect(strips.home.keeper).toBe(goalkeeperKitColour(state, clubId));
+    expect(strips.away.keeper).toBe(goalkeeperKitColour(state, awayId));
+    expect(strips.home.keeper).not.toBe(strips.home.primary);
+    expect(strips.away.keeper).not.toBe(strips.away.primary);
+    // And the club’s own second colour, untouched.
+    expect(strips.home.secondary).toBe(state.clubs[clubId]!.identity.colours.secondary);
+    expect(strips.away.secondary).toBe(state.clubs[awayId]!.identity.colours.secondary);
+
+    // A club the save cannot find is drawn in the same neutral grey the kit read
+    // falls back to, rather than leaving the picture with no colour in it at all.
+    const missing = matchTeamColours(state, 'nobody', awayId);
+    expect(missing.home.primary).toBe('#888888');
+    expect(missing.home.keeper).toBe('#888888');
+  });
   it('changes the visitors in when the two first colours would clash', () => {
     const { state, clubId } = createTestGame('match-kit-clash');
     // Home is fixed to the club's own colour; the visitors' away strip is
@@ -258,5 +291,54 @@ describe('a club’s kit in a career', () => {
     }
     club.kitChoice = 2;
     expect(clubKit(state, clubId)!.option).toBe(2);
+  });
+});
+
+describe('the keeper’s shirt', () => {
+  it('is the third strip, and never the one the ten are wearing', () => {
+    // A keeper is the one man in a club who is not dressed in its colours: the
+    // laws have always asked him to be told from the ten in front of him. Every
+    // screen that draws a keeper *as* a keeper — his portrait, his dot on the
+    // match pitch, his shirt on the selection and tactics pitches — reads this
+    // one function, so this is the single place that rule lives.
+    const { state } = createTestGame('keeper-colour');
+    const clubs = Object.keys(state.clubs);
+    expect(clubs.length).toBeGreaterThan(20);
+    for (const clubId of clubs) {
+      const kit = clubKit(state, clubId)!;
+      expect(goalkeeperKitColour(state, clubId)).toBe(kit.goalkeeper.primary);
+      // And it is a strip of its own rather than a shade of the club's: the
+      // generator draws the third kit from a pool measured against the club's
+      // own colour, and that measurement is what keeps the keeper findable.
+      expect(colourDistance(kit.goalkeeper.primary, kit.home.primary)).toBeGreaterThanOrEqual(
+        MIN_KIT_DISTANCE,
+      );
+    }
+  });
+
+  it('is nobody’s shirt when there is no club to read', () => {
+    // A club that is not in the world has no strip, and the reader says so rather
+    // than painting him in somebody else's colour.
+    const { state } = createTestGame('keeper-nobody');
+    expect(goalkeeperKitColour(state, 'nobody')).toBeNull();
+  });
+
+  it('reads both keepers for a match, and never the visitors’ change strip', () => {
+    // What a keeper never does is change into the away kit: he is in the third
+    // strip in every match, home or away, which is the one thing about a shirt
+    // that is the same every week. So the pair of colours a match screen paints
+    // are two third strips, whatever the two sides turned out in.
+    const { state, clubId } = createTestGame('keeper-match');
+    const awayId = Object.keys(state.clubs).find((id) => id !== clubId)!;
+    const outfield = matchKits(state, clubId, awayId);
+    const colours = matchKeeperColours(state, clubId, awayId);
+    expect(colours.home).toBe(clubKit(state, clubId)!.goalkeeper.primary);
+    expect(colours.away).toBe(clubKit(state, awayId)!.goalkeeper.primary);
+    // Not the shirt the ten are in, and not the change strip either.
+    expect(colours.home).not.toBe(outfield.home!.primary);
+    expect(colours.home).not.toBe(clubKit(state, clubId)!.away.primary);
+    // A club that is not in the world at all still yields two shirts, so a career
+    // with a fixture in it the world no longer explains still paints two keepers.
+    expect(matchKeeperColours(state, 'nobody', 'nowhere')).toEqual({ home: '#888888', away: '#888888' });
   });
 });

@@ -21,6 +21,7 @@ import {
   previewOf,
   relativeTime,
   threadActions,
+  threadFace,
   threadMessages,
   conversationName,
   MANAGER_ACTIONS,
@@ -107,6 +108,22 @@ describe('the inbox list', () => {
     expect(row.name).toBe('The squad');
     expect(row.kindLabel).toBe('Group');
     expect(row.people).toHaveLength(2);
+  });
+
+  it('carries the man the thread is with, and nobody when it is with several', () => {
+    const game = createTestGame('inbox-row-face');
+    const [a, b] = squad(game);
+    const one = threadWith(game.state, a.id);
+    const group = threadWithGroup(game.state, [a.id, b.id], 'group', 'The squad');
+
+    const rows = inboxRows(game.state);
+    const personRow = rows.find((row) => row.conversationId === one.id)!;
+    // A message list is a contacts list, so the name on a row has a face to match
+    // it — the same question the thread's own head asks, answered once here.
+    expect(personRow.face?.id).toBe(a.id);
+    // And a room full of people has no single face to put on the row, which is the
+    // rule the thread it opens is drawn to as well: the two agree by construction.
+    expect(rows.find((row) => row.conversationId === group.id)!.face).toBeNull();
   });
 
   it('puts unread threads above read ones, whatever their date', () => {
@@ -290,9 +307,55 @@ describe('a conversation opens', () => {
     expect(messages[199]!.body).toBe('Message 199');
   });
 
+  it('carries the id of the man who wrote each message, so the thread can draw him', () => {
+    const game = createTestGame('inbox-sender-id');
+    const kev = person(game.state, 0);
+    const conversation = threadWith(game.state, kev.id);
+    sendFromPerson(game.state, conversation.id, kev.id, { body: 'Kev here.' });
+    sendFromManager(game.state, { conversationId: conversation.id, intent: 'PRAISE', targetId: kev.id, body: 'Well played.' });
+
+    const messages = threadMessages(game.state, conversation.id);
+    // The name was enough while a person *was* a name. Now that everybody in the
+    // game is drawn, a message has to say which man to draw beside the sentence;
+    // reading him back out of the words would be guessing, and the manager's own
+    // line has to say it is his so the screen knows to draw nobody.
+    expect(messages[0]!.senderId).toBe(kev.id);
+    expect(messages[1]!.senderId).toBe(MANAGER_PERSON_ID);
+    expect(messages[1]!.mine).toBe(true);
+  });
+
   it('returns nothing at all for a conversation that is not there', () => {
     const game = createTestGame('inbox-missing');
     expect(threadMessages(game.state, 'conversation_999')).toEqual([]);
+  });
+});
+
+describe('a thread is headed with the man it is with', () => {
+  it('gives a one-to-one the man himself, and nobody to a room full of people', () => {
+    const game = createTestGame('inbox-face');
+    const [a, b] = squad(game);
+    const one = threadWith(game.state, a.id);
+    const face = threadFace(game.state, conversationOf(game.state, one.id)!);
+    expect(face?.id).toBe(a.id);
+    expect(face?.firstName).toBe(a.firstName);
+
+    // A committee thread is a room with several people in it, and it has no
+    // single face: putting one of them up there would be claiming the thread is
+    // about him, and it is about all of them at once. The name carries it.
+    const group = threadWithGroup(game.state, [a.id, b.id], 'group', 'The squad');
+    expect(threadFace(game.state, group)).toBeNull();
+  });
+
+  it('draws nobody for a man the save no longer holds', () => {
+    const game = createTestGame('inbox-face-gone');
+    const kev = person(game.state, 0);
+    const conversation = threadWith(game.state, kev.id);
+    delete game.state.people[kev.id];
+
+    // A face cannot be drawn for somebody the game has forgotten, and a face
+    // cannot be invented for him either: the header falls back to the name the
+    // thread kept, which is the thing the manager still knows about the man.
+    expect(threadFace(game.state, conversationOf(game.state, conversation.id)!)).toBeNull();
   });
 });
 

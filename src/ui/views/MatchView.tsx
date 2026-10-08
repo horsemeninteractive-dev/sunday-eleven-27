@@ -16,7 +16,7 @@ import { MatchControls, type MatchDrawer } from '../match/MatchControls';
 import { MatchStatsStrip } from '../match/MatchStats';
 import { FullTimePanel, HalfTimePanel, PreMatchPanel } from '../match/MatchPhases';
 import { matchMinuteMs } from '../matchPace';
-import { matchKitColours } from '../kit';
+import { matchKitColours, matchTeamColours } from '../kit';
 import { openMatchReport } from '../reportActions';
 
 /**
@@ -86,6 +86,15 @@ export function MatchView() {
     () => (game && match ? matchKitColours(game, match.homeClubId, match.awayClubId) : null),
     [game, match],
   );
+  // Who is in which shirt, as the renderer and the two sheets both want it: the
+  // strip each side turned out in, with each keeper in the third strip, read once
+  // for the picture and both lists. `matchTeamColours` is the whole of that
+  // answer, so the pitch and the sheets cannot come to different ones — a side in
+  // a white away shirt still has a keeper who is not.
+  const strips = useMemo(
+    () => (game && match ? matchTeamColours(game, match.homeClubId, match.awayClubId) : null),
+    [game, match],
+  );
   // The transcript is only needed by the cards, which ask it for a handful of
   // the afternoon's notable lines.
   const feed: MatchFeed | null = useMemo(
@@ -108,16 +117,16 @@ export function MatchView() {
       // The pitch wears the strips the sides are actually in, the same ones the
       // team sheets and the commentary bar use — not each club's own colours,
       // which can collide when two clubs play in the same shade.
-      if (!kitColours) return base;
+      if (!strips) return base;
       return {
         ...base,
         teams: {
-          home: { ...base.teams.home, colours: { ...base.teams.home.colours, primary: kitColours.home } },
-          away: { ...base.teams.away, colours: { ...base.teams.away.colours, primary: kitColours.away } },
+          home: { ...base.teams.home, colours: strips.home },
+          away: { ...base.teams.away, colours: strips.away },
         },
       };
     },
-    [match, game, kitColours, session?.revision],
+    [match, game, strips, session?.revision],
   );
 
   if (!game || !session || !match || !feed || !renderState) return null;
@@ -150,7 +159,10 @@ export function MatchView() {
             lineup={match.lineups.home}
             match={match}
             playerById={playerById}
-            colour={kitColours?.home ?? '#888888'}
+            /* The colours the pitch beside it is drawn from, rather than the
+               club's own: the sheet is headed in the strip the side actually
+               turned out in, and the man in goal is in the third strip. */
+            colours={renderState.teams.home.colours}
           />
           {!commentaryOnly && (
             <div className="matchday__visual">
@@ -169,7 +181,7 @@ export function MatchView() {
             lineup={match.lineups.away}
             match={match}
             playerById={playerById}
-            colour={kitColours?.away ?? '#888888'}
+            colours={renderState.teams.away.colours}
           />
         </div>
 

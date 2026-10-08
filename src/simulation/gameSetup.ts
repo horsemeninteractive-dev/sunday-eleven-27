@@ -15,6 +15,7 @@ import type { GroundSurface } from '@/domain/world';
 import { ageOn, birthdayForAge, type ManagerProfile } from '@/domain/manager';
 import { isPlayer, type Official, type Person, type Player } from '@/domain/person';
 import { defaultTactics } from '@/domain/tactics';
+import { styleTactics } from './ai/style';
 import { preSeasonStart, seasonLabelFor, toDate, toISO, addDays } from './calendar';
 import { weekStartOf } from './timeline';
 import { emptyScheduleState } from '@/domain/events';
@@ -73,18 +74,7 @@ export function firstSundayOfSeptember(year: number): ISODate {
   return toISO(first);
 }
 
-function randomTactics(rng: Rng) {
-  const formations = ['4-4-2', '4-4-1-1', '4-3-3', '4-2-3-1', '4-5-1', '4-1-4-1', '3-5-2', '5-3-2'] as const;
-  return {
-    ...defaultTactics(rng.pick(formations)),
-    mentality: rng.pick(['defensive', 'balanced', 'balanced', 'attacking'] as const),
-    passingStyle: rng.pick(['short', 'mixed', 'mixed', 'direct'] as const),
-    tempo: rng.pick(['slow', 'standard', 'standard', 'high'] as const),
-    pressing: rng.pick(['low', 'medium', 'medium', 'high'] as const),
-    defensiveLine: rng.pick(['deep', 'standard', 'standard', 'high'] as const),
-    attackingFocus: rng.pick(['wide', 'balanced', 'balanced', 'central'] as const),
-  };
-}
+
 
 /** Generate the world without committing to a club — used by club selection. */
 export function generateDraft(options: NewGameOptions): WorldDraft {
@@ -109,8 +99,13 @@ export function generateDraft(options: NewGameOptions): WorldDraft {
   });
   for (const player of unattached) people[player.id] = player;
 
+  // How a club plays is drawn from who it is: the sides with the players have a
+  // go and the sides without them make themselves hard to beat, which is what a
+  // real Sunday league looks like and what the old world — an even scatter of
+  // instructions across every club, regardless of standing — did not. The club's
+  // own stream keeps this from moving anything else in the world.
   for (const club of Object.values(generated.clubs)) {
-    club.tactics = randomTactics(new Rng(`${options.seed}::tactics::${club.id}`));
+    club.tactics = styleTactics(new Rng(`${options.seed}::tactics::${club.id}`), club.reputation);
   }
 
   // Nobody starts socially isolated: the world arrives with its own network of
@@ -155,6 +150,11 @@ function createUserManager(
     kind: 'official',
     firstName: named ? profile!.firstName.trim() : personFirstName(rng),
     surname: named ? profile!.surname.trim() : personSurname(rng),
+    // The face he chose for himself, if he chose one. Left off entirely for a
+    // manager who did not, because absent is the normal case and the drawing
+    // already knows what to do with it: see `facePlan`, which falls back to the
+    // roll his own name gives him.
+    ...(profile?.face ? { face: profile.face } : {}),
     nickname: profile?.nickname.trim() ? profile.nickname.trim() : maybeNickname(rng, 0.15),
     age,
     townId: club.townId,
@@ -198,6 +198,11 @@ function managerProfileFor(
         : birthdayForAge(manager.age, seasonStart),
     occupation: manager.occupation,
     hometown: provided?.hometown.trim() ?? '',
+    // The face is the person's and the profile mirrors it, rather than the other
+    // way round: the person is what every screen draws, and the profile is what a
+    // returning manager's saved profile hands back. One of them has to be the
+    // copy, and it should not be the one on the drawing.
+    ...(manager.face ? { face: manager.face } : {}),
   };
 }
 

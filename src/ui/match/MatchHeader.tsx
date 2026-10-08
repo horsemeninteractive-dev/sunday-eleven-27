@@ -2,7 +2,7 @@ import type { GameState } from '@/domain/game';
 import { PITCH_LABEL, WEATHER_LABEL, periodLabel, type Match } from '@/domain/match';
 import { currentScore, displayMinute } from '@/simulation/match/matchEngine';
 import { expectedAttendanceFor } from '@/simulation/matchday';
-import { matchKitColours } from '../kit';
+import { matchKitColours, shirtLine } from '../kit';
 import { ClubBadge } from '../components/Badge';
 import { formatKickOff } from '@/simulation/calendar';
 
@@ -58,9 +58,7 @@ export function MatchHeader({
       <span
         className="matchhead__stripe"
         aria-hidden="true"
-        style={{
-          background: `linear-gradient(90deg, ${kits.home} 0, ${kits.home} 50%, ${kits.away} 50%, ${kits.away} 100%)`,
-        }}
+        style={{ background: shirtLine(kits) }}
       />
       <div className="matchhead__team matchhead__team--home">
         <span className="matchhead__crest">

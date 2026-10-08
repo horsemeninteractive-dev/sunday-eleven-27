@@ -11,9 +11,15 @@ import { MetricTile, Section, StatusTile, TileGrid } from '../components/hierarc
  *
  * Three strips, one kit deal, and — because this is a game about a club you
  * run — the choice of which design the club wears this season. The designs are
- * generated fresh every summer, all in the club's own colours, and the screen
- * shows the chosen one first, the deal as four facts, and the alternatives as
- * one block with a button each.
+ * generated fresh every summer, all in the club's own colours.
+ *
+ * The screen is that one choice drawn twice: the kit the club will wear in the
+ * left hand column, and the three it could have worn down the right, each with
+ * the button that changes it. Deciding means holding the alternatives next to
+ * the answer, which a chosen kit at the top of a single column could not do — by
+ * the time the designs were on screen the thing they were being compared with
+ * had scrolled away. What is left over, the maker, the sponsor and the colours,
+ * is behind the door at the foot, because none of it is a decision.
  *
  * The screen only ever shows the *club's* kit: everybody else's is on their
  * profile, where it belongs.
@@ -55,67 +61,78 @@ export function KitView() {
         }
       />
 
-      <Section
-        title="The strip"
-        action={<span className="small muted">Design {chosen + 1} of {KIT_OPTION_COUNT}</span>}
-      >
-        <KitSetRow club={club} kit={kit} size={124} />
-      </Section>
+      {/* The decision, twice over: the kit the club wears on the left, the three
+          designs it could have worn on the right. Which of the two sits beside
+          the other is a wide screen's business, so it is the stylesheet's job and
+          not this one's — on a phone the same two boxes stack. */}
+      <div className="kitscreen">
+        <div className="kitscreen__chosen">
+          <Section title="The strip" action={<Pill tone="ok">what we wear</Pill>}>
+            <KitSetRow club={club} kit={kit} size={168} />
+          </Section>
 
-      <details className="more"><summary>The kit deal · maker, sponsor and colours</summary><Section>
-        <TileGrid min={170}>
-          <StatusTile
-            label="Shirt sponsor"
-            status={sponsor ? sponsor.name : 'None'}
-            note={sponsor ? `£${weeklySponsorshipIncome(game, club.id)} a week` : 'No deal'}
-            tone={sponsor ? 'ok' : 'muted'}
-          />
-          <MetricTile label="Kit firm" value={kit.maker.name} note={`${kit.season} season`} />
-          <MetricTile
-            label="Design"
-            value={`${chosen + 1} of ${KIT_OPTION_COUNT}`}
-            note="Chosen by the manager"
-          />
-          <MetricTile
-            label="Club colours"
-            value={
-              <span className="row row--tight">
-                <span className="kitswatch" style={{ background: club.identity.colours.primary }} aria-hidden="true" />
-                <span className="kitswatch" style={{ background: club.identity.colours.secondary }} aria-hidden="true" />
-              </span>
-            }
-            note={`${club.identity.colours.primary} · ${club.identity.colours.secondary}`}
-          />
-        </TileGrid>
-      </Section></details>
+          {/* The facts that are not a decision, under the kit they are facts
+              about. They were behind a door at the foot of the page; on a screen
+              whose left hand column would otherwise end a hundred pixels above the
+              right, they are also what that column's height is paid for with.
 
-      <Section
-        title="This season's designs"
-        action={<span className="small muted">{options.length} sent down</span>}
-      >
-        <div className="kitoptions">
-          {options.map((option, index) => (
-            <div className={`kitoption${index === chosen ? ' kitoption--chosen' : ''}`} key={option.option}>
-              <div className="kitoption__head">
-                <strong>Design {index + 1}</strong>
-                {index === chosen ? (
-                  <Pill tone="ok">what we wear</Pill>
-                ) : (
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    onClick={() => gameActions().chooseKit(index)}
-                    title={`Wear design ${index + 1} this season`}
-                  >
-                    Wear this one
-                  </Button>
-                )}
-              </div>
-              <KitSetRow club={club} kit={option} size={62} />
-            </div>
-          ))}
+              The design number is deliberately not one of them — it is in the
+              header and on the pill — and neither are the three strip
+              descriptions, which say in pixels what the captions under the shirts
+              above already say in words. Those stay behind their door. */}
+          <Section title="The kit deal">
+            <TileGrid min={150}>
+              <StatusTile
+                label="Shirt sponsor"
+                status={sponsor ? sponsor.name : 'None'}
+                note={sponsor ? `£${weeklySponsorshipIncome(game, club.id)} a week` : 'No deal'}
+                tone={sponsor ? 'ok' : 'muted'}
+              />
+              <MetricTile label="Kit firm" value={kit.maker.name} note={`${kit.season} season`} />
+              <MetricTile
+                label="Club colours"
+                value={
+                  <span className="row row--tight">
+                    <span className="kitswatch" style={{ background: club.identity.colours.primary }} aria-hidden="true" />
+                    <span className="kitswatch" style={{ background: club.identity.colours.secondary }} aria-hidden="true" />
+                  </span>
+                }
+                note={`${club.identity.colours.primary} · ${club.identity.colours.secondary}`}
+              />
+            </TileGrid>
+          </Section>
         </div>
-      </Section>
+
+        <div className="kitscreen__options">
+          <Section
+            title="This season's designs"
+            action={<span className="small muted">{options.length} sent down</span>}
+          >
+            <div className="kitoptions kitoptions--stack">
+              {options.map((option, index) => (
+                <div className={`kitoption${index === chosen ? ' kitoption--chosen' : ''}`} key={option.option}>
+                  <div className="kitoption__head">
+                    <strong>Design {index + 1}</strong>
+                    {index === chosen ? (
+                      <Pill tone="ok">what we wear</Pill>
+                    ) : (
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={() => gameActions().chooseKit(index)}
+                        title={`Wear design ${index + 1} this season`}
+                      >
+                        Wear this one
+                      </Button>
+                    )}
+                  </div>
+                  <KitSetRow club={club} kit={option} size={62} />
+                </div>
+              ))}
+            </div>
+          </Section>
+        </div>
+      </div>
 
       <details className="more"><summary>Strip descriptions</summary><Section>
         <TileGrid min={215}>

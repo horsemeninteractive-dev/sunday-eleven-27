@@ -1,5 +1,7 @@
+import type { GameState } from '@/domain/game';
 import type { Match } from '@/domain/match';
 import { matchStats, type MatchStats as Stats } from '@/simulation/match/stats';
+import { matchKitColours } from '../kit';
 
 /**
  * What the match has actually produced.
@@ -172,9 +174,23 @@ export function MatchStatsStrip({
   );
 }
 
-export function MatchStatsPanel({ match }: { match: Match }) {
+/**
+ * The same numbers in full, for the two moments the match stops for him.
+ *
+ * This is the deliberate reading rather than the glance: every figure the record
+ * holds, with the rows that have nothing in them left out. Both bars are the two
+ * strips actually on the pitch — the same answer the strip under the match gives
+ * — because "whose afternoon is this?" is answered by the shirt a side is wearing
+ * and by nothing else. The panel used to paint the home half in `--club`, which
+ * is the *manager's* colour: read from the away dug-out it showed the visitors in
+ * his shirt and his own side in a grey.
+ */
+export function MatchStatsPanel({ game, match }: { game: GameState; match: Match }) {
   const stats = matchStats(match);
   const rows = rowsFrom(stats, hasPossession(match));
+  // The two strips actually on the pitch, which is what the bars below are
+  // painted in — see the note on this panel's bars.
+  const kits = matchKitColours(game, match.homeClubId, match.awayClubId);
   if (rows.length === 0) {
     return (
       <div className="stats">
@@ -204,8 +220,8 @@ export function MatchStatsPanel({ match }: { match: Match }) {
         {/* A picture of a share, so it is named as one: a bare `aria-label` on a
             plain div is prohibited, and the bar carries no text of its own. */}
         <div className="pressure" role="img" aria-label={`Recent pressure over the last ${stats.pressureWindow} minutes`}>
-          <span className="pressure__side pressure__side--home" style={{ flexGrow: 0.2 + stats.pressure.home }} />
-          <span className="pressure__side pressure__side--away" style={{ flexGrow: 0.2 + stats.pressure.away }} />
+          <span className="pressure__side" style={{ flexGrow: 0.2 + stats.pressure.home, background: kits.home }} />
+          <span className="pressure__side" style={{ flexGrow: 0.2 + stats.pressure.away, background: kits.away }} />
         </div>
       </div>
 
@@ -215,7 +231,8 @@ export function MatchStatsPanel({ match }: { match: Match }) {
             <dt className="stats__label">{row.label}</dt>
             <dd className="stats__value stats__value--home">{row.home}</dd>
             <span className="stats__bar" aria-hidden="true">
-              <span className="stats__bar-home" style={{ width: `${row.homeShare * 100}%` }} />
+              <span className="stats__bar-half" style={{ width: `${row.homeShare * 100}%`, background: kits.home }} />
+              <span className="stats__bar-half" style={{ width: `${(1 - row.homeShare) * 100}%`, background: kits.away }} />
             </span>
             <dd className="stats__value stats__value--away">{row.away}</dd>
           </div>

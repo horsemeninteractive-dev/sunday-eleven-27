@@ -7,12 +7,13 @@ import { divisionOf, fixtureIdsFor, leagueCompetitions, standingsFor } from '@/s
 import { ordinal } from '@/simulation/news';
 import { gameActions, useGame, useStandings } from '../hooks';
 import { Button, FormPips, PageHeader, Panel, Pill, SortTh } from '../components/primitives';
-import { MetricTile, Section, TileGrid } from '../components/hierarchy';
+import { FocalFact, MetricTile, Section, TileGrid } from '../components/hierarchy';
 import { ClubLink } from '../components/Links';
 import { FixtureRow } from '../components/FixtureRow';
 import { Statistics } from '../components/Statistics';
 import { competitionStats } from '@/simulation/tables';
-import { applySort, UNSORTED, type SortAccessors, type SortState } from '../tableSort';
+import { useRememberedSort } from '../rememberedSort';
+import { applySort, type SortAccessors } from '../tableSort';
 import { handleTabKeys } from '../components/Tabs';
 
 /**
@@ -112,7 +113,7 @@ const TABLE_SORT: SortAccessors<PositionedRow, TableSortKey> = {
 export function LeagueView() {
   const game = useGame();
   const ownStandings = useStandings();
-  const [sort, setSort] = useState<SortState<TableSortKey>>(UNSORTED);
+  const [sort, setSort] = useRememberedSort('league', game?.saveId ?? null, TABLE_SORT);
   // The manager opens on their own division; the rest of the ladder is a door
   // away rather than a separate screen, because a pyramid you have to go and
   // look at is not a pyramid.
@@ -186,16 +187,30 @@ export function LeagueView() {
       )}
 
       {myPosition > 0 && (
+        <>
+        {/* The one fact this screen is about: where we are. It was a tile among
+            three others, drawn the same size as the goal difference, which is a
+            strange way to draw the answer to the only question a table asks. */}
+        <FocalFact
+          label="Our position"
+          value={ordinal(myPosition)}
+          note={`${myRow?.points ?? 0} points from ${myRow?.played ?? 0} played`}
+          tone="accent"
+          aside={
+            <span className="small muted">
+              {contextLabel(competition)} · {contextValue(standings, myPosition, competition)}
+            </span>
+          }
+        />
         <TileGrid min={170}>
-          <MetricTile label="Position" value={ordinal(myPosition)} note={`${myRow?.points ?? 0} points from ${myRow?.played ?? 0}`} tone="accent" />
           <MetricTile
             label="Goal difference"
             value={(myRow?.goalDifference ?? 0) > 0 ? `+${myRow?.goalDifference}` : (myRow?.goalDifference ?? 0)}
             note="For and against"
           />
           <MetricTile label="Form" value={<FormPips form={myRow?.form ?? []} />} note="Last five" />
-          <MetricTile label={contextLabel(competition)} value={contextValue(standings, myPosition, competition)} note="Around us" />
         </TileGrid>
+        </>
       )}
 
       <p className="small muted">{(competition.promotionPlaces ?? 0) > 0 ? `Top ${competition.promotionPlaces} go up. ` : ''}{(competition.relegationPlaces ?? 0) > 0 ? `Bottom ${competition.relegationPlaces} go down. ` : ''}Coloured position marks follow the club's league place, even when you sort.</p>

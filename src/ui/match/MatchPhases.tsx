@@ -6,7 +6,6 @@ import { isPlayer, type Player } from '@/domain/person';
 import { POSITIONS } from '@/domain/positions';
 import { formatDayMonth, formatKickOff } from '@/simulation/calendar';
 import { expectedAttendanceFor } from '@/simulation/matchday';
-import { currentScore } from '@/simulation/match/matchEngine';
 import {
   FULL_TIME_TALK_BLURB,
   FULL_TIME_TALK_LABEL,
@@ -23,6 +22,7 @@ import {
 import type { MatchSession } from '@/state/gameStore';
 import { gameActions } from '../hooks';
 import { Button } from '../components/primitives';
+import { MatchScoreline } from './MatchScoreline';
 import { MatchStatsPanel } from './MatchStats';
 import type { MatchFeed } from '../matchFeed';
 
@@ -204,7 +204,6 @@ export function HalfTimePanel({
   playerById: (id: string) => Player | undefined;
   onMakeChanges: () => void;
 }) {
-  const score = currentScore(match);
   const starters = match.lineups[session.side].starting.map((slot) => ({ slot, player: playerById(slot.playerId) }));
   const tired = starters.filter((entry) => (match.performances[entry.slot.playerId]?.energy ?? 100) < 45);
   const carded = starters.filter((entry) => (match.performances[entry.slot.playerId]?.yellowCards ?? 0) > 0);
@@ -217,10 +216,11 @@ export function HalfTimePanel({
       <div ref={ref} className="interval__card" role="dialog" aria-modal="true" aria-label="Half time">
         <header className="interval__head">
           <h2>Half time</h2>
-          <p className="scoreline">
-            {game.clubs[match.homeClubId]!.identity.shortName} {score.home} — {score.away}{' '}
-            {game.clubs[match.awayClubId]!.identity.shortName}
-          </p>
+          {/* The same scoreline the header has been showing all afternoon, so
+              the minute the whistle stops play the manager is reading the thing
+              he was already reading: the crests, the score, and the two strips
+              the sides turned out in. */}
+          <MatchScoreline game={game} match={match} />
         </header>
 
         <div className="interval__body">
@@ -273,7 +273,7 @@ export function HalfTimePanel({
               ))}
             </div>
             {session.halfTimeTalk && <p className="choice-help">{TEAM_TALK_BLURB[session.halfTimeTalk]}</p>}
-            <MatchStatsPanel match={match} />
+            <MatchStatsPanel game={game} match={match} />
           </div>
         </div>
 
@@ -316,7 +316,6 @@ export function FullTimePanel({
   onReport: () => void;
   onContinue: () => void;
 }) {
-  const score = currentScore(match);
   const result = match.result;
   const scorers = match.events.filter((event) => event.type === 'goal' || event.type === 'penalty-scored');
   const cards = match.events.filter((event) => event.type === 'yellow-card' || event.type === 'red-card');
@@ -329,10 +328,9 @@ export function FullTimePanel({
       <div ref={ref} className="interval__card" role="dialog" aria-modal="true" aria-label="Full time">
         <header className="interval__head">
           <h2>Full time</h2>
-          <p className="scoreline">
-            {game.clubs[match.homeClubId]!.identity.name} {score.home} — {score.away}{' '}
-            {game.clubs[match.awayClubId]!.identity.name}
-          </p>
+          {/* The last management decision of the day opens with the result, in
+              the match's own marks rather than spelled out as a sentence. */}
+          <MatchScoreline game={game} match={match} />
           <p className="small muted">
             {match.competitionName}
             {result ? ` · ${result.attendance} watching` : ''} · {WEATHER_LABEL[match.conditions.weather]}
@@ -411,7 +409,7 @@ export function FullTimePanel({
               ))}
             </div>
             {session.fullTimeTalk && <p className="choice-help">{FULL_TIME_TALK_BLURB[session.fullTimeTalk]}</p>}
-            <MatchStatsPanel match={match} />
+            <MatchStatsPanel game={game} match={match} />
             <p className="small muted">{feed.entries[0]?.text ?? 'Full time.'}</p>
           </div>
         </div>

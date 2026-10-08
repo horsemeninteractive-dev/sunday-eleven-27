@@ -11,6 +11,7 @@ import {
 import type { GameState } from '@/domain/game';
 import type { ClubId } from '@/domain/ids';
 import type { Business } from '@/domain/world';
+import type { RenderTeamColours } from '@/presentation/renderContract';
 import { stream, type Rng, type WeightedEntry } from '@/simulation/rng';
 import { colourDistance, contrastRatio, DARK_INK, inkForColour, inkForColours, LIGHT_INK, mixColours } from './colour';
 
@@ -585,4 +586,95 @@ export function matchKitColours(
     home: kits.home?.primary ?? game.clubs[homeClubId]?.identity.colours.primary ?? '#888888',
     away: kits.away?.primary ?? game.clubs[awayClubId]?.identity.colours.primary ?? '#888888',
   };
+}
+
+/**
+ * The shirt a club's goalkeeper turns out in.
+ *
+ * A keeper is the one man on the pitch whose shirt is not his club's. The laws
+ * have always asked the two keepers to be told from the ten in front of them,
+ * and a Sunday side answers that the only way it can: the loudest shirt on the
+ * rack, worn by nobody else. So wherever this game draws a keeper *as* a keeper —
+ * his dot on a pitch, his drawing on a page — he is drawn in this strip rather
+ * than in the club's colours.
+ *
+ * A club whose kit has not been generated falls back to its own first colour,
+ * which is the same fallback the portrait makes: a save written before kits
+ * existed still shows a shirt the club can be recognised in.
+ */
+export function goalkeeperKitColour(game: GameState, clubId: ClubId): string | null {
+  const club = game.clubs[clubId];
+  if (!club) return null;
+  return clubKit(game, clubId)?.goalkeeper.primary ?? club.identity.colours.primary;
+}
+
+/**
+ * The two keepers' shirts, read exactly as {@link matchKitColours} reads the
+ * outfield ones.
+ *
+ * What a keeper never does is change into the away strip: he is in the third kit
+ * in every match, home or away, which is the one thing about a shirt that is the
+ * same every week.
+ */
+export function matchKeeperColours(
+  game: GameState,
+  homeClubId: ClubId,
+  awayClubId: ClubId,
+): { home: string; away: string } {
+  return {
+    home: goalkeeperKitColour(game, homeClubId) ?? '#888888',
+    away: goalkeeperKitColour(game, awayClubId) ?? '#888888',
+  };
+}
+
+/**
+ * The shirts a fixture is drawn in, in the shape the renderer holds them.
+ *
+ * A match is drawn from the strips the two sides turned out in rather than from
+ * the clubs' own colours, and the third strip is part of that answer: a side in a
+ * white away shirt still has a keeper who is not. {@link matchKitColours} and
+ * {@link matchKeeperColours} answer that question in halves; this is the whole of
+ * it, in the shape the render contract wants, so that the live pitch, the replay
+ * and the report cannot come to three different answers about which shirt a man
+ * is in.
+ *
+ * `secondary` is passed through from the club untouched. No strip the game draws
+ * is built from it — it is the second colour of the club rather than of a shirt —
+ * and the renderer holds it only so that a drawing with a second colour to spend
+ * has one.
+ */
+export function matchTeamColours(
+  game: GameState,
+  homeClubId: ClubId,
+  awayClubId: ClubId,
+): { home: RenderTeamColours; away: RenderTeamColours } {
+  const kits = matchKitColours(game, homeClubId, awayClubId);
+  const keepers = matchKeeperColours(game, homeClubId, awayClubId);
+  const strip = (clubId: ClubId, primary: string, keeper: string): RenderTeamColours => ({
+    // A club the save cannot find is drawn in the neutral grey the kit read
+    // already falls back to, rather than leaving the picture with no colour.
+    ...(game.clubs[clubId]?.identity.colours ?? { primary: '#888888', secondary: '#888888' }),
+    primary,
+    keeper,
+  });
+  return {
+    home: strip(homeClubId, kits.home, keepers.home),
+    away: strip(awayClubId, kits.away, keepers.away),
+  };
+}
+
+/**
+ * The two shirts as one hard line.
+ *
+ * The match header opens with this line, and so does every other place the game
+ * puts a stopped match in front of the manager — half time, full time and the
+ * report — because it answers one question in all of them: which two sides is
+ * this? Home on the left, the visitors on the right, meeting at the halfway mark
+ * on a hard edge and never a blend, which is the rule the club's own colour is
+ * held to as well. A line drawn one way in the header and another way in the
+ * cards under it would be two ways of saying the same thing, so it is drawn in
+ * one place and handed out as a string.
+ */
+export function shirtLine(colours: { home: string; away: string }): string {
+  return `linear-gradient(90deg, ${colours.home} 0, ${colours.home} 50%, ${colours.away} 50%, ${colours.away} 100%)`;
 }

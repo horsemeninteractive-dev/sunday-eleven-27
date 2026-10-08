@@ -2,8 +2,16 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { Club } from '@/domain/club';
-import { BADGE_DEVICES, BADGE_SHAPE_PATHS, BADGE_SHAPES, badgePlan, deviceFor } from './badge';
-import { BADGE_DEVICE_SHAPES } from './badgeDevices';
+import {
+  BADGE_DEVICES,
+  BADGE_PATTERNS,
+  BADGE_SHAPE_PATHS,
+  BADGE_SHAPES,
+  badgePlan,
+  deviceFor,
+  patternIsBusy,
+} from './badge';
+import { BADGE_DEVICE_SHAPES, DEVICE_INK } from './badgeDevices';
 import { ClubBadge } from './components/Badge';
 import { contrastRatio } from './colour';
 
@@ -109,6 +117,26 @@ describe('badgePlan', () => {
       ['The George', 'cross'],
       ['Haxbridge United', 'bridge'],
       ['Kirkby Town', 'tower'],
+      // The birds that used to be one bird, and the beasts of the pub signs.
+      ['The Owls', 'owl'],
+      ['The Barn Owls', 'owl'],
+      ['Woolcroft Eagles', 'eagle'],
+      ['The Buzzards', 'eagle'],
+      ['The Gulls', 'bird'],
+      ['The Cardinals', 'bird'],
+      ['The Peacock', 'peacock'],
+      ['The Dolphins', 'dolphin'],
+      ['The Blue Boar', 'boar'],
+      ['The Brown Bear', 'bear'],
+      ['The Unicorn', 'unicorn'],
+      ['The Griffin', 'griffin'],
+      ['The Green Dragon', 'dragon'],
+      ['The Windmill', 'windmill'],
+      ['The Fleece', 'fleece'],
+      ['The Woolpack', 'fleece'],
+      ['The Miners Arms', 'pickaxe'],
+      ['The Colliers', 'pickaxe'],
+      ['The Pitmen', 'pickaxe'],
     ];
     for (const [name, device] of cases) {
       expect(deviceFor(name), name).toBe(device);
@@ -120,6 +148,27 @@ describe('badgePlan', () => {
     expect(deviceFor('The Rose and Crown')).toBe('rose');
     expect(deviceFor('The Fox and Hounds')).toBe('fox');
     expect(deviceFor('The Royal Oak')).toBe('tree');
+  });
+
+  it('reads a hare before a hound, the way it reads a fox before one', () => {
+    // Both signs name two things; the club is the first of them.
+    expect(deviceFor('The Hare and Hounds')).toBe('hare');
+    expect(deviceFor('The Fox and Hounds')).toBe('fox');
+    // And a horse with a horn is not a sheaf of corn, though "corn" is the end
+    // of its name.
+    expect(deviceFor('The Unicorn')).toBe('unicorn');
+    expect(deviceFor('The Wheatsheaf')).toBe('sheaf');
+  });
+
+  it('does not take a club’s symbol from the day the league plays on', () => {
+    // "Thimfleet Sunday" is not named after the sun. That name shape is one of
+    // the commonest in the county, so it used to be a fifth of the world in the
+    // same crest; the club now takes one of its own instead.
+    expect(deviceFor('Thimfleet Sunday')).toBeNull();
+    expect(deviceFor('Thimfleet Sunday FC Reserves')).toBeNull();
+    // A club that really is named for the sun still wears one.
+    expect(deviceFor('The Sun Inn')).toBe('sun');
+    expect(deviceFor('Sunbury Town')).toBe('sun');
   });
 
   it('does not find a keyword buried in the middle of a word', () => {
@@ -141,23 +190,37 @@ describe('badgePlan', () => {
     );
     const devices = new Set(clubs.map((entry) => badgePlan(entry).device));
     // No keyword anywhere: the fallback still spreads them across symbols.
-    expect(devices.size).toBeGreaterThan(5);
+    expect(devices.size).toBeGreaterThan(12);
     for (const device of devices) expect(BADGE_DEVICES).toContain(device);
   });
 
-  it('spreads clubs across shapes and patterns', () => {
+  it('has measured where every symbol puts its ink', () => {
+    // The fit that centres a drawing in its box is measured off the rendered
+    // drawings, so a symbol added without a measurement would be drawn at
+    // whatever size its coordinates happened to allow — the swan at half the
+    // size of the dragon beside it, which is the thing that table exists to
+    // stop. Every symbol, or the fit for it cannot be worked out.
+    expect(Object.keys(DEVICE_INK).sort()).toEqual([...BADGE_DEVICES].sort());
+  });
+
+  it('spreads a county across the whole library', () => {
     const clubs = crowd(Array.from({ length: 40 }, (_, index) => `Woolcroft Social Club ${index}`));
     const plans = clubs.map((entry) => badgePlan(entry));
     expect(new Set(plans.map((plan) => plan.shape)).size).toBe(BADGE_SHAPES.length);
-    expect(new Set(plans.map((plan) => plan.pattern)).size).toBeGreaterThan(4);
-    expect(new Set(plans.map((plan) => plan.device)).size).toBeGreaterThan(15);
+    expect(new Set(plans.map((plan) => plan.pattern)).size).toBe(BADGE_PATTERNS.length);
+    expect(new Set(plans.map((plan) => plan.device)).size).toBeGreaterThan(20);
+    // And no club in the county is wearing another's crest: the shapes, fields
+    // and symbols combine rather than each being drawn from its own short list.
+    const crests = plans.map((plan) => `${plan.shape}/${plan.pattern}/${plan.device}`);
+    expect(new Set(crests).size).toBe(clubs.length);
   });
 
   it('keeps a library of symbols big enough that a county is not one crest', () => {
     // A badge is the first thing a manager sees of another club, so a world
     // where a third of the sides wear the same one reads smaller than it is.
     expect(new Set(BADGE_DEVICES).size).toBe(BADGE_DEVICES.length);
-    expect(BADGE_DEVICES.length).toBeGreaterThanOrEqual(45);
+    expect(BADGE_DEVICES.length).toBeGreaterThanOrEqual(60);
+    expect(new Set(BADGE_PATTERNS).size).toBe(BADGE_PATTERNS.length);
   });
 
   it('shows the founding year on some badges and not others', () => {
@@ -227,6 +290,136 @@ describe('badgePlan', () => {
     for (const shape of BADGE_SHAPES) {
       expect(BADGE_SHAPE_PATHS[shape].length).toBeGreaterThan(10);
     }
+  });
+});
+
+/**
+ * A round badge is a ring of lettering with a disc in the middle, and the two
+ * have to agree about where that middle is: the keyline is the boundary a
+ * manager's eye reads, so it goes inside the lettering and the symbol gives way
+ * to it rather than the other way round.
+ */
+describe('the ring of a round badge', () => {
+  const names = [
+    'The Bell',
+    'Haxbridge Dockers',
+    'Nether Bramford Corinthians',
+    'The Old Waggon and Horses FC',
+    // A name with descenders in it, which is what the ring has to clear on the
+    // top arc rather than the full height of a capital.
+    'Woolcroft Playing Fields FC',
+  ];
+
+  it('closes inside the lettering and around the symbol', () => {
+    for (const name of names) {
+      for (const shape of ['roundel', 'oval', 'ovalWide'] as const) {
+        const plan = badgePlan({ ...club('club_012', name, '#1565c0', '#ffffff'), badge: { shape } });
+        const where = `${name} as a ${shape}`;
+        expect(plan.ringRadius, where).toBeGreaterThan(0);
+        // Inside the lettering rather than through it, and what "inside" costs
+        // depends on which way up the line is set: a name round the top reaches
+        // in with a descender and its halo, anything set on the bottom arc — a
+        // year, or the second half of a long name — with the full height of its
+        // capitals. The pixel sweep is what proves the ink, this is the number
+        // the ring was measured from.
+        const inward = Math.max(
+          plan.nameSize * 0.45,
+          plan.nameLayout === 'ring' ? plan.nameSize * 0.9 : 0,
+          plan.yearOnArc ? plan.yearSize * 0.9 : 0,
+        );
+        expect(plan.ringRadius + inward, where).toBeLessThanOrEqual(plan.arcRadius + 0.01);
+        // Around the symbol, corner and all.
+        const half = plan.deviceSize / 2;
+        const corner = Math.hypot(half, Math.abs(plan.deviceY - 32) + half);
+        expect(corner, where).toBeLessThanOrEqual(plan.ringRadius);
+        // And the symbol the ring is drawn around is never a smudge: the middle
+        // of a round badge is the largest field it has to draw a symbol in, and
+        // it is the one place the name used to be allowed to swallow it.
+        expect(plan.deviceSize, where).toBeGreaterThanOrEqual(15.99);
+      }
+    }
+  });
+
+  it('leaves a chief open, because the band is carrying the name', () => {
+    for (const shape of ['shield', 'arch', 'pennant'] as const) {
+      const plan = badgePlan({ ...club('club_012', 'Haxbridge Dockers', '#1565c0', '#ffffff'), badge: { shape } });
+      expect(plan.ringRadius, shape).toBe(0);
+      expect(plan.ringPlain, shape).toBe(false);
+    }
+  });
+
+  it('paints the middle plain exactly where the field is patterned there', () => {
+    const plain = club('club_012', 'Haxbridge Dockers', '#1565c0', '#ffeb3b');
+    for (const pattern of BADGE_PATTERNS) {
+      const plan = badgePlan({ ...plain, badge: { shape: 'roundel', pattern } });
+      expect(plan.ringPlain, pattern).toBe(patternIsBusy(pattern));
+    }
+  });
+});
+
+/**
+ * The plate a symbol stands on. The ink a symbol is drawn in was picked to read
+ * against the club's first colour, and the middle of a patterned field is the
+ * one place a band of the second colour is guaranteed to be under it.
+ */
+describe('the plate under a symbol', () => {
+  const plain = club('club_014', 'Haxbridge Dockers', '#1565c0', '#ffeb3b');
+
+  it('is there on a patterned field and not on a plain one', () => {
+    for (const pattern of BADGE_PATTERNS) {
+      const plan = badgePlan({ ...plain, badge: { shape: 'shield', pattern } });
+      if (patternIsBusy(pattern)) {
+        expect(plan.devicePanel, pattern).not.toBeNull();
+        // The plate is the symbol's own box: never smaller, and never eating
+        // into the band above it or the year line below.
+        const panel = plan.devicePanel!;
+        expect(panel.size, pattern).toBeGreaterThanOrEqual(plan.deviceSize);
+        expect(plan.deviceY - panel.size / 2, pattern).toBeGreaterThanOrEqual(plan.bandBottom);
+        expect(plan.deviceY + panel.size / 2, pattern).toBeLessThanOrEqual(60);
+      } else {
+        expect(plan.devicePanel, pattern).toBeNull();
+      }
+    }
+  });
+
+  it('is drawn, and drawn to the field colour, wherever it is planned', () => {
+    const plan = badgePlan({ ...plain, badge: { shape: 'shield', pattern: 'hoops' } });
+    const markup = renderToStaticMarkup(createElement(ClubBadge, { club: { ...plain, badge: { shape: 'shield', pattern: 'hoops' } } }));
+    expect(plan.devicePanel).not.toBeNull();
+    expect(markup).toContain(`width="${plan.devicePanel!.size}"`);
+    expect(markup).toContain(`fill="${plan.primary}"`);
+  });
+});
+
+/**
+ * Every field a club can be given, and every shape it can be given, is a case
+ * in the drawing code — and a case nobody wrote is a crest with a hole in it.
+ */
+describe('drawing a field', () => {
+  const plain = club('club_015', 'Haxbridge Dockers', '#1565c0', '#ffeb3b');
+  const bare = renderToStaticMarkup(
+    createElement(ClubBadge, { club: { ...plain, badge: { shape: 'shield', pattern: 'plain' } } }),
+  );
+
+  it('draws every pattern in the library', () => {
+    for (const pattern of BADGE_PATTERNS) {
+      if (pattern === 'plain') continue;
+      const markup = renderToStaticMarkup(
+        createElement(ClubBadge, { club: { ...plain, badge: { shape: 'shield', pattern } } }),
+      );
+      expect(markup, pattern).not.toBe(bare);
+      expect(markup.length, pattern).toBeGreaterThan(bare.length);
+    }
+  });
+
+  it('draws a border that follows the silhouette, not the square it sits in', () => {
+    const markup = renderToStaticMarkup(
+      createElement(ClubBadge, { club: { ...plain, badge: { shape: 'arch', pattern: 'bordure' } } }),
+    );
+    // The band is the whole field, with the shape laid over it a little
+    // smaller: the only way a band is the same width round every curve.
+    expect(markup).toContain(BADGE_SHAPE_PATHS.arch);
+    expect(markup).toContain('scale(0.78)');
   });
 });
 

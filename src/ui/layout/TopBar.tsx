@@ -13,6 +13,7 @@ import { ClubBadge } from '../components/Badge';
 import { Glyph } from '../components/icons';
 import { StripeField } from '../components/StripeField';
 import { CompetitionLink, ClubLink } from '../components/Links';
+import { Portrait } from '../components/Portrait';
 import { UtilityMenu } from './UtilityMenu';
 import { Dialog } from '../dialogs/Dialog';
 
@@ -163,6 +164,12 @@ function SearchBox({ game, onChoose }: { game: GameState; onChoose?: () => void 
                 onChoose?.();
               }}
             >
+              {/* Drawn, and not a second link: the row is already the door, and a
+                  button inside a button is not a thing a browser will draw. This
+                  is the one place in the game where a manager finds a man by
+                  knowing only his name, so it is the last place that should show
+                  him as a string. */}
+              <Portrait person={player} />
               <span className="searchresults__kind">{player.preferredPosition}</span>
               <span>
                 {player.firstName} {player.surname}
@@ -250,7 +257,10 @@ export function MobileTopBar({ game, command }: { game: GameState; command: Comm
         </span>
         <span className="mobilebar__text">
           <strong>{club.identity.shortName}</strong>
-          <span className="small" style={{ opacity: 0.75 }}>
+          {/* Quieter than the club's short name by its size alone: an opacity
+              here would be the club's ink mixed with the club's colour, which
+              is a smaller amount of the same text rather than a quieter one. */}
+          <span className="small">
             {formatDayMonth(command.progress.date)} · MD {command.progress.matchday}/{command.progress.of}
           </span>
         </span>

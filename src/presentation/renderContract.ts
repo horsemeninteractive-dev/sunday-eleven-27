@@ -57,6 +57,18 @@ export type RendererKind = '2d' | '3d';
 export interface RenderTeamColours {
   primary: string;
   secondary: string;
+  /**
+   * The shirt this side's goalkeeper is wearing.
+   *
+   * A keeper wears the club's third strip rather than its colours, so a renderer
+   * that draws him like the other ten is drawing him in the wrong shirt — and a
+   * keeper in white can be told from the outfield only if the picture knows it.
+   * The builder reads a club's identity and not its kit (the kits are drawn from
+   * the career, which a match does not carry), so this starts at the club's own
+   * first colour and the view that holds the strips replaces it, exactly as it
+   * replaces `primary` with the shirt the side actually turned out in.
+   */
+  keeper: string;
 }
 
 /** One side's identity, as a renderer needs it — who is playing and in what. */

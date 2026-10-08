@@ -1,3 +1,4 @@
+import type { FaceChoices } from './face';
 import { toDate } from '@/simulation/calendar';
 
 /**
@@ -19,6 +20,15 @@ export interface ManagerProfile {
   occupation: string;
   /** Where he is from — flavour, and a hook for the local game to know him. */
   hometown: string;
+  /**
+   * The face he picked for himself, before there was a career to put it on.
+   *
+   * It lives here as well as on the manager's person because of *when* it is
+   * chosen: the profile is filled in before the world exists, so there is no
+   * person to hang it on yet. Keeping it here also means a saved profile gives
+   * back the face as well as the name, which is the point of saving one.
+   */
+  face?: FaceChoices;
 }
 
 export const MIN_MANAGER_AGE = 18;

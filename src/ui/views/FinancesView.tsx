@@ -13,9 +13,10 @@ import { obligationsTotal, upcomingObligations } from '@/simulation/obligations'
 import { money, moneyShort } from '../format';
 import { gameActions, useGame } from '../hooks';
 import { Button, Callout, PageHeader, Panel, Pill, SortTh } from '../components/primitives';
-import { MetricTile, Section, TileGrid } from '../components/hierarchy';
-import { PlayerLink } from '../components/Links';
-import { applySort, UNSORTED, type SortAccessors, type SortState } from '../tableSort';
+import { FocalFact, MetricTile, Section, TileGrid } from '../components/hierarchy';
+import { PersonLine } from '../components/PersonIdentity';
+import { useRememberedSort } from '../rememberedSort';
+import { applySort, type SortAccessors } from '../tableSort';
 
 type LedgerSortKey = 'date' | 'description' | 'category' | 'amount' | 'balance';
 
@@ -47,6 +48,11 @@ const LEDGER_SORT: SortAccessors<LedgerEntry, LedgerSortKey> = {
  * The amount defaults to everything he owes, so taking the whole sub is one
  * press; typing a smaller figure leaves the rest on his record as a part payment.
  * Either way the money is only booked when it is actually taken.
+ *
+ * He is drawn rather than named, because this is a list of the club's own men and
+ * chasing one of them is a conversation: the treasurer's book is the one place in
+ * the game where a face is the difference between a name and a man you have to
+ * go and find.
  */
 function OutstandingSubRow({ row }: { row: OutstandingSub }) {
   const [entry, setEntry] = useState(String(row.owed));
@@ -58,7 +64,7 @@ function OutstandingSubRow({ row }: { row: OutstandingSub }) {
   return (
     <li>
       <div className="row row--wrap">
-        <PlayerLink personId={row.personId} />
+        <PersonLine personId={row.personId} />
         <Pill tone="warn">{money(row.owed)} owed</Pill>
         {row.matches > 1 && (
           <span className="muted small">
@@ -104,7 +110,7 @@ function concernTone(concern: FinancialConcern): 'warn' | 'bad' | 'info' {
  */
 export function FinancesView() {
   const game = useGame();
-  const [sort, setSort] = useState<SortState<LedgerSortKey>>(UNSORTED);
+  const [sort, setSort] = useRememberedSort('finances', game?.saveId ?? null, LEDGER_SORT);
   if (!game) return null;
 
   const club = game.clubs[game.userClubId]!;
@@ -157,13 +163,17 @@ export function FinancesView() {
         )}
       </Callout>
 
+      {/* The balance is what this screen is about, so it is drawn as the one fact
+          rather than as the first of three tiles: at display size, on the rule
+          under the screen's name, with the two facts that look forward still
+          beside and below it as the secondary reading they are. */}
+      <FocalFact
+        label="In the bank"
+        value={money(treasurer.balance)}
+        note="Everything in and out"
+        tone={treasurer.balance < 0 ? 'bad' : treasurer.balance < 120 ? 'warn' : 'ok'}
+      />
       <TileGrid min={185}>
-        <MetricTile
-          label="Balance"
-          value={money(treasurer.balance)}
-          note="Everything in and out"
-          tone={treasurer.balance < 0 ? 'bad' : treasurer.balance < 120 ? 'warn' : 'ok'}
-        />
         <MetricTile
           label="Heading for"
           value={money(outlook.projected)}

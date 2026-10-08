@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { MESSAGE_PRIORITY_LABEL, type Conversation, type ResponseOption } from '@/domain/communication';
+import type { GameState } from '@/domain/game';
 import { useGameStore } from '@/state/gameStore';
 import { useGame, gameActions } from '../hooks';
 import {
@@ -11,12 +12,14 @@ import {
   liveThreadOptions,
   personName,
   threadActions,
+  threadFace,
   threadMessages,
   type InboxRow,
   type ManagerAction,
 } from '../inboxState';
 import { Button, EmptyState, PageHeader } from '../components/primitives';
 import { Glyph } from '../components/icons';
+import { Portrait } from '../components/Portrait';
 
 /**
  * Messages.
@@ -27,6 +30,12 @@ import { Glyph } from '../components/icons';
  * and something the manager can actually say back — and everything that does not
  * (thread ids, intent names, message types, consequence state) is somewhere
  * else.
+ *
+ * The people are people, too. Everybody in this game is drawn — `Portrait.tsx`
+ * takes his own name apart and draws him — so a thread with a man is headed with
+ * him, the row that opens it carries him, and his own words carry his face. A
+ * group has no single face and is drawn with its name alone; the manager's own
+ * messages carry none, because he is the one reading.
  *
  * Two shapes from one component, because the state is one thing. On a phone the
  * list is a screen and opening a thread replaces it; from a desktop width they
@@ -94,7 +103,16 @@ function InboxList({ unread }: { unread: number }) {
   );
 }
 
-function Row({ row, open }: { row: InboxRow; open: boolean }) {
+/**
+ * One thread, as a row.
+ *
+ * Exported because the rule it carries — a thread with one man in it is drawn
+ * with him, and a room full of people is drawn without anybody — is worth testing
+ * as the markup a browser is handed rather than as a fact about this file. It
+ * takes everything it draws from the row it is given, and reaches for the store
+ * only when it is pressed, so it renders without a career.
+ */
+export function Row({ row, open }: { row: InboxRow; open: boolean }) {
   const unread = row.unread > 0;
   return (
     <li>
@@ -105,6 +123,11 @@ function Row({ row, open }: { row: InboxRow; open: boolean }) {
         data-conversation={row.conversationId}
         onClick={() => gameActions().openConversation(row.conversationId)}
       >
+        {/* Him, at the left of the row, because a message list is a list of
+            people and a man is drawn in this game rather than named. Nobody is
+            drawn for a room full of people — see `threadFace` in `inboxState.ts`,
+            which is the same rule the thread's own head is drawn to. */}
+        {row.face && <Portrait person={row.face} />}
         <span className="inbox__row-main">
           {/* The name is the row. Nothing outranks it, so it is the first thing
               in the accessible order too. */}
@@ -160,6 +183,9 @@ function ConversationPane({ conversation }: { conversation: Conversation }) {
   const others = conversation.participantIds.filter((id) => id !== 'user_manager');
   const name = others.length === 1 ? personName(game, others[0]!) : conversation.title;
   const kind = kindLabel(conversation);
+  // Him, where the thread is with one man: a room full of people has no single
+  // face to put up there. See `threadFace` in `inboxState.ts`.
+  const face = threadFace(game, conversation);
 
   return (
     <section className="inbox__thread" aria-label={`Conversation with ${name}`}>
@@ -170,6 +196,11 @@ function ConversationPane({ conversation }: { conversation: Conversation }) {
         <button type="button" className="inbox__back" onClick={close} aria-label="Back to messages">
           <span aria-hidden="true">‹</span> Messages
         </button>
+        {face && (
+          <span className="inbox__thread-face">
+            <Portrait person={face} size="md" />
+          </span>
+        )}
         <h2 ref={headingRef} tabIndex={-1} className="inbox__thread-name">{name}</h2>
         {kind && <span className="inbox__thread-kind">{kind}</span>}
         {others.length > 1 && (
@@ -177,17 +208,27 @@ function ConversationPane({ conversation }: { conversation: Conversation }) {
         )}
       </header>
 
-      <MessageLog messages={messages} emptyCopy="Nothing has been said in here yet." />
+      <MessageLog game={game} messages={messages} emptyCopy="Nothing has been said in here yet." />
 
       <ReplyBar conversation={conversation} />
     </section>
   );
 }
 
-function MessageLog({
+/**
+ * The messages themselves, as a list to scroll.
+ *
+ * Exported because it is a drawing of two things it is handed — who said what,
+ * and who wrote each line — and takes nothing from the store at all. That makes
+ * the one rule in here, "whose sentence gets a face beside it", testable as the
+ * markup a browser would get, rather than as a fact about this file's source.
+ */
+export function MessageLog({
+  game,
   messages,
   emptyCopy,
 }: {
+  game: GameState;
   messages: ReturnType<typeof threadMessages>;
   emptyCopy: string;
 }) {
@@ -210,21 +251,35 @@ function MessageLog({
 
   return (
     <div className="inbox__log" ref={scroller} tabIndex={0} role="region" aria-label="Message content">
-      {messages.map((message) => (
-        <div key={message.id}>
-          {message.startsDay && <p className="inbox__day">{message.dayLabel}</p>}
-          <article className={`bubble${message.mine ? ' bubble--mine' : ''}`}>
-            {/* A sender name on every one of the manager's own messages would be
-                noise; on anybody else's it is the point. The group case needs
-                it either way, because "who said that" is genuinely ambiguous. */}
-            {!message.mine && <p className="bubble__from">{message.sender}</p>}
-            <p className="bubble__body">{message.body}</p>
-            <p className="bubble__when" title={message.whenTitle}>
-              {message.when}
-            </p>
-          </article>
-        </div>
-      ))}
+      {messages.map((message) => {
+        // The man who wrote it, drawn. Everybody else's sentence carries a face;
+        // the manager's own carries none, because he is the one reading — and a
+        // face cannot be drawn for anybody the save no longer holds, which is why
+        // the name is still what gets printed.
+        const sender = game.people[message.senderId];
+        return (
+          <div key={message.id}>
+            {message.startsDay && <p className="inbox__day">{message.dayLabel}</p>}
+            <article className={`bubble${message.mine ? ' bubble--mine' : ''}`}>
+              {!message.mine && sender && (
+                <span className="bubble__face">
+                  <Portrait person={sender} size="sm" />
+                </span>
+              )}
+              <div className="bubble__words">
+                {/* A sender name on every one of the manager's own messages would be
+                    noise; on anybody else's it is the point. The group case needs
+                    it either way, because "who said that" is genuinely ambiguous. */}
+                {!message.mine && <p className="bubble__from">{message.sender}</p>}
+                <p className="bubble__body">{message.body}</p>
+                <p className="bubble__when" title={message.whenTitle}>
+                  {message.when}
+                </p>
+              </div>
+            </article>
+          </div>
+        );
+      })}
     </div>
   );
 }

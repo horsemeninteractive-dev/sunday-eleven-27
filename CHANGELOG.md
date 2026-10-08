@@ -10,6 +10,1162 @@ move (any save from an older build is migrated forward on load). `1.0.0` means
 it is finished. This file is also the changelog inside the game, reachable from
 the main menu.
 
+## [0.10.0] - 2026-10-08 — the man in the other dugout and the ladder that pays
+
+### A ladder that pays the clubs that climb it
+
+**Reputation was a fact about the day the world was generated.** Only going into administration could move it,
+so a club could be promoted three times and the county's opinion of it would not budge: the rungs of the
+ladder were held up by their members' standing, and nothing ever climbed. That is what made a career feel
+flat at the top — the football changed division, the club did not.
+
+**A season now moves a club's standing, from three ideas and no more.** `src/simulation/standing.ts` runs at
+the season boundary, once the final tables are the archive and the ladder's movements are known. A finish is
+read *against expectation*: order the division by standing and that is what the county thought each club was
+worth before a ball was kicked, so finishing six places above your own standing is worth a couple of points
+and finishing where the county put you moves nothing at all — which is what keeps the model honest, because a
+club that keeps winning keeps climbing until its standing catches up with its results and then stops.
+Promotion and relegation are worth more than a place or two, because they are not opinions; and a promoted
+club whose standing is still far below the division it is joining is lifted towards that division's company,
+because a rung of the ladder is a level of football and the club plays there next season whatever the county
+used to think. It is bounded and slow — two points from a finish, three from a division, eight from a
+promotion summer, clamped to the county's own 8–90 scale — so sixteen seasons of good management build a club
+up and one bad season does not undo it.
+
+**And it closes a loop that had been open since the first season.** Standing is what a summer's arrivals are
+generated at, what the sponsorship tier reads, what a scout's reach and a manager's quality are drawn from,
+and — since the last release — what a club's football identity is derived from. A promotion therefore buys a
+better class of player and a different idea of football, not merely a different fixture list, and a club that
+slides does the opposite. Nothing new is stored: `club.reputation` is the same field the world generator
+wrote, so a career saved before this starts moving from its next boundary. `npm run soak` gained `standing`
+and `standvar` columns — the mean and the spread of what the county thinks of its clubs — so the ladder's
+widening or closing is a number in the report rather than an impression from year twelve.
+
+### The man in the other dugout, and the jobs his system asks for
+
+**Every AI club had instructions and no manager.** The county went into a season with a tactics block that had
+been rolled once in August and was never looked at again: for ninety minutes a side did what it had been told
+to do in pre-season and nothing at all about the scoreline, the clock, a sending-off or a tiring midfield.
+Selection was the eleven best positional fits — the men with the highest rating for the shirt they were
+standing in, whatever the manager had asked them to do — and the table that says what a *role* values,
+`attributeFocus`, was read by nothing in the game, so a job could never decide who was picked for it. This is
+the layer that puts a man in the other dugout.
+
+**A club's football is derived from the club rather than stored on it.** `simulation/ai/style.ts` reads a
+club's standing and its own instructions and returns an identity: the football it plays, how much of the game
+its manager wants played in the other half (`ambition`), how readily he abandons a plan that is not working
+(`flexibility`), and a phrase for the scouting line. Nothing is saved and nothing is migrated, so a career
+written before this wakes up with the personality it always had, while the opening instructions a generated
+world hands out are now drawn *from* standing: the sides with the players have a go, and the sides without
+them make themselves hard to beat and get it forward. The extremes were trimmed after measuring — the first
+cut had a quarter of the best sides setting out very attacking, high and fast from the first whistle and took
+the watched engine to twenty-five shots a match against the background model's seventeen, which is two
+resolutions of one football drifting apart. The tails of that table stay in the drawer until a manager is
+losing and reaches for them.
+
+**The same manager sits in the same dugout whichever resolution plays the fixture.** `simulation/ai/manager.ts`
+is judgement and nothing else — no ball, no engine state, no dice — and both resolutions call it. He goes for
+it when he is behind late, and further and sooner if he is ambitious; he drops deeper, slows it down and stops
+pressing when he is winning; he takes the point when he is outclassed, level and nearly out of time; and a
+sending-off rearranges the whole approach whatever the clock says, because ten men do not press high. His
+substitutions are his plan: a hurt man comes off whenever it happens, tired legs and a poor afternoon come
+off, and the change he makes is the right *kind* — chasing a game is a forward, protecting one is a defender,
+a merely tired side gets the best like-for-like man on the bench, and a keeper's shirt only goes to somebody
+who can keep. In a watched match the instruction change is written into the record as it happens, so the
+commentary can say that a side has dropped deep; in the background model the same review runs nine times a
+match and recomputes that side's share of the ball and of the chances, so a decision taken at seventy-two
+minutes is felt from that minute rather than from the next kick-off.
+
+**Roles now decide who is picked, and both resolutions read the same table.** A position's ordinary job comes
+first and its specialisations after it, and a specialisation has to suit the man *better* than the ordinary
+job before it is used — so a balanced side still turns out ordinary footballers, a direct side sends out the
+target man it actually has, and a positive one sends out its poacher. Suitability for the job moves a
+selection by about seven per cent and never outweighs being the better footballer; the bench covers the shape
+the side is really playing rather than a fixed list of positions, with the keeper always named; and the
+abstract resolution reads the role table too, normalised to a mean of one, so a role changes *who* gets on
+the end of a move and never how many chances a side makes.
+
+**Measured, not asserted.** The suite gained two files and twenty-eight tests: identity, reactions, bench
+decisions and role-fit readings at the unit level, and the consequences at the level a manager would notice —
+the same eleven told to go for it take about forty per cent more shots than the same eleven told to sit on it
+in the background model and more than they did in the watched one; a side that passes it short keeps more of
+the ball; the same centre forward scores more often as a poacher than as a target man; an AI side two up with
+ten minutes left ends the match deeper than it started, with the change on the record; and a human manager's
+own instructions are never rewritten, not even when he has handed the afternoon over. `npm run benchmark`
+puts the two resolutions at 18.8 and 17.5 shots a match against 16.7 and 18.9 before, and 2.67 and 2.56 goals
+against 2.72 and 2.28 — closer to each other than they were. The whole layer costs about eight per cent per
+background match, which is three milliseconds on a card of eighteen fixtures. Deliberately not here yet: a
+positional reshuffle when a side goes down to ten (the approach adapts; the shape is left alone), a manager
+who picks his formation from the players he has rather than the one he prefers, individual set-piece takers —
+and anything resembling a manager personality or a job market, for which this layer is the foundation.
+
+### A fixture printed as a fixture sheet, and one fact a screen at display size
+
+**The largest type in the game was the name of the screen it was on, and nothing on a screen was
+larger than the screen itself.** Measured across the nineteen career screens, seventeen of them were
+led by the page title at 26 pixels and every other line sat between 13 and 15, so a squad list, the
+treasurer's book and a fixture list were read at one size in one voice — and the things a football
+game is *about* had no size of their own at all: a scoreline, a league position, the money in the bank
+and how many men are turning up on Thursday were the same size as the word beside them, or a tile the
+same size as three other tiles.
+
+**There is one display size, and it is spent once a screen.** `--fs-display` is declared once among
+the tokens and given its value by the room (`data-archetype`), so a screen cannot invent a sixth size,
+and `FocalFact` in `ui/components/hierarchy.tsx` is what spends it: the letterpress label over the
+fact, the fact at display size, a line of plain words saying what it means, and all of it on the rule
+below the screen's own name. It is deliberately not a tile, because a tile is a small box scanned
+among its peers and this is the opposite. Three screens have one — the league position, the balance in
+the bank, and who is coming to training — and the rest do not, which is the point of it: a screen whose
+fact is a picture, a list or a person does not need a number invented for it to have a focal point.
+
+**A fixture is printed the way a fixture sheet prints one.** `FixtureCard` was a row of labelled facts
+— the competition, two clubs, and a line of small print — which is the shape of a record rather than
+of a fixture, and it is now the paper a fixture is printed on: the competition and the round as a
+letterpress across the club's own band (the same `--club-band` the top bar's fixture already wears),
+the two clubs at the size of a name with their own badges, our own half named in the club's readable
+ink, the score at the size of a score, and the conditions — the day, the kick-off, whose ground it is,
+the surface, the weather, the capacity — as the small print under a rule at the foot. Nothing was
+added to it. Every line is a field the fixture already carried, put where a fixture sheet puts it,
+which is the whole difference between a fixture and a row of data about one. The same board is drawn on
+the dashboard, in the cup and on the match screens, so a fixture looks like a fixture wherever the
+manager meets it.
+
+**A month of fixtures is a page of a fixture list**, so its summary is set in caps and tracked out with
+what has been played and what is to come beside it, and the month the manager is in — the one holding
+the next game — is painted with the season's own club edge. That edge had no meaning in the
+competition rooms at all before: `level="primary"` answered nothing on Fixtures, the League or the Cup,
+and now it paints the one panel that matters with the same 2px rule the football rooms already used.
+
+**The squad list is a team sheet.** `squadOf` sorted a squad by the four group *codes* compared as
+strings — DEF, FWD, GK, MID — which put the goalkeepers third in a list of a football team, scattered
+the lines, and agreed with no other screen in the game. A squad now reads keeper, back, middle, front,
+by the same `positionRank` the selection screen has always read one by, so the two lists cannot
+disagree about what order a squad is in. The list is ruled off in four letterpress bands —
+Goalkeepers, Defence, Midfield, Attack — drawn only while it is in the side's own order, because
+sorted by goals the bands would scatter keepers through the attack and a band that lies about the list
+is worse than no band at all.
+
+**Tactics has this week written under the board.** The most visual screen in the game had nothing to
+say about the match it was preparing for. The caption under the picture names the opponent and where
+the game is, the day and the kick-off, and the pitch and the weather the instructions are answering —
+a deep line is a decision *for* a heavy pitch — so the two now sit on one line rather than three
+scrolls apart.
+
+**Verified in the browser rather than described:** fifty-nine checks across eighteen screens and the
+match report, with the type read off the layout the browser actually produced. The dashboard's largest line is the score on the
+board at 40 pixels; the league position and the balance are 36 and the training attendance 40, each the
+largest thing on its own screen and the only thing at display size on it; the board's stamp is the
+club's own band (`rgb(0, 82, 72)` for the club measured); the squad bands come out Goalkeepers,
+Defence, Midfield, Attack in the side's own order, and go away when a column is sorted; the tactics
+caption reads the fixture's own conditions; a month of fixtures reads `August 2026 · 0 played · 3 to
+come` with the next game marked in the club's colour. On a 390-pixel phone the board stacks its two
+clubs, the score comes down to 26 pixels and a focal fact to 26, and the dashboard scrolls sideways by
+nothing at all; and four screens — the dashboard, the squad, the tactics and the fixtures — are clean
+to axe at the same time.
+
+### The goalkeeper's shirt can be dropped on, and a defender can be stood deeper
+
+**The one dot on the pitch that could not be aimed at was the goalkeeper's, and the one direction a
+defender could not be moved in was backwards.** Both were the same mistake in the picture. The mapping
+that turns a drop into a pitch position floored the point into the deepest row an outfield man may
+stand in, and the keeper does not stand in a row of the outfield at all: he is drawn on the goal line,
+behind the defence, in a row of his own. So a drop read through that floor could never be nearer his
+shirt than a centre half's, and the bottom of the pitch had no rows left for a defender to be pushed
+into.
+
+**A drop is now read off the picture rather than off the pitch.** Where the finger is, as fractions of
+the pitch box, is compared with where each shirt is actually drawn (`pitchPointerFraction` and
+`nearestDrawnSlot` in `ui/tacticalDiagram.ts`) — the space the manager is looking at, and the only
+space the keeper is reachable in. A dot let go *on* another man's shirt is the two of them swapping:
+the arriving man takes the shirt and the man in it takes his, with the roles and the shape untouched,
+and the shirt being aimed at is marked while the dot is still in the air, with the label over the
+grass naming the man — `Swap with Sheldon`. It is deliberately the same edit the squad list makes when
+a name is picked for a shirt, so the two ways of asking are one rule rather than two that can drift;
+and the departing man keeps his own answer to whether he is out of position where he already stands,
+instead of being marked for the job the other man left.
+
+**The reach is short on purpose, about the footprint of the dot.** A drop that lands in the goalmouth
+but not on the keeper still only moves a defender, and `outfieldOnly` still means no zone in front of
+goal makes anybody a goalkeeper — so a keeper is still never lost to a mis-drag, only to a deliberate
+drop on his own shirt, in either direction. A name dragged out of the squad list reaches him the same
+way.
+
+**A defender can be stood on the six-yard line.** `OUTFIELD_LINE` in `domain/positions.ts` is the
+deepest row a man in front of the keeper may hold, and the picture draws it and every rule clamps to
+it, so a centre half dragged right back is drawn standing in his own six-yard box — 82.1% down the
+picture rather than the 76.3% the drawing used to stop at — while staying strictly in front of the
+keeper's own row at 93.9%. The floors inside `moveSlot` are now those picture numbers rather than a
+second set, which is what keeps the rule and the drawing from disagreeing again, and it closes a bug
+the old pair hid: a defender nudged past the outfield floor was clamped to a point the picture drew on
+the keeper's row, so two presses of the down arrow stood him on top of his own goalkeeper.
+
+**Measured in the browser**, on a career picked by the assistant. A dot carried over the keeper's
+shirt marks it, names him and swaps the two on release, in both directions, with the shape untouched
+and exactly one goalkeeper in the side throughout; a name dragged out of the list onto his shirt puts
+that man in goal; a defender let go on the goal line stands on the six-yard line as a centre half with
+the keeper untouched; and three presses of the down arrow leave him there rather than on the keeper's
+row. The picture's own numbers are held by tests, including one that walks every formation and holds
+the two closest shirts further apart than a reach: a drop that could land within reach of two men
+would make a swap depend on which of them the manager happened to be nearer.
+
+### Every table in the game opens on the column it was left sorted by
+
+**Every table here sorted by its columns and forgot the moment the manager walked to another screen.**
+Nine screens, several times a day, the same small tax each time — and it was worth fixing on the list a
+side is picked from first, because that is the list a manager looks at most. This is that fix applied
+to all of them at once, and to the ones that come next.
+
+**The remembering is done once, in `ui/rememberedSort.ts`, and every table asks for it.** A screen says
+which screen it is — a name in the module's own register — and which career it is in, hands over the
+accessor map it already sorts with, and gets back the same `[sort, setSort]` pair it would have had
+from `useState`, except that the first value is read before the first paint and every value written is
+written down. Handing the hook the map rather than a list of column names is what makes the columns a
+table can sort by and the columns it can remember one list: there is one mapping, and it is the one
+`applySort` is handed.
+
+**A screen that sorts a table and does not remember it is now a test failure.** The register is a
+closed list of names, held against the sources by `rememberedSort.test.ts`, so two screens cannot end
+up sharing a key and a new table cannot quietly go on forgetting. `ClubSelectView` is deliberately
+absent: it sorts clubs while a manager is choosing one, which is before there is a career to keep the
+choice under, and it is the only table left in the game holding its own sort state.
+
+**Kept in the browser, per screen and per career, and out of the save** — the same reasoning as the
+selection list's own, written once for all of them: a sort is a reading of a table rather than a fact
+about the world, so a save handed to somebody else arrives carrying none of the last manager's view of
+it, and nothing that is only about how a screen looks is worth a save-format version. A career that is
+not open, storage switched off, storage that throws, and a column renamed since the choice was made all
+open the table in the order the screen chose for its rows. Where a screen builds its accessors out of
+the world — the club list, the training forecast — the map can now be built without one, because the
+keys are wanted before a career exists to read them from; its values are only ever read with a world in
+hand.
+
+**Measured in the browser**, on a career three weeks in. A heading was tapped on seven screens, the
+manager walked to another screen and came back, and all seven returned showing the same column the same
+way round: the squad on Player, the league table on `#`, the ledger on Date, the club list on Club, the
+needs list on Area, the attendance forecast on Player, and the list a side is picked from on Player.
+Seven keys, one per screen and career — `se27.ui.sort.squad.save_table-memory-1_club_14` and its
+siblings — and after a full reload of the page the squad, the league table and the selection list were
+still on theirs. No table folded away behind a disclosure is reachable without unfolding it, which is
+what the probe does; the history screen had no seasons to list yet, so there was nothing there to
+check, and the two sorts inside a man's profile are held down by the register test rather than by the
+probe.
+
+### The list a side is picked from opens on the heading it was left on
+
+**The seven headings over the selection list sorted the squad until the manager walked to another
+screen.** He decides he reads his squad by name, taps Player, goes to look at the league table, comes
+back — and the names are in the side's own order again. The reading he had chosen had to be chosen
+again every few minutes, which is the sort of small tax that makes a feature not worth having, and it
+was the one thing the headings did not do that every table in the game already does with its columns.
+
+**The list is now built on the heading it was last left on, and the choice is written as it is
+tapped.** Not on the way out of the screen: a screen is left by closing the tab as often as by walking
+away from it, and only one of those is a moment in which anything can be written down. The third tap
+is written down like the other two, because on this list "not sorted" is an answer rather than the
+absence of one — the side's own order — and a manager who has decided he reads his squad that way
+should get it back.
+
+**The headings and the memory of one now live together, in `ui/selectionSort.ts`.** They were a private
+list in the view, which was fine while all they did was sort and nothing else; the moment their keys
+had to be written down and read back, a list in one file and a reader in another could disagree — a
+heading offered and not remembered, or remembered and no longer offered — so `SELECTION_SORT_KEYS` sits
+beside the reader that cleans its input, and `teamSelection.test.ts` holds the two of them together:
+every heading offered is one the screen has an accessor for, and every accessor is a heading that can
+be pressed.
+
+**It is kept per career, and outside the save.** Under `se27.ui.selectionSort.<career>` in browser
+storage, which is where the panel layout already lives, rather than in the career's own file: this is
+a reading of a squad rather than a fact about one, so a save handed to somebody else should not arrive
+carrying the last manager's view of it, and nothing that is only about how a screen looks is worth a
+save-format version. Two careers keep two choices, because two saves usually hold two different squads,
+and a manager reading one of them by fitness is not necessarily reading the other that way.
+
+**A browser that will not remember gets the screen anyway.** A career that is not open, storage that is
+switched off, and storage that throws all open the list in the side's own order, and a tap still sorts
+for the visit: the promise is not worth a squad list that will not open, and a note about browser
+storage would cost more room than the sort does. Measured in the browser: one tap on Player sorted the
+squad by surname and wrote `{"key":"player","direction":"asc"}` under
+`se27.ui.selectionSort.save_selection-memory-1_club_3`; walking to the squad screen and back opened the
+list on Player ascending in the same order; the second tap turned it round and the third put the side
+back into its own order and wrote that down as `{"key":null,...}`; and after a full reload of the page,
+reopening the career and the selection screen opened the list on Form ascending, which was the heading
+it had been left on. 24 rows, seven headings, nothing on the screen pressed before the first tap.
+
+### Every story in the paper carries a picture of the kind of story it is
+
+**The news screen was a page of type.** A headline, a paragraph, and six colours of label, all of it
+words: a paper with no pictures in it, which is the one thing a paper is not.
+
+**Every story now carries a drawing of the kind of story it is.** A match is drawn as a pitch seen
+from above — touchline, halfway line, centre circle, two penalty areas, two goals and the centre
+spot — the squad as three of the men standing in a row, the club as a covered stand with people in
+it, the league as a cup, the world as a globe, and the money as a note with a stack of coins under
+it. The lead story carries its picture at 128 by 80, every card in the feed at 64 by 40 beside the
+headline it belongs to, and all of them are drawn on one sheet (`components/NewsPlate.tsx`) at one
+stroke weight, so the picture on a finance warning is drawn in the same hand as the picture on a
+match report.
+
+**They are drawn rather than photographed, and that is the whole of the decision.** This game draws
+its faces, its badges, its kits and its pitches, and one photograph among all that ink would read as
+an advertisement, which is the last thing a news screen should become. The six are shaped like the
+places they name rather than like six icons, and the file is arranged so that this can be checked
+rather than admired: every path is written in absolute commands and every arc is drawn across a
+diameter of its own circle, which is what lets `components/newsPlate.test.ts` walk the drawings and
+hold each one inside the sheet it is drawn on. A picture that ran off its own edge, or that turned
+out to be a box rather than a pitch, fails there instead of looking nearly right on the screen.
+
+**The pictures say nothing a screen reader has to hear.** The kind of story is already written in
+words in the meta line beside them, so the drawings are `aria-hidden` and the screen audits clean.
+
+**The six were read off the screen rather than trusted.** Over a career's first three weeks the paper
+printed World, Club, League and Squad stories, each wearing the strokes of its own kind — the globe,
+the stand, the cup, the men — and the two kinds that career never printed at all, a match report and
+a finance warning, were written into its news and drawn on the screen to check in the same way. What
+the browser measured: the lead picture 128 by 80 drawn at a 0.75 stroke and a card's 64 by 40 at 1.5,
+which is the same 1.5px line on screen for both; a card's summary a 64px picture column with the
+words in the column after it and "Read the story" still underneath the words; and nothing running off
+the side of the page, on a desktop or on a 390px phone.
+
+### The team sheet opens with the side, and says about a man what the squad list says
+
+**The list a manager picks his side from was twenty-four names in an order nobody had asked for.**
+It was sorted by how well each man fitted the shirt being picked, which answers one question well
+and not the one a manager arrives with. Its rows said a position, an age, a day job and a form
+figure squeezed into one grey line, while the screen next door in the same tab said the same things
+in a row that a manager had already learnt to read.
+
+**It now opens in the side's own order: the eleven as they stand on the pitch, keeper first, then
+the substitutes, then the rest of the squad.** `squadInTeamOrder` in `ui/lineupEditing.ts` is that
+rule, and it is kept out of the view because it is a rule about a lineup and a squad rather than
+about drawing one. A man dropped from the XI falls down the list and the man who took his shirt
+rises to where the shirt is, so the list reads as the team sheet rather than having to be re-read
+every time the side changes.
+
+**Every row now carries what the squad screen carries.** The portrait, the name and the day job come
+from `PersonIdentity` — the same row the squad screen uses — and beside them are the same facts in
+the same order: the position, the condition and the form as meters with their numbers on them, the
+morale, and the availability pill with its reason on it. What belongs to this screen is kept: where
+the man already is ("In the XI at RB", "On the bench", "Not selected") and how well he fits the
+shirt being picked, which is the one fact the squad screen has no use for. The labels these facts
+would carry as columns are written into the rows, because this is a list rather than a table, and
+the availability pill needs no label at all: the word in it is the fact.
+
+**Seven headings over the list sort it, with the same sorting as every other table in the game.**
+One tap on Player, Pos, Fitness, Form, Morale, Availability or Fit sorts by that fact, the second
+tap turns the sort round, and the third puts the side's own order back — `tableSort`'s own cycle,
+which is why `UNSORTED` means something here rather than nothing. The two of them that need a rank
+rather than a number now ask the domain: `positionRank` joins `POSITION_GROUP_ORDER` in
+`domain/positions.ts` and `availabilityRank` joins the availability type in `domain/person.ts`, and
+the squad table's own two headings ask the same two functions, so the two lists cannot drift into
+two ideas of what order a squad is in. The headings sit above the scrolling pane rather than inside
+it, so the names move under headings that stay where they are.
+
+**All of it is taller than the four words a row used to be**, and that is the price of it, so it is
+worth naming: measured in the browser at 1440×900 a row is 81px, so about seven names are in the
+pane at once, and on a 390px phone the same row stacks to 183px.
+
+### The report and the replay wear the shirts too
+
+**The two views a manager opens after the whistle drew the clubs' own colours, not the shirts they
+played in.** The replay was the worse of the two: its pitch painted every man in the colour in his
+club's identity, so a visiting side that had changed into a white away strip was drawn in its own
+blue on the replay of the afternoon it did not wear it, and both keepers were in the outfield shirt,
+which is the one thing the third strip exists to prevent. The report had no line-up at all: it
+carried the scoreline, the figures, the goals and a list of ratings, and the men who played were
+never drawn in the shirt they played in. The live match had already answered the question, so the
+two views now read that answer rather than each arriving at one of their own.
+
+**One function says which shirts a fixture is drawn in, and all three screens ask it.**
+`matchTeamColours` in `ui/kit.ts` returns the whole answer in the shape the renderer holds it — each
+side's outfield strip and each keeper's third strip — built from `matchKitColours` and
+`matchKeeperColours`, so there is still one reading of the kits underneath it. `MatchView` hands the
+two objects to its render state rather than assembling the same spread itself, the replay does the
+same to the state it builds from the record, and the report passes them straight to the sheets. The
+report gained a *The teams* section holding the two `TeamSheet`s — the same component the live pitch
+stands beside it — under the ratings, so the line-up as it was picked is in the document and not only
+the marks for it, drawn whenever both sides were actually picked. The replay stands the same two
+sheets down either side of its pitch, which is where the live match puts them. `TeamSheet` gained one
+prop for it: a replay passes `marks={false}`, because a replay exists so that an afternoon can be
+watched back without being told how it ends, and a list of the goals with the clock still in the
+first half gives the ending away at a glance. A live sheet and a report keep the marks, which is what
+a live sheet and a report are for.
+
+**Measured in the browser, on both views, in an afternoon played out in one press.** A match that
+finished 1-1 with seven bookings and two sendings-off: on the report and on the replay alike both
+sheets are headed in the strips the sides played in — `#37474f` and `#6200ea`, the second of which is
+the visitors' spare set rather than the blue in their identity, because their blue clashed with the
+home shirt — with the club's name reading on each at 9.7:1 and 10.4:1; every outfield row is in its
+side's strip, and the two keeper rows a side are in the clubs' own third strips, `#cddc39` and
+`#6200ea`, read from the kit each club's own page draws rather than from the sheet; the replay's dots
+are in the same shirts as the sheets beside them, keeper included, and its sheets are in the same two
+strips as the report's; the report lists the afternoon's two goals, exactly the number the record
+credits, and the replay lists none of them; and the sheets on both views are clean to axe. A report
+opened on a phone still draws both lists, stacked: the live match stands its sheets down at that
+width because there is no room for them beside a pitch, and a report has no pitch to make room for.
+
+### The team sheets wear the shirts
+
+**The two team sheets named eleven men and could not tell you the shirt any of them was in.** A
+teamsheet is a list of footballers, and a footballer is a shirt: whose he is, and which of them is
+the man in goal. The old sheet answered the first question with a single three-pixel rule above the
+club's name — the strip the side turned out in, drawn once, over sixteen rows all in the same ink —
+and the second not at all, because the keeper was a row like any other row: marked `GK`, and nothing
+else, in a list whose whole point is who is playing where. The prop it was handed already said the
+right thing — `colour` was documented as *the first colour of the strip this side is wearing, not
+the club's own colour*, a distinction that matters because a visiting side in a white away shirt is
+playing in a shirt its own colours do not describe — and that distinction had exactly one place to
+go, and a hairline is not a place.
+
+**One rule now decides which shirt a footballer is in, and everything that draws one asks it.**
+`shirtFor(colours, position)` in `ui/match/shirt.ts` returns the third strip for a keeper and the
+side's outfield shirt for everybody else. The match pitch already had that rule, written inline as
+`shirtOf`, so the module is that rule moved rather than a second version of it, and the pitch now
+delegates to it — one rule about a football match, asked by the grass and by both lists beside it.
+The sheets are handed the whole `RenderTeamColours` in place of the single `colour` they used to
+take, and `MatchView` passes `renderState.teams.home.colours` and `.away`, the same colours the
+pitch is drawn from. The head band is the strip itself, painted flat in `--sheet-colour` with its
+ink measured for that colour by `flatClubInk` and inherited by the club's name, so the club's own
+shirt is what the sheet is headed in. Every row then carries a three-pixel bar down its outer
+edge: the ten are painted from `--sheet-colour` by the stylesheet, because a sheet's strip is
+stated once and not ten times, and the keeper's is painted inline in his side's third strip,
+because his is the one row of the sixteen that is not the side's. The bar is `aria-hidden`, since
+the `GK` beside it already says the position and a colour is no use to a screen reader; the home
+sheet puts it on the left edge and the away sheet on the right, so the two mirror one another down
+either side of the pitch, and the row runs on from it to the man's name.
+
+**Measured in the browser, on the match screen, against the pitch beside it.** In a career whose
+matchday put Fordholm South End in `#283593` against Charlgreen Nomads in `#f0b8bd`: both sheets
+are headed in that strip, the full width of the sheet, with the club's name at 9.70:1 and 10.42:1
+on it; all fourteen outfield rows a side are in the side's own shirt; and the two keeper rows —
+the starter and the man on the bench — are in the third strip, `#4caf50` and `#d50000`, neither of
+which is the outfield colour, on the rows that say `GK`, on the man actually in goal. The two
+sheets are checked against the picture rather than against a colour copied out of the source: the
+ten rows and the ten dots beside them are the same shirt, so a sheet handed the club's own colours
+instead of the strip it turned out in is the case that fails. Each bar sits on the outer edge of
+its row, three pixels wide and as tall as the row, painted flat, and axe reports nothing on either
+sheet.
+
+### The manager picks his own face
+
+**The one man in the game whose name is typed rather than rolled was the one man who could not
+choose the face it draws.** A face is seeded from a name on purpose — the manager’s id is the fixed
+`user_manager` whoever he turns out to be, so an id-seeded face would hand every manager of every
+career the same head — and that made him the only person in the world whose seed is the player’s own
+typing. He is also the only person who has to look at that face every week. Nothing about the
+drawing was wrong; what was missing was the offer.
+
+**`FaceChoices` is the vocabulary and `facePlan` honours it without moving a single roll.** Twelve
+named features — head shape, skin tone, hair style, hair colour, beard, glasses, eye colour, eye
+shape, brow weight, brow height, nose and mouth — live in `domain/face.ts`, so a career can hold
+them beside the details the manager typed, and as names rather than indices, so a palette can be
+reordered without handing a man somebody else’s jaw. The drawing reads them in `ui/face.ts`: the
+roll happens first and in full, so a man who chooses nothing is drawn by exactly the numbers his
+name drew him by before any of this existed, and a man who chooses one feature moves that feature
+and nothing else — choosing a beard cannot shift a nose, because no draw is ever skipped. What no
+choice can override is his age: hair that was going to grey greys, over the colour he picked rather
+than the one he did not. How far apart his eyes are and how high they sit are rolled, and stay
+rolled, because they are the two things nobody picks about his own face and everybody notices
+about somebody else’s.
+
+**One control, on the two screens that need it, drawing the same face every other screen gets.**
+`components/FaceDesigner.tsx` renders the real `PortraitArt` from the real `facePlan`, at the
+profile’s own 105-by-120 and in the coat an official wears, so what a manager sets is exactly what
+he is shown next week; a preview drawn by a second code path is a preview that can lie. It opens on
+the face his name already draws — a way of changing a face rather than of building one out of
+nothing — with a shuffle that hands him somebody else’s and one press back to his own. It is a
+panel on the pre-game screen beside the details it belongs with, and a panel on his own page
+afterwards; `setManagerFace` writes to the person every screen draws and mirrors it onto the
+profile a saved profile remembers.
+
+**Measured in the browser, on four surfaces.** In a career whose manager chose the deepest skin
+tone and a pair of glasses: the panel opens with twelve labelled rows, one button pressed on each,
+23 colour chips, and its preview in a 105-by-120 box; pressing a row redraws it, and the two hexes
+only that choice can produce — `#4f2c19` and the `#262c31` frame — are on the drawing. The career
+then starts with those twelve features on the man and on the profile both; his own page draws him
+once in the profile box and in markup identical to the panel’s own preview, character for
+character; and the club screen and the staff screen draw the same face on the same man, so the two
+committees cannot disagree about him. The way back takes it off both. Twelve of the tactics
+screen’s option groups in one panel would have been three rules a row, so inside the designer a row
+keeps one and above 1280 pixels they go two across — and axe reports nothing on the panel, which it
+did while the row labels were an `h4` under a panel’s `h2`.
+
+### The keeper is the one man who is not in the club's shirt
+
+**A keeper wears the third kit, and the game was dressing him in the club's colours.** The laws
+have always asked the two goalkeepers to be told from the ten in front of them and from each other,
+and a Sunday side answers it the only way it can: the loudest shirt on the rack, worn by nobody
+else. `kitPlanFor` already drew that shirt — it picks a goalkeeper colour at least
+`MIN_KIT_DISTANCE` from the club's own — and the Kit screen already showed it. Nothing else did.
+His portrait was drawn in the home strip, and his dot on the selection pitch, the tactics pitch and
+the match pitch was his side's outfield colour, so a club in red fielded a red goalkeeper in a pitch
+of red shirts: the one man the third strip exists to pick out was the one man it could not.
+
+**`goalkeeperKitColour` is now the one place that question is answered, and everything that draws a
+keeper asks it.** It reads the club's third strip from the same `clubKit` the Kit screen draws, and
+falls back to the club's own first colour for a save written before kits existed;
+`matchKeeperColours` reads both ends of a fixture with it; the portrait gets it from `outfitFor`,
+which now asks for `designFor(kit, preferredPosition === 'GK' ? 'goalkeeper' : 'home')`. The match
+pitch asks `shirtOf`, which returns `colours.keeper` for a keeper and `colours.primary` for the
+other ten, so a side whose away shirt is white still has a keeper who is not. The selection and
+tactics pitches paint the goalkeeper's shirt in it, with the ink measured against that colour by
+`flatClubInk` rather than picked by brightness, because a third strip is often exactly the mid pink
+or orange where the two disagree.
+
+**The render contract carries the third strip now.** `RenderTeamColours` gained a required `keeper`
+field beside `primary` and `secondary`. The builders read a club's identity rather than its kit —
+the strips live in the career, which a match does not carry — so it starts at the club's own first
+colour, and `MatchView` replaces it with the third strip exactly as it already replaced `primary`
+with the shirt the side actually turned out in. A keeper never changes into the away kit: he is in
+the third strip in every match, home and away, which is the one thing about a shirt that is the same
+every week.
+
+**Measured in the browser on all four surfaces.** In a career whose club plays in pink `#ec407a` and
+whose goalkeeper strip is magenta `#e040fb`, the keeper's shirt on both preparation pitches is
+`#e040fb` carrying `#101a14` — 5.34:1 — while the ten outfield shirts are left to the stylesheet,
+and the keeper's portrait holds `#e040fb` where an outfield player's does not. On the match pitch
+the manager's keeper is painted `#e040fb` and the visitors' `#ad1457`, each club's own third strip,
+neither falling back to the neutral grey and both position codes legible on their dots: twenty-one
+checks, no page errors.
+
+### The club's colour is painted in an ink of its own
+
+**A career blue had no legible ink on it, and every screen said so.** Axe reported the same two
+things wherever a career was open: a primary button at 3.84:1 and the next-match label at 4.09:1,
+both measured against the 4.5 that text of their size needs. Neither was one rule gone wrong. Both
+came from one idea used one surface too far. `--club-ink` is chosen across the *stripes* a club's
+shirt is made of, so that the second colour fading through the header never swallows the text on it
+— and that is a compromise: it makes the ink the best it can be over several colours at once. Every
+button, chip, tab, badge, dot and count in the game then wrote with it, on a surface that is not
+several colours at all. Flat paint is one colour, and an ink chosen for six of them can be wrong on
+it. Measured over the generator's own palette, ten of its fifty-three pairs and the blue a career
+is started in had no ink that cleared 4.5 on the flat colour: that blue measured 4.33 with the
+light ink and 3.84 with the dark one.
+
+**So the flat paint gets an ink of its own, and it is a guarantee rather than an improvement.**
+`flatClubInk` tries the game's two inks first, so a club keeps the house ink wherever it works, and
+for a mid-toned colour that neither can carry it reaches past them to pure white or pure black.
+That is always available: the ratios of white and black against any colour multiply to 21, so the
+better of the two can never be below 4.58. The answer reaches CSS as `--club-flat-ink` and is used
+by everything that paints the club's colour flat — `.btn--primary`, both `--active` segmented
+states and both `.chip--on` blocks, the active inspector tab, the position dots, the armband, the
+inbox's unread count, the navigation badge, the skip link and the match header's "You" tag — while
+`--club-ink` is left to the two striped bars, which is the only thing it was ever chosen for.
+Across the whole palette the flat ink runs from 4.60 to 17.8, and it leaves the house palette for
+only four colours: the two inks and the two ends of the scale.
+
+**The fixture band's ink is chosen for the band, and its labels stopped being faded.** The band is
+a flat shade of the club's colour, so it now takes the same treatment (`--club-band-ink` through
+the same helper, 4.50 at its worst across the palette, and a structural guarantee rather than a
+happy coincidence). The label and the facts beside it were then dimmed to 72% and 85%, and a faded
+ink is the ink mixed with its own background, which no floor survives: the label measured 4.09
+where the band clears 6.35 at full strength. They go quiet by size and tracking instead, the club's
+nickname and the date's second line lose the same fade, and one opacity written inline in
+`MobileTopBar` went with them. A fade of ink into its own colour is also exactly what the sheet's
+own law forbids, so this was two rules disagreeing about the same pixel.
+**Where this was measured, and what it does not cover.** `contrast.mjs` composites the real
+background behind every piece of text and reports the number: 53 screens, 7,499 samples, none below
+its requirement, on the club the world dealt and on a light one. `contrast-club.mjs` now sweeps the
+generator’s whole list rather than only the clubs this county happens to contain — 54 colours, the
+career’s blue included, repainted on a live career and audited with axe on two screens each — for
+zero `color-contrast` violations, and the standing allowance in the list audit is now a
+zero-tolerance rule over all 227 of its checks. What none of that can see is the header bar itself:
+axe cannot resolve a text background under the shell’s band gradient and reports the whole bar as
+*incomplete*, so the bar’s ink is argued rather than measured. On the career above it reads 3.84:1
+— dark ink on the blue, which is the compromise the stripes asked for — where the same colour
+painted flat beside it is now 4.63. It is under 4.5 on eleven of the colours this change was made
+for (ten of the generator’s pairs and the blue a career starts in) and on most of the palette’s
+stripe bands, because the bar’s ink is held to the 3.5 the stripes are drawn back for. Holding its
+small print to 4.5 instead means the stripes give way on the colours they cannot survive, which is
+a change to the shirt itself rather than to an ink, and it is not made here.
+
+### Every list of people draws the man in it
+
+**The audit went looking for names and found a handful of lists nobody had thought of as lists.**
+Eleven surfaces named a man and drew nothing beside him: the squad table, the attendance sheet, the
+record books, the subs a player still owes, a story about a man, a club's squad on its own page, the
+ratings in a match report, the search dropdown, a rival club's manager and its chairman, the eleven
+the tactics board lists, and the men who cannot play. They were missed for the same reason — each is
+a list of *something else*, of attendances, of debts, of fixtures, of results, with a man's name in
+it rather than a list of men. A name in a row is a name in a row whether the row is a table or a
+sentence about a Saturday.
+
+**The drawing is one component, and now so is the row.** `components/PersonIdentity.tsx` is the one
+place a person in a list is spelled, and it gained `PersonLine`: a man's drawing and his name on one
+line, and nothing else, for the rows a leaderboard makes rather than a roster. It takes an id rather
+than a man for the same reason `PlayerLink` always has, so the one case that cannot be drawn — a
+name the save no longer holds — falls back to exactly the link it used to be. The pure half is split
+off as `PersonLineArt`, because a component that reads the career cannot be rendered in a test at
+all. Nothing about the drawing itself changed: `Portrait` still decides what a man looks like, and
+the list still decides how big he is — 28×32, the box the squad table already gave him.
+
+**What is left as a word is left deliberately, and the rule is exact.** A list of people is drawn; a
+sentence is not. The pitch and the formation board draw a man by where he stands, and a shirt on a
+pitch is not a name that has lost its face. The team sheet, the touchline controls and the incident
+banner are read in seconds while a match is running, and a column of drawings there is noise rather
+than information. A goal is a sentence about an afternoon rather than a list about men, so the
+scorers and the assists in the report stay words, and a story that names a man in its sentence stays
+a sentence. Everything else — every row whose job is to say *who* — now says it twice.
+
+**The audit is a program now rather than a promise.** A probe walks every screen in the game — all
+eighteen rooms, both profile overlays, the search dropdown, the inbox, the tactics board's own list
+of the eleven, and an afternoon played through to the whistle — and measures 61 surfaces at a desk
+and on a phone. It asserts that no row anywhere names a man without drawing him, that every drawing
+sits to the left of the name it belongs to, and that no list draws him smaller than the squad
+table's 28×32. The handful of rows that stay words are named in the probe, one rule at a time and
+with the reason written beside it, so the next screen that lists people either draws them or says
+why it does not. The contract suite pins the other end of the same rule: eleven surfaces must come
+through `PersonLine`, and the four that are allowed to keep a man as a word must not have a drawing
+in them at all.
+
+### The message list is a list of people
+
+**A row in the inbox was a name and a sentence, which is what a spreadsheet is.** The thread and
+the dialog that talks terms with a man were given his face in the entry below, and the list he is
+found in was left as text: eleven conversations, eleven names, and a man you have never met as a
+string. It is the one screen a manager scans rather than reads, and it was the last place in the
+game where a person was still only a word.
+
+**Every row now carries the man it is with.** `InboxRow` gained `face`, worked out by the same
+`threadFace()` that decides what a thread is headed with, so a row and the thread it opens cannot
+disagree about who is in it: one man, drawn at 28×32 — the box the squad table already draws him
+in, decided by the list's own rule rather than by the drawing, because only the list knows how
+tall its rows are. A room full of people has no single face and is drawn with its name alone; not
+one thread the simulation opens has several people in it, so that case is the exception rather
+than the shape of the screen.
+
+**Nothing about the row's density changed.** The face sits at the left of the two lines the row is
+already made of and is centred on them, so a row is exactly as tall as it was and a phone shows
+the same number of conversations. It is the fuller drawing rather than the reduction a message
+bubble gets, and deliberately: a bubble is a trace of something said, and the list is where the
+manager finds the same man again.
+
+### Talking to a man puts his face on the page
+
+**A conversation was a heading and a list of sentences, and nothing on the page said the sentences
+had come out of anybody.** The inbox thread and the transfer conversation are the two screens where
+this game is something the manager *says*, and both named the man they were about and then stopped:
+an `h2`, a run of message bubbles, and the words "Haroon Reynolds" in small caps above one of them.
+Everybody in the game is drawn now — the face generator arrived in the pass below — so there was no
+reason left for the one place a man talks to you to be the one place he is not.
+
+**The thread is headed with him, and his own lines carry him.** `threadFace()` in `inboxState.ts`
+answers one question of a conversation — who is the single man in it? — and returns nobody for a
+group, a committee, or a person the save no longer holds, so a one-to-one is headed with a 35×40
+drawing of him beside his name, and a room full of people keeps its name alone. Every message now
+carries the id of the man who wrote it (`ThreadMessage.senderId`), so the log draws the writer’s own
+face at 28×32 beside his sentence rather than guessing him back out of the words. The manager’s own
+messages carry none: he is the man reading, and he does not need a picture of himself beside his own
+question.
+
+**The dialog that talks terms with him opens on him rather than on a heading.** `NegotiationModal`
+used to begin with the words "Talk terms" and go into a transcript attributed with a name in small
+caps. It opens with his face — 42×48, `lg` rather than the profile’s `xl`, because this is not his
+page, the page about him is a dialog away, and what is being read here is a conversation with him —
+his name, and the one thing worth knowing while you are talking to him, ruled off from the
+transcript beneath. His lines in the transcript carry the same small face his own messages carry in
+the inbox, and the opening line, which is the game talking rather than him, has none.
+
+**One message, two screens.** A bubble is the same shape in both places now — a face on the left,
+the words taking the rest — because both are a person saying something, and both wrap the sentence
+in `.bubble__words` so a long message takes the room it needs from the face rather than squeezing
+it. The face is `sm` wherever a trace of a conversation is drawn, and its wrapper never resizes the
+drawing. Nothing in the simulation moved: the face is a reader of `game.people`, and the transcript
+is a reader of the record it already had.
+### Half time, full time and the report are drawn in the match's own marks
+
+**Half time, full time and the post-match report were the only three screens in the game that
+spelled a result out in a sentence.** The header at the top of the afternoon has always shown a
+match the way this game knows how to show one — a crest, a name, the score, a name, a crest, and
+the two strips the sides actually turned out in, drawn as one hard line across the top — but the
+moments the match *stops* for the manager said "Northolt 2 - 1 Hanwell" in body text in a plain
+box, and the report opened on the words "Match report". Three screens in one afternoon read a match
+differently from the screen above them.
+
+**They read it from one drawing now.** `match/MatchScoreline.tsx` is the crests, the two names, the
+score and the two shirts, and it has three callers: the half-time card, the full-time card, and the
+report's headline. It takes the career and the match as props and reads nothing else, so it is the
+same drawing over the pitch and inside a dialog — the minute the whistle stops play, the manager is
+reading the thing he was already reading. The line itself is `shirtLine()` in `kit.ts`, which the
+match header now uses as well, so "the two shirts as one hard line" has one definition instead of
+four, and the visitors' half is the shirt they are wearing rather than the colour in their club's
+record. On a phone the crests stay, because they are the identity, and the names and the size give
+way instead.
+
+**And the figures the two moments put underneath it are painted in the two strips on the pitch.**
+`MatchStatsPanel` — what half time and full time deliberately put in front of the manager — painted
+the home half of every bar in `--club`, which is the *manager's* colour, and the away half in a
+grey. Read from the away dug-out that showed the visitors wearing his shirt and his own side
+wearing nothing, which is the exact fault the commentary bar, the swing bars under the pitch and
+the case for drawing people all exist to avoid. Every bar is two halves now, one in each side's own
+first colour, meeting where that side's share of the figure lands; the pressure bar above them is
+the same two shirts. Measured on a real afternoon, every row of the panel is painted in precisely
+the colours the swing bars under the pitch are, and the home side in that match was in **grey** —
+the colour the panel used to overwrite with the manager's own.
+
+**The report keeps the ruled head it earned and gains a headline.** A match report is a document,
+and the `report` dialog kind already gave it a ruled head and a headline's type; the document now
+opens on the result rather than on a caption. A fixture nobody has played has no result to
+headline, so its report goes straight to the panel underneath that says so.
+
+**Nothing moved in the other direction.** The scoreline, the line and the figures are all under
+`src/ui`, and the new `match/scoreline.test.ts` walks the whole of `src/simulation` to prove that
+not one of those names has a home there: Touchline decides what happens, and this layer shows what
+happened.
+
+### Every person in the game is drawn, and every player is in the club’s shirt
+
+**A pair of initials in a square is the visual grammar of a database, and it made the game look
+more like a dashboard rather than less.** The entry below replaced one bust glyph worn by
+everybody with the man’s initials, on the reasoning that the game does not generate faces and
+a fabricated one would be a drawing of somebody who does not exist. The reasoning was wrong at
+the first step. This game does not generate photographs, but it generates drawings all day — a
+crest is a generated drawing of a club, a kit is a generated drawing of a shirt, a kit firm’s
+mark is a generated drawing of a factory’s logo — and a person is not a special case.
+Initials were the one thing in the game that said “record” rather than “person”, and they said
+it on every screen at once.
+
+**Every person is drawn now: a face, and the top of a body.** `face.ts` is the plan and
+`components/Portrait.tsx` is the drawing, which is the same split the crests and the kits
+already use. The plan decides the skin (nine tones, weighted toward the middle of a broad
+range), the shape of the skull (six, from a long face to a boxer’s), the hair (nine cuts, the
+hairline a quarter of the way down the head, grey arriving from the late thirties), facial hair
+(five kinds), eye colour and shape and spacing, brows, nose, mouth, and whether he wears
+glasses. It is seeded with the man’s **name**, so he is the same man in the squad, in the
+committee, in the training list and in a name found through the local game. Measured over a
+generated world: 1045 people, 1045 distinct faces, and no two alike.
+
+**A footballer is drawn wearing the club’s shirt, and a transfer changes the shirt and nothing
+else.** The strip is read from the same kit the Kit screen draws — the club’s home colours, its
+pattern, its collar and its cuffs — so a club in red and white stripes has men in red and white
+stripes, and the sleeve seams are the kit’s own. A man attached to nobody is drawn in a plain
+top, and an official is drawn in a coat, because the chairman and the treasurer work for the
+club rather than play for it; that is said with a *shape* rather than with a colour, so it reads
+for everybody. `face.ts` reads nothing about the club at all — the drawing is a pure function of
+the plan and an outfit, and the outfit is the only thing a club supplies. Measured live: one
+man’s head outline is byte-identical in his squad row at 28 pixels and on his profile at 105;
+moving him to another club replaces `#1f6feb` with `#4a148c` and leaves the outline identical;
+attached to nobody he is drawn in `#454f59` with the same head; an official is drawn in the
+`#333b44` coat. And every one of the fifteen hundred drawings in a career was rasterised and
+sampled: no eye missing, no eye under hair, no forehead without skin, and no chest that is not
+the club’s shirt.
+
+**The profile is where the drawing is allowed to be the point of the page.** A person’s page
+opens with a 105x120 portrait where it opened with a 34-pixel crest, in the same chip every list
+uses, and the manager screen draws his own face in the frame that held a bust glyph — 88x100,
+with the arch on that frame gone, because an arch that suited a silhouette cut the top off a
+head.
+
+**Two faults were found by measuring rather than by looking.** The hairline was written as a
+fixed distance below the crown, which put it six units too low: every man in the game had a low
+brow and a small face under a heavy head of hair. It is a proportion now — the head in
+quarters, the hairline at the quarter, the eyes at the half, the base of the nose at three
+quarters — which lands correctly on all six skulls at once, and is pinned by a test that walks
+every head against every cut. And the jaw’s shadow was drawn from a path made only of curves,
+with no point to start from: a browser refuses a path like that and quietly draws nothing, so
+every face in the game had gone without the shadow that separates the jaw from the neck. A test
+now renders every head, every cut and every beard and asserts that every path in every drawing
+begins at a point, which catches the whole class of fault rather than the one instance of it.
+
+### Five rooms, one stated law, and people who look like people
+
+**Every screen in the game was the same screen with different words on it.** Measured
+across all eighteen career screens at 1440, the frame was identical: the same 64-pixel
+club rule under the header, the same 44-pixel club bar over every section, the same lit
+panel surface, the same 3-pixel corner and the same `rgb(35, 42, 49)` border. A squad
+screen, the treasurer’s book and the league table were one page. Which room a screen is
+in is now decided once — `src/ui/archetype.ts` gives every view one of five rooms and the
+shell wears it on the content column as `data-archetype` — and the stylesheet paints the
+difference: **the desk** (boxed surfaces, the club rule as a 64-pixel stub), **the board**
+(no boxes at all, which leaves the pitch and the men as the only objects in the room),
+**the club’s paperwork** (a letterhead: the club’s rule runs the full width of the header
+and a section carries a 72-pixel bar), **the season** (no boxes, tabular figures, and table
+heads ruled top and bottom like a printed column), and **the local paper** (a masthead-sized
+title, a 68-character measure, sentence-case headings). Measured afterwards: five distinct
+frames where there had been one — a 26-pixel title and a 64-pixel rule on the desk and the
+board, the club’s colour running the whole width of the column on the paperwork and the
+season, and a 32-pixel title on the paper.
+
+**The sheet said "flat and dark, no gradients" at the top of itself and then lit five things
+from a corner.** `.create-club__column .panel` lifted at 150 degrees, `.workspace-panel` at
+155, `.manager-identity` at 135, its portrait at 160 and `.staff-roster__person` at 145 —
+five subtly different rooms in what is supposed to be one building, because light does not
+come from the top-left of a box. They are all vertical now (178 or 180 degrees), and the law
+is stated once at the head of the stylesheet where the next rule can read it: light comes
+from above in a straight vertical line; the club’s colour is flat, one full-width band excepted;
+structure is a rule rather than a box; nothing floats unless it is over the page; one corner
+and one size. Light on a *drawing* is not the same thing as light on a surface, which is why
+the two shirts and the portrait keep their own.
+
+**Every person in the game was the same bust glyph in the same grey box.** Four identical marks
+on the staff screen, eighteen identical marks in a squad, and a list of names found through the
+local game drawn the same way — which is a database with names in it rather than a list of
+people, and there was nothing on a row to find a man by except reading the name beside it. The
+mark is the man himself now: a generated drawing of a face, wearing the club’s own shirt
+(`components/Portrait.tsx`, whose plan is `face.ts`) — see the entry above for what that is and
+for why the initials that stood here first were rejected. Measured on a club whose colour is
+`#1f6feb`: all 18 squad portraits in the club’s own shirt, 18 distinct drawings, and four
+committee portraits in the plain coat. A candidate found through the local game was the one list
+that drew the mark above the name rather than beside it — measured, its foot sat 2 pixels clear
+of the name underneath — and it is a 10-pixel gap inside the same row now, which is how every
+other list of people in the game already read.
+
+**Every dialog wore the same head.** A man’s dossier, the club’s own page, a match report and a
+question with two answers all opened as the same panel with a different title in it. The
+mechanics stay one system — the scrim, the escape key, the trap, where focus lands — and the
+head is now told which of the four it is holding: a person or a club gets the club’s tint on the
+head, a match report gets a rule and a headline, and a confirmation gets none of the club’s
+colour at all and a smaller title, because "are you sure" is not part of the club’s identity.
+Measured: a 15-pixel title and a `1px rgb(35, 42, 49)` border on a question, against 17 pixels
+and a 2-pixel club rule on the rest. A dialog with no kind is a utility and keeps the plain head
+it always had.
+
+**And the four dialogs that mount outside the shell were drawing a green that belonged to no
+club in the save.** Preferences, the changelog, the credits and the managers are mounted above
+`AppShell`, and the club’s colours are set on the shell. Measured on the same club: the "The
+game" menu wore the club’s blue `#1f6feb` and "Preferences", opened from inside that menu, wore
+`rgb(76, 175, 125)` — the default. The colours are restated around them when there is a career to
+take them from; on the main menu there is no club yet, and the game’s own green is correct there.
+
+**Motion was in the places it was hard to do without and nowhere the manager touches all day.**
+A navigation item is how he gets anywhere, and it snapped between two states with no relationship
+between them; a tile went straight to its hover tone, which reads as the screen flinching rather
+than as the tile answering. There is one speed now — 120ms, the speed the rest of the sheet
+already uses — spent on four things only: the navigation, the thing under the pointer, the
+selection, and a row of a table. Nothing loops, nothing animates on arrival, and the reduced-motion
+rule that already zeroes every transition in the sheet covers all of it.
+
+### The black box comes off, the crest comes up, and two screens lose their holes
+
+**The club designer and club selection both wore a black rectangle over the pitch
+photograph, and it was one rule in the wrong place.** Those screens put the header
+straight on the scene — the stylesheet says so, and scopes a drop shadow onto the
+heading for exactly that reason, because small green capitals over grass read as mud.
+A later rule then gave both headers `background: var(--bg)` with no condition attached,
+which measured as **`rgb(8, 9, 11)` across the top of both screens at 1024, 1280, 1440
+and 1920 pixels**: a box painted over the photograph the header was drawn to sit on. On
+a phone the same header goes sticky and the page scrolls under it, where an opaque
+header is not a mistake but the thing that keeps the words readable, so the rule was not
+deleted — it was moved into the one media query that needs it. Measured after the
+change: **transparent at every desktop width, still `rgb(8, 9, 11)` at 390**.
+
+**The crest in the match header was sized like a bullet point.** It was 30 pixels
+square, and the club's name beside it is 22 pixels tall, so the badge read as the dot at
+the front of a line rather than as the club. It is now **44** — the size at which a
+silhouette, a pattern and a symbol are all still legible at a glance — and it costs the
+header nothing, because the score and the clock in the middle of that row were already
+taller than it. On a phone it is 28 rather than 22, for the same reason at a smaller
+size. The header is 95 pixels tall at 1440 either way.
+
+**The club designer was two columns of about 570 pixels with a 260 pixel hole at the
+foot of one of them.** Identity and Ground came to 862 pixels against the Badge and
+Squad panels' 1122, and nothing was ever going to fill the difference: two columns can
+only be balanced if what is in them is the same height, and a form's panels are not.
+Wide enough for three, the designer now stops being two columns at all — the column
+wrappers hand their panels to the grid, which places **Identity, Ground and Badge across
+at 482, 380 and 429 pixels** and the squad beneath them at the full width, which is what
+the squad panel's own `grid-column: 1 / -1` was always meant to do and could never do
+while it lived inside a flex column. The page measured **1443 → 1200** at 1440×900,
+**1630 → 1219** at 1280, **1416 → 1357** at 1024 — and the designer is 1440 wide rather
+than 1180, where it used to leave 370 pixels of nothing at each side of a 1920 screen.
+
+**The move found a rule that had never once applied.** The badge panel carries
+`grid-column: 1 / -1`, written for a panel in the grid and harmless for as long as the
+panel was a flex item in a column — which is to say, always. The moment the columns
+handed their children up, it took the whole top row and pushed the other two panels out
+of it, and the page came out **taller** than the two columns it had replaced. The release
+is therefore scoped to the grid so that it outranks that rule rather than relying on
+being written after it; the arithmetic is in the comment above it, and the assertion is in
+the test suite.
+
+**The kit screen was the decision the wrong way round.** It drew the kit the club wears
+in a full width section, and then the three designs it could have worn as three cards
+**across** the screen — at 1440, three 438 pixel columns each holding a strip 230 pixels
+wide, two thirds of every card empty, with the thing being compared against scrolled off
+the top before the comparison. It is now two columns: **the kit the club wears on the
+left, the three it could have worn down the right**, each design read across as its name,
+its button and the three shirts it would put the club in. The left column carries the
+chosen strip at 168 pixels a shirt and, underneath it, the kit deal — sponsor, maker,
+colours — which used to be behind a door at the foot of the page; the three strip
+descriptions that went there instead only repeated, in 28 pixel type, the captions the
+shirts above them already carry, so they went back behind a door. The strip that filled
+the column ended at **63 pixels** short of the designs at 1440 rather than 108.
+
+**Three shirts stay on one row, because a kit is a set.** Left to wrap, three shirts 150
+wide need 482 pixels of column, and a column of 401 folded the third one onto a line of
+its own — a measured 487 pixel strip where the designs beside it were 551, which is the
+hole again, inside the column this time. They shrink as a row instead, exactly as they do
+on a phone, where the same figures have been capped at 96 pixels all along.
+
+**And the header rule can now fail rather than being noticed.** `uiTuning`'s neighbours
+in `src/ui/workspaces.test.ts` read the stylesheet as text; the new block reads it rule by
+rule, keeping each rule's media context, so "a pre-game header paints only where it is
+sticky", "the crest is 44 pixels and its phone figure is 28", "the designer is three
+across above 1024 with the badge panel released" and "three shirts do not wrap" are
+things a future edit can break loudly. Each of them was checked by reintroducing the
+fault it is meant to catch.
+
+### The crest, drawn like a badge rather than a diagram
+
+A badge is the first thing a manager sees of an opponent, so a county where a
+fifth of the sides wear the same crest reads smaller than it is. Three things
+changed here, and each of them was found by measuring crests rather than by
+looking at them.
+
+**The libraries grew by a third.** **Thirteen new symbols**, taking the set to
+**61 drawings**, each with the word that finds it: an eagle, an owl and a peacock,
+so the county’s birds are no longer one bird; a dolphin, a hare, a boar, a bear, a
+unicorn, a griffin, a dragon, a windmill, a fleece and a pickaxe. **Three new
+fields**, taking it to **11** — a bordure, which is the band round the edge that
+every real badge has and this generator did not, a split across, and a saltire.
+Measured on a generated county of 36 clubs: **22 different symbols across 35
+different crests**, and **77 of the 108 nicknames** the world draws from now name
+the thing the club is called rather than falling back on a football.
+
+**The words a name is read against gained the fixed phrases a name is made of.**
+The day the league plays on is not the sun, so “… Sunday” — one of the
+commonest name shapes in the county — no longer has a fifth of the world in one
+crest. “Hare and Hounds” is a hare before it is a hound, the way “Fox and
+Hounds” was always a fox. The Colliers work the coal and do not wear a collie, and
+a horse with a horn is not a sheaf, though “corn” is the end of its name.
+
+**A round badge closes a ring, and a patterned field gives the symbol a plate.**
+The keyline that turns a circle of lettering into a badge is measured off the
+lettering itself, and the symbol is fitted into the disc the ring leaves, so the
+ring, the name and the drawing are one object rather than three that happen to
+overlap. Where the field runs under the symbol — stripes, hoops, a sash, a
+saltire — the symbol now stands on a plate of the field colour, because its ink
+was chosen to read against the club’s first colour, and the middle of a patterned
+field is the one place a band of the second colour is guaranteed to be beneath it.
+
+**The lettering is set to the size it actually renders.** `GLYPH_WIDTH`, the
+generator’s estimate of how wide a bold character is, was 0.54 — which is what a
+*regular* weight measures at. On a crest sheet in a real browser, a run fitted to
+46 units came out at 57, so the longest names were reaching the edge of their
+silhouette and being clipped by it. At 0.68 a name fitted to its band lands at
+101% of it: **every crest in a 205-crest sweep now sits inside its own shape**,
+and a pixel sweep of 20 round badges finds no lettering drawn inside a ring.
+
+Two drawings that spilled out of the 32-unit box the badge scales them from — a
+hammer, and the new pickaxe, both of them drawn on an angle — were pulled in a
+shade, so the invariant the symbol library is built on now holds for all of them.
+
+Crests are generated from the club’s own id, so a career saved before this wears
+its clubs’ crests redrawn. A badge the manager designed himself is stored on the
+club, part by part, and is untouched by any of it.
+
+### Ten silhouettes, a symbol that fills its box, and a sheet that was lying
+
+**The crest sheet was itself the first fault.** The harness draws each crest in a
+React root of its own, and `useId` only promises an id that is unique *within* a
+root — so all **385 badges** on the sheet were handed the same clip path, every
+`url(#…)` resolved to the first of them, and each crest on the page was clipped by
+the first crest’s silhouette. The first crest happened to be an oval, which is why
+a county of shields, arches and pennants read as a page of ovals whatever shape had
+been planned — and why the symbols on it looked misplaced. A badge now numbers
+itself from a counter, which cannot collide whatever renders it; `useId` is right
+for a component drawn once in a page and wrong for anything a tool draws in cells.
+The game itself was never affected: the sheet that judges the game was.
+
+**Ten silhouettes rather than five.** An octagon, a plaque, a banner with two
+tails, a gable with a shallow peak, and a wide oval join the shield, the roundel,
+the oval, the arch and the pennant, and a county of forty clubs now wears ten
+between them rather than five. Each is drawn so that the name band is still the
+full width of the badge at the height the letters sit — a silhouette that eats a
+club’s name is a fault, not a shape. A diamond was drawn as well and taken back
+out again: its sides cut in at forty-five degrees, which is exactly where a run of
+lettering passes, and fitting a name and a sixteen-unit symbol inside one left the
+name at three and a half units of the sixty-four. The octagon is its roomy cousin
+and is here instead.
+
+**Every symbol now fills the box the badge gives it.** Each of the 61 drawings was
+measured on the renderer — its ink sits where the renderer says, not where the
+coordinates suggest, because curves overshoot and a stroke is in no bounding box —
+and the drawings were not the same size within their own box or even in the middle
+of it: the swan’s ink covered **56%** of the box and the dragon’s **98%**, so one
+crest drew the swan at half the size of the other, and the ram, the hound, the
+anvil, the badger and the gate sat between three and five units off centre, which
+put them along one edge of every crest they were on. All of them are now centred
+and grown to nine tenths of the box, measured back at **0.01 units off centre or
+less**. That table is checked by the test suite, so a new symbol cannot be added
+without being measured.
+
+**A round badge’s symbol has a floor.** The ring was measured against the full
+height of a capital for a line of lettering that only ever reaches *in* with a
+descender — a name round the top of a badge stands its capitals up at the edge, so
+the only thing it takes out of the middle is a tail and the halo round it. Holding
+that much room back left a bare annulus of field and a symbol small enough to miss:
+**the worst round badge drew its symbol at 13 units of 64**, a fifth of the crest.
+The ring now holds a symbol of **16 units or more** whatever the name does, and the
+20 round badges of the pixel sweep show 16.3 to 19.5 units with no ink inside their
+rings. Where a silhouette is too narrow for the arcs to carry a large name — the
+oval, the wide oval — the lettering is capped to what that shape can actually hold.
+
+**A name is set to the size its own silhouette allows, and the sweep asks the
+renderer rather than a box.** Lettering on an arc stands up outwards, so the ends
+of a long run reach the narrow part of a shape; the sweep now puts every point the
+ink is meant to occupy to the renderer’s own `isPointInFill` — **14,639 points** —
+and it found 31 crests whose names were being quietly cropped by their silhouette.
+A name cut off by the edge of its own badge looks like a mistake rather than a
+fault in the generator, which is why it went unfound for so long.
+
+**Every line on a badge is now drawn twice.** A keyline in the field’s ink
+disappears the moment it crosses onto the club’s second colour, which is half of a
+patterned field, and the outline round the whole crest was one dark line — so a
+dark badge had no edge against a dark panel at all, and the shape that was planned
+was a blob. A pale hairline over a dark line, and a halo under every keyline, reads
+on any field and against any panel: the same trick the lettering has used all
+along, now used by the ring, the plate, the outline inside the silhouette and the
+rule under the name.
+
+A shape is dealt from the club’s own id, so a career saved before this one has its
+silhouettes re-dealt: there are ten in the bag where there were five, and a club can
+only keep its crest if its shape came out of the half that did not change.
+
+### The pitch turns with the phone, and the bench stays open
+
+**A phone held upright was showing a football pitch squeezed into a letterbox.** The live
+pitch was drawn across whatever box the score, the commentary and the control strip left it,
+and on a handset held upright that box is taller than it is wide — so a sixteen-by-ten pitch
+was stretched into it, the halfway line ran up the screen, and the two goals sat one on the
+left of a portrait page and one on the right. The renderer now measures the box it has
+actually been given and, when that box comes out portrait, draws the same picture turned a
+quarter turn: the length of the pitch runs up the screen, the home goal is at the foot of it,
+and the two sides attack up and down. On a 390×844 handset the pitch now fills **372×564 — an
+aspect of 0.66 against a real pitch’s 0.65** — where the same afternoon on the same phone used
+to be played out in a box 826×178. The box is measured rather than asked of a media query,
+because what a phone gives the pitch depends on what else is on the screen and on whether the
+game is installed, and a window can be dragged as well as turned.
+
+**The turn is a rotation, so the picture cannot disagree with itself.** Where a man stands,
+which way he is running and which end his side is attacking are three readings of one turn,
+and `src/ui/match/pitchFrame.ts` holds all three in one place: a point of the pitch lands at
+`(y, 1 − x)`, which puts the home goal at the foot of the screen and keeps the touchline on a
+home player’s left on his left, and a man running at the away goal in a landscape box — a
+velocity drawn at an angle of zero — is drawn a quarter turn the other way. A mirror was the
+easy thing to write and was thrown away for the same reason the arrows exist: it would have
+shown a manager his own side the wrong way round, his right winger on the left and every shape
+he built reflected. The rules are pure functions with nothing of the browser in them, and the
+tests diff them against the mirrors they are not — a rotation keeps the shape of a triangle
+the same way round where a mirror reverses it — and against the drawn positions themselves, so
+a heading and a pair of coordinates cannot part company. The markings turn with the picture: a
+halfway line across the screen, the circle, the two penalty areas hanging off the top and the
+bottom, and an arrow that now says *up*. They are the markings the preparation pitch has been
+drawn with since the first day, because a vertical pitch is a vertical pitch whichever screen
+asked for it. A browser harness drives a real match on a 390×844 phone, reads what the
+renderer actually wrote to the DOM, turns the phone over and requires every one of the
+twenty-two men, and the ball, to be exactly where the turn says they are: **worst drift
+0.5 px**, which is a percentage rounded to a whole offset and nothing else.
+
+**The bench no longer closes itself after every change.** A manager does not make one
+substitution; he makes two or three in a single visit, thinking about the whole of it at once
+— who is tiring, who he has left, and which of the fourteen he most wants on the pitch. The
+panel used to shut the instant a change was made, so a second change meant a second journey
+through the tabs and the list he had been reading was gone. It now stays open where it is: the
+man who came on is off the bench, each select goes back to its placeholder ready for the next
+change, the tab counts up from `Subs (0/3)` to `Subs (3/3)` without being reopened, and the
+changes still left are counted at the foot of the panel until the bench is spent and says so.
+The tab is still how the panel is closed, and Escape is still the other way.
+
+A phone on its side is untouched: the box is wider than it is tall, so the pitch is drawn
+across it exactly as it always was.
+
+### A fifteen-season soak, and the chairman two clubs shared
+
+**The soak was run over fifteen seasons on two seeds, 36 clubs in three divisions of twelve, 450
+competitive fixtures a season — about nine minutes a run.** The point of it is the slow stuff, and
+the slow stuff is in decent order: every season closed in 357–364 days in both runs, the ladder kept
+its size and its shape through 29 and 32 folds, no club ever failed to put eleven fit men out, no
+squad fell outside 20–30, no attribute left the 1–20 scale, nobody played twice in a day, and age
+drift is gone — p50 27 → 26 and p90 33 → 32 where it used to climb 27 → 35 and 33 → 39. Postponements
+are 4–12% of fixtures rather than the 25–30% the unbounded rearrangement used to produce. The manager's
+week would have stopped for something on roughly sixty days a season (55–73), which is the Continue
+button working.
+
+**It found one real defect, and it was the same shape as the last one.** Two clubs in one town can
+fold in the same summer. The replacement club's id and its random stream were already keyed on the
+club being replaced — that fix is in, and its comment explains why — but the **chairman** minted
+beside it was still keyed on the season and the town. The second replacement therefore overwrote the
+first's chairman, both clubs named one man, and when either club folded again the fold deleted the
+officials it owned and left the other naming a chairman who had gone: six `club-official-exists`
+failures across four seasons of the scratch seed, with two clubs pointing at the same absent
+`chm_season_2029_30_town_2`. His id is keyed on the club being replaced now, like the club's own.
+
+The fix was measured as a clean A/B rather than a hope: the same seed, the same fifteen seasons, and
+all fifteen season snapshots identical apart from their timings — squad size, ability, age, money, the
+pool, goals, cards, days, postponements and folds all unchanged — with `club-official-exists` going
+from six failures to none. A regression test folds two clubs in one town and holds that the two
+chairmen are distinct men who are both still in the world.
+
+**What the runs leave open is drift, and it is the design's to answer.** Three things, each measured
+and each reported rather than patched, because every one of them would change the world a manager
+plays in and none of them is obviously wrong:
+
+- **The unattached pool opens too full.** A summer trims the pool to the cap (0.8 a club — 29 men for
+  36 clubs) and then adds that summer's arrivals back, which holds the settled pool at 42–54 with no
+  lean either way over fifteen seasons. But the world is *generated* with 74 men — 3.36 a town, from
+  a default of two to four — while the summer refresh arrives at 0.77 a town, so the first summer
+  sheds a third of the pool and every season after it is read against a number the world never
+  returns to. It is the only recurring failure in both runs, and every case is on the low side.
+- **The ladder flattens.** County-wide ability barely moves now (+2.4% to +3.0% over fifteen seasons,
+  against the +8–9% it used to), but division 3 rose 6.1% in one seed and 3.1% in the other while
+  division 1 was flat, the spread narrowed across both runs, and the top two
+  divisions once came within 0.14 of each other — under the separation the pyramid is asked to keep.
+  The reason is legible: the ladder is stratified by *sorting* the generated clubs on reputation and
+  cutting from the top, and nothing afterwards treats the divisions differently — reputation only
+  falls (in administration) or is set from the squad, finishing higher earns nothing, and the club
+  that replaces a folded club is given a reputation drawn from its **town** rather than from the
+  division it is entering, so the rung that churns hardest is the rung that climbs.
+- **Money churns hard.** Mean balance 1,483–1,588 → 12,230–17,517 and the largest balance 4,633 →
+  88,745, while 4–11 clubs sat in the red every season and 29–32 clubs folded — about two a season,
+  one club in seventeen. The cycle is working as designed and the ladder never lost its size, but it
+  is the largest single source of noise in the world, and it is also what re-stocks the bottom tier
+  above.
+
+Everything the soak measures, and how to read the report, is in `SOAK.md`.
+
+### A new club plays at the standard of the division it enters
+
+**A replacement club was minted at its town's standard rather than its division's.** A newly formed
+club's squad, its finances and its standing all come out of one number — its `reputation` — and that
+number was a fresh draw on the *town* it stood in (`reputationForTown`), with no reference at all to
+the division whose place it was taking. Measured on a generated county, the gap that opens is not a
+nicety: the bottom division's clubs stand at 24–38 with a median of 33, while the town draws for
+those same clubs run 25–41. A club folding in Division Three was routinely replaced by a side of
+Division Two's standard, and a new club could arrive above or below the rung it had joined. Since
+the bottom rung is the one that churns — it is the rung with the least money in it — the rung that
+churned hardest was the rung that climbed: over fifteen seasons of the soak, division 3 rose 6.1%
+and 3.1% in the two seeds while division 1 was flat, the spread narrowed every season, and the top
+two divisions once came within 0.14 of each other when the pyramid is asked to keep them at least
+0.159 apart.
+
+**The standard is read off the division now.** `divisionStanding()` takes the median of the clubs
+already in the division the new club is stepping into, the roll around that median is small, and the
+result is clamped to that division's own band, so a replacement can never arrive outside the rung it
+is joining. The town draw survives only as the fallback for a division emptied in one pass; the town
+still decides the new club's name, its ground and its place.
+
+**The top two divisions stop converging** — which is the question the soak was asked, on both seeds.
+Neither seed breaks `tier-stratification` or `tier-ability-stable` any more (two tier failures became
+none), the narrowest gap between the top two rungs roughly doubled (0.140 → 0.280, and 0.230 →
+0.350), and the bottom rung's climb, which was the whole of the flattening, is gone: division 3 went
+from +6.1% to +2.3% in one seed and from +3.1% to +2.8% in the other, with the county-wide drift
+falling from +3.0% to +2.0% and from +2.4% to +1.9% behind it. In `soak-scratch` the top two rungs now
+move *apart* over the career (0.31 → 0.38); in `soak` a slow narrowing remains, from twice as far out,
+and it never comes near the band. Drift between the divisions is now the same size as drift within
+the county, which is what a ladder held up by its own members should look like. With this in, the
+only thing either seed still fails is the unattached pool's opening size — a generation baseline
+rather than a fault, and a decision of its own.
+
+**One side effect worth knowing.** A replacement now takes its division's *finances* as well as its
+football: `buildFinances` is scaled by standing, so the bottom rung's new clubs are poorer than the
+town average they used to be minted at. Clubs in the red went from 110 to 112 warnings in one seed
+and from 96 to 108 in the other, and folds from 32 to 32 and from 29 to 33. That is the fold cycle
+working from a truer picture rather than a new fault, but it is the same knob the finance tuning is
+about.
+
+Regression tests: `clubLifecycle.test.ts` — a rung set to a single standard hands its replacement
+exactly that standard, and `divisionStanding` reads the median, the band, and only the living.
+
 ## [0.9.0] - 2026-10-07 — a county worth believing in
 
 ### Touchline, and the first boot

@@ -8,12 +8,18 @@ import {
   FORMATION_IDS,
 } from '@/domain/positions';
 import {
+  FOCUS_LABEL,
+  FOCUS_ORDER,
+  LINE_LABEL,
+  LINE_ORDER,
   MENTALITY_LABEL,
   MENTALITY_ORDER,
   PRESSING_LABEL,
   PRESSING_ORDER,
   TEMPO_LABEL,
   TEMPO_ORDER,
+  type AttackingFocus,
+  type DefensiveLine,
   type Mentality,
   type PressingIntensity,
   type Tempo,
@@ -94,9 +100,7 @@ export function MatchControls({
       {drawer && (
         <div ref={drawerRef} tabIndex={-1} className="matchbar__drawer" role="region" aria-label={`${drawer} panel`}>
           {drawer === 'tactics' && <TacticsPanel match={match} session={session} />}
-          {drawer === 'subs' && (
-            <SubsPanel match={match} session={session} playerById={playerById} onDone={() => onDrawer(null)} />
-          )}
+          {drawer === 'subs' && <SubsPanel match={match} session={session} playerById={playerById} />}
           {drawer === 'players' && (
             <PlayersPanel match={match} session={session} playerById={playerById} preMatch={preMatch} />
           )}
@@ -105,7 +109,7 @@ export function MatchControls({
               <CommentaryTranscript match={match} autoScroll={session.phase === 'in-progress'} />
             </div>
           )}
-          {drawer === 'stats' && <MatchStatsPanel match={match} />}
+          {drawer === 'stats' && <MatchStatsPanel game={game} match={match} />}
         </div>
       )}
 
@@ -324,6 +328,34 @@ function TacticsPanel({ match, session }: { match: Match; session: MatchSession 
           ))}
         </select>
       </Field>
+      <Field label="Defensive line">
+        <select
+          className="input"
+          value={tactics.defensiveLine}
+          disabled={frozen}
+          onChange={(event) => set({ defensiveLine: event.target.value as DefensiveLine })}
+        >
+          {LINE_ORDER.map((value) => (
+            <option key={value} value={value}>
+              {LINE_LABEL[value]}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field label="Attacking focus">
+        <select
+          className="input"
+          value={tactics.attackingFocus}
+          disabled={frozen}
+          onChange={(event) => set({ attackingFocus: event.target.value as AttackingFocus })}
+        >
+          {FOCUS_ORDER.map((value) => (
+            <option key={value} value={value}>
+              {FOCUS_LABEL[value]}
+            </option>
+          ))}
+        </select>
+      </Field>
       <p className="drawer-note small muted">
         {frozen ? 'The match is over.' : 'Changes are sent straight to Touchline for the next passage of play.'}
       </p>
@@ -331,16 +363,25 @@ function TacticsPanel({ match, session }: { match: Match; session: MatchSession 
   );
 }
 
+/**
+ * The bench, and who each of them can come on for.
+ *
+ * The panel stays open when a change is made. A manager does not make one
+ * substitution — he makes two or three, in one visit to the bench, thinking
+ * about the whole of it at once: who is tiring, who he has left, and which of
+ * the fourteen he most wants on the pitch. Sending him back to the tab after
+ * each one cost him the list he was reading. The list is redrawn where it is —
+ * the man who came on is off it, the count at the foot is down by one, and the
+ * next change is a second pick rather than a second journey.
+ */
 function SubsPanel({
   match,
   session,
   playerById,
-  onDone,
 }: {
   match: Match;
   session: MatchSession;
   playerById: (id: string) => Player | undefined;
-  onDone: () => void;
 }) {
   const lineup = match.lineups[session.side];
   const spent = match.substitutions[session.side] >= 3;
@@ -373,8 +414,10 @@ function SubsPanel({
                 onChange={(event) => {
                   const outgoing = event.target.value;
                   if (outgoing && player) gameActions().makeSubstitution(outgoing, player.id);
+                  // Back to the placeholder, ready for the next change: this
+                  // select is one of a list of five and it is about to be
+                  // redrawn without the man who has just come on.
                   event.target.value = '';
-                  onDone();
                 }}
               >
                 <option value="">bring on for…</option>

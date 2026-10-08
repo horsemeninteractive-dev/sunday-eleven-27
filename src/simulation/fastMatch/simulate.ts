@@ -16,7 +16,20 @@ import {
 } from '@/simulation/match/laws';
 import { BASE_INJURY_RATE, pickInjury } from '@/simulation/match/matchEngine/injuries';
 import { ensurePerformances } from '@/simulation/match/matchEngine/state';
-import { computeTeamStrength, conditionFactor, type TeamStrength } from '@/simulation/match/teamStrength';
+import { computeTeamStrength, conditionFactor, familiarityFor, type TeamStrength } from '@/simulation/match/teamStrength';
+import { defaultRoleFor, roleProfile, weightFor, type Role } from '@/simulation/match/roles';
+import { roleFitScore } from '../selection';
+import {
+  attackingWeightOf,
+  matchReaction,
+  pickBenchMan,
+  pickOutgoing,
+  type BenchCandidate,
+  type BenchIntent,
+  type MatchSituation,
+  type PlayerCondition,
+} from '../ai/manager';
+import { clubStyle as styleForClub } from '../ai/style';
 import { conditionEffects, tacticalProfile, type TacticalProfile } from '@/simulation/match/tacticsModel';
 import { stream, type Rng } from '@/simulation/rng';
 
@@ -153,6 +166,17 @@ const HOME_ADVANTAGE = 1.045;
 /** The fewest men a side may be reduced to before the model stops removing them. */
 const OFF_PITCH_FLOOR = 7;
 
+/**
+ * The minutes a manager looks up at the clock.
+ *
+ * Nothing here is calibration: how often a man reconsiders is not a property of
+ * football, and adding a minute to this list must not move a single goal. Nine
+ * looks across a match is about what the detailed engine's thirty-second bench
+ * review amounts to once its own guards — not before the half-hour, not while a
+ * side is comfortable — have been read.
+ */
+const REACTION_MINUTES: readonly number[] = [32, 40, 44, 48, 56, 64, 72, 80, 86];
+
 // ---------------------------------------------------------------------------
 // Vocabulary
 // ---------------------------------------------------------------------------
@@ -180,7 +204,9 @@ interface RunningSide {
   readonly clubId: ClubId;
   readonly lineup: MatchLineup;
   readonly strength: TeamStrength;
-  readonly profile: TacticalProfile;
+  profile: TacticalProfile;
+  /** Which job each man on the pitch is doing, by player id. */
+  readonly roleOf: Map<PlayerId, Role>;
   /** The men named for the pitch, resolved in slot order. */
   readonly starting: Player[];
   /** The men named on the bench, resolved in bench order. */
@@ -335,7 +361,13 @@ function buildSide(match: Match, env: MatchEnvironment, side: Side): RunningSide
   const resolve = (id: PlayerId): Player | undefined => env.getPlayer(id);
   const starting = lineup.starting.map((slot) => resolve(slot.playerId)).filter(isPlayer);
   const positionOf = new Map<PlayerId, PositionCode>();
-  for (const slot of lineup.starting) positionOf.set(slot.playerId, slot.position);
+  const roleOf = new Map<PlayerId, Role>();
+  for (const slot of lineup.starting) {
+    positionOf.set(slot.playerId, slot.position);
+    // A slot without a role is a save written before roles existed: he is doing
+    // the ordinary version of his position, exactly as the detailed engine says.
+    roleOf.set(slot.playerId, slot.role ?? defaultRoleFor(slot.position));
+  }
 
   const strength = computeTeamStrength({
     slots: lineup.starting,
@@ -357,6 +389,7 @@ function buildSide(match: Match, env: MatchEnvironment, side: Side): RunningSide
     starting,
     bench: lineup.bench.map((slot) => resolve(slot.playerId)).filter(isPlayer),
     onPitch: [...starting],
+    roleOf,
     positionOf,
     substitutions: 0,
     sentOff: 0,
@@ -434,6 +467,31 @@ function shootingWeight(player: Player, position: PositionCode): number {
   return base * (0.45 + player.attributes.technical.shooting / 15);
 }
 
+/**
+ * What each man's *job* does to his share of the attempts, normalised to one.
+ *
+ * The full engine settles who shoots from the actions a man's role lets him
+ * take; the abstract one has no actions to weigh, so the same role table is read
+ * directly — a poacher's `shoot` multiplier against an anchor's. The multipliers
+ * are then normalised to a mean of one across the XI, which is the part that
+ * matters: a role changes *who* gets on the end of a move, never how many chances
+ * a side makes. A match does not contain more shots because a centre forward was
+ * told to poach.
+ */
+function roleShotMultipliers(side: RunningSide): Map<PlayerId, number> {
+  const multipliers = new Map<PlayerId, number>();
+  let sum = 0;
+  for (const player of side.onPitch) {
+    const role = side.roleOf.get(player.id);
+    const value = role ? clamp(weightFor(roleProfile(role), 'shoot'), 0.25, 2.2) : 1;
+    multipliers.set(player.id, value);
+    sum += value;
+  }
+  const mean = side.onPitch.length > 0 ? sum / side.onPitch.length : 1;
+  if (mean > 0) for (const [id, value] of multipliers) multipliers.set(id, value / mean);
+  return multipliers;
+}
+
 /** The expected goals of one attempt, from the attack against the keeper. */
 function xgFor(ctx: FastContext, att: RunningSide, def: RunningSide, shooter: Player): number {
   const attack = att.strength.attack * att.profile.attackMultiplier;
@@ -458,8 +516,12 @@ function xgFor(ctx: FastContext, att: RunningSide, def: RunningSide, shooter: Pl
  * the tally and the record can never disagree.
  */
 function resolveShot(ctx: FastContext, att: RunningSide, def: RunningSide): void {
+  // Who gets on the end of it: the side's own positional and role weights, read
+  // once for the whole squad rather than once per man.
+  const shotShare = roleShotMultipliers(att);
   const shooter = pickWeighted(ctx.rng, att.onPitch, (player) =>
-    shootingWeight(player, att.positionOf.get(player.id) ?? player.preferredPosition),
+    shootingWeight(player, att.positionOf.get(player.id) ?? player.preferredPosition) *
+    (shotShare.get(player.id) ?? 1),
   );
   if (!shooter) return;
   const shooterPerf = performanceOf(ctx.match, shooter.id);
@@ -739,16 +801,68 @@ function resolveInjuries(ctx: FastContext): void {
  * engine's bench does, so the shape is unchanged and the record says where he
  * played. His own record starts at the minute he came on.
  */
-function makeSubstitution(ctx: FastContext, side: RunningSide, outgoing: Player, injured: boolean): void {
+/** The men on the pitch, as a manager reads them from the touchline. */
+function conditionsFor(ctx: FastContext, side: RunningSide): PlayerCondition[] {
+  return side.onPitch.map((player) => {
+    const position = side.positionOf.get(player.id) ?? player.preferredPosition;
+    const performance = performanceOf(ctx.match, player.id);
+    return {
+      playerId: player.id,
+      position,
+      energy: ctx.energy.get(player.id) ?? player.fitness,
+      // The abstract model rates its men at the whistle rather than as it goes,
+      // so a change here is made for tired legs or for the plan and never for a
+      // rating — which is the one thing this resolution cannot see.
+      rating: performance?.rating ?? 6,
+      booked: Boolean(performance && performance.yellowCards > 0 && performance.redCards === 0),
+      attacking: attackingWeightOf(position),
+      injured: Boolean(performance?.injuryDetail),
+    };
+  });
+}
+
+/** The bench, as candidates for one particular job on the pitch. */
+function benchCandidatesFor(
+  ctx: FastContext,
+  side: RunningSide,
+  position: PositionCode,
+  role: Role,
+): BenchCandidate[] {
+  return side.bench.map((player) => ({
+    playerId: player.id,
+    position: player.preferredPosition,
+    familiarity: familiarityFor(player, position),
+    energy: ctx.energy.get(player.id) ?? player.fitness,
+    attacking: attackingWeightOf(player.preferredPosition),
+    fit: roleFitScore(player, position, role),
+  }));
+}
+
+/**
+ * Bring a substitute on.
+ *
+ * The incoming man inherits the outgoing man's position and role, exactly as the
+ * full engine's bench does — so the shape is unchanged, the record says where he
+ * played, and the job he was sent on to do is the job that needed doing. The
+ * manager names his man when he has one; an injury takes whichever of the bench
+ * is best suited to the job, which is the same question asked with the same
+ * weights.
+ */
+function makeSubstitution(
+  ctx: FastContext,
+  side: RunningSide,
+  outgoing: Player,
+  injured: boolean,
+  incomingId?: string,
+): void {
   if (side.substitutions >= changesAllowed(ctx.env.substitutionsAllowed)) return;
   if (side.bench.length === 0) return;
   if (side.onPitch.length <= OFF_PITCH_FLOOR) return;
   const position = side.positionOf.get(outgoing.id) ?? outgoing.preferredPosition;
-  const incoming = pickWeighted(ctx.rng, side.bench, (player) =>
-    player.attributes.behavioural.commitment * 0.05 +
-    (player.preferredPosition === position ? 3 : 0.4) +
-    player.fitness / 40,
-  );
+  const role = side.roleOf.get(outgoing.id) ?? defaultRoleFor(position);
+  const chosenId =
+    incomingId ?? pickBenchMan('refresh', { position, role }, benchCandidatesFor(ctx, side, position, role));
+  const incoming = side.bench.find((player) => player.id === chosenId);
   if (!incoming) return;
 
   const outgoingPerf = performanceOf(ctx.match, outgoing.id);
@@ -762,6 +876,7 @@ function makeSubstitution(ctx: FastContext, side: RunningSide, outgoing: Player,
 
   side.onPitch = side.onPitch.map((player) => (player.id === outgoing.id ? incoming : player));
   side.positionOf.set(incoming.id, position);
+  side.roleOf.set(incoming.id, role);
   side.bench.splice(side.bench.indexOf(incoming), 1);
   side.substitutions += 1;
 
@@ -779,22 +894,47 @@ function makeSubstitution(ctx: FastContext, side: RunningSide, outgoing: Player,
 /**
  * Look at a bench, on the full engine's cadence.
  *
- * A change is made for the tiredest man on the pitch, and only to a man who is
- * genuinely tiring — the abstraction of the engine's own review, which reads the
- * same principle (a fresh pair of legs for a heavy one) from real stamina.
+ * The same reasons the detailed engine uses, in the same order: a man who is
+ * hurt comes off, a man out of legs comes off, and when the plan has changed the
+ * man who no longer has a job comes off. Who comes *on* depends on what the
+ * manager is trying to do — a side chasing a game sends on a forward, a side
+ * protecting one sends on a defender — which is the intent handed in here rather
+ * than a second opinion about what football is for.
  */
-function reviewBench(ctx: FastContext, side: RunningSide): void {
+function reviewBench(ctx: FastContext, side: RunningSide, intent: BenchIntent): void {
+  if (intent === 'none') return;
   if (side.substitutions >= changesAllowed(ctx.env.substitutionsAllowed)) return;
   if (side.bench.length === 0) return;
-  const candidates = side.onPitch.filter((player) => side.positionOf.get(player.id) !== 'GK');
-  if (candidates.length === 0) return;
-  const tiredest = candidates.reduce((worst, player) =>
-    (ctx.energy.get(player.id) ?? 100) < (ctx.energy.get(worst.id) ?? 100) ? player : worst,
-  );
-  const energy = ctx.energy.get(tiredest.id) ?? 100;
-  const chance = FAST_CALIBRATION.benchCheckChance + (100 - energy) / 260;
-  if (!ctx.rng.chance(chance)) return;
-  makeSubstitution(ctx, side, tiredest, false);
+  // A change made only to freshen the side up is a chance, not a certainty — the
+  // same measured reluctance the model has always had about the third change.
+  if (intent === 'refresh' && !ctx.rng.chance(FAST_CALIBRATION.benchCheckChance)) return;
+  const outgoingId = pickOutgoing(intent, conditionsFor(ctx, side), ctx.minute);
+  if (!outgoingId) return;
+  const outgoing = side.onPitch.find((player) => player.id === outgoingId);
+  if (!outgoing) return;
+  const position = side.positionOf.get(outgoing.id) ?? outgoing.preferredPosition;
+  const role = side.roleOf.get(outgoing.id) ?? defaultRoleFor(position);
+  const incomingId = pickBenchMan(intent, { position, role }, benchCandidatesFor(ctx, side, position, role));
+  if (!incomingId) return;
+  makeSubstitution(ctx, side, outgoing, false, incomingId);
+}
+
+/** What the manager can see from the touchline, in the AI layer's own terms. */
+function fastSituation(ctx: FastContext, side: RunningSide, other: RunningSide): MatchSituation {
+  const own = side.strength;
+  const theirs = other.strength;
+  const mine = (own.attack + own.defence + own.control) / 3;
+  const opponents = (theirs.attack + theirs.defence + theirs.control) / 3;
+  return {
+    minute: ctx.minute,
+    scoreFor: ctx.score[side.side],
+    scoreAgainst: ctx.score[other.side],
+    strengthRatio: mine / Math.max(0.05, opponents),
+    menDown: Math.max(0, other.sentOff - side.sentOff),
+    changesLeft: Math.max(0, changesAllowed(ctx.env.substitutionsAllowed) - side.substitutions),
+    benchSize: side.bench.length,
+    home: side.side === 'home',
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1030,6 +1170,13 @@ export function simulateMatchFast(match: Match, env: MatchEnvironment): FastMatc
   const rng = stream(match.seed, 'fast-match');
   const home = buildSide(match, env, 'home');
   const away = buildSide(match, env, 'away');
+  // Who is in each dugout, read once: a manager's character does not change
+  // during a match, and deriving it is string work that has no business in a
+  // loop that runs nine times a match times every fixture in the county.
+  const managerStyle: Record<Side, ReturnType<typeof styleForClub>> = {
+    home: env.clubStyle?.(home.clubId) ?? styleForClub({ id: home.clubId, reputation: 50, tactics: home.lineup.tactics }),
+    away: env.clubStyle?.(away.clubId) ?? styleForClub({ id: away.clubId, reputation: 50, tactics: away.lineup.tactics }),
+  };
   const energy = new Map<PlayerId, number>();
   for (const side of [home, away]) {
     for (const player of [...side.starting, ...side.bench]) {
@@ -1040,10 +1187,14 @@ export function simulateMatchFast(match: Match, env: MatchEnvironment): FastMatc
   const ctx: FastContext = { match, env, rng, home, away, energy, score: { home: 0, away: 0 }, minute: 0, extraTime: false };
 
   // --- How much of the ball, and how many shots -----------------------------
-  const homeControl = home.strength.control * home.profile.controlMultiplier;
-  const awayControl = away.strength.control * away.profile.controlMultiplier;
   const possessionNoise = rng.gaussian(0, 2.4);
-  const homePossession = clamp(Math.round((homeControl / (homeControl + awayControl)) * 100 + possessionNoise), 30, 70);
+  /** How much of the ball each side has *right now*, from the control in force. */
+  const possessionNow = (): number => {
+    const control = Math.max(0.01, home.strength.control * home.profile.controlMultiplier);
+    const against = Math.max(0.01, away.strength.control * away.profile.controlMultiplier);
+    return clamp(Math.round((control / (control + against)) * 100 + possessionNoise), 30, 70);
+  };
+  let homePossession = possessionNow();
   const shares: Record<Side, number> = { home: homePossession / 100, away: 1 - homePossession / 100 };
 
   const expectedShots = (att: RunningSide, def: RunningSide): number => {
@@ -1064,6 +1215,54 @@ export function simulateMatchFast(match: Match, env: MatchEnvironment): FastMatc
 
   const shotRate: Record<Side, number> = { home: expectedShots(home, away), away: expectedShots(away, home) };
   const foulRate: Record<Side, number> = { home: expectedFouls(home), away: expectedFouls(away) };
+
+  /**
+   * Read the two sides' rates again, after somebody has changed his mind.
+   *
+   * The abstract model fixes what a side is worth when the whistle goes, which
+   * was right while nothing could change during the match and is wrong now that
+   * something can: a side told to go for it at seventy minutes creates more from
+   * that minute onwards. This is the fast half of the guarantee the detailed
+   * engine makes by rebuilding its context every minute — one football, two
+   * clocks.
+   */
+  const recomputeRates = (): void => {
+    homePossession = possessionNow();
+    shares.home = homePossession / 100;
+    shares.away = 1 - shares.home;
+    shotRate.home = expectedShots(home, away);
+    shotRate.away = expectedShots(away, home);
+    foulRate.home = expectedFouls(home);
+    foulRate.away = expectedFouls(away);
+  };
+
+  /**
+   * The manager reads the afternoon, and sends his instructions on.
+   *
+   * The *same* decision layer the detailed engine runs — the same rules, the same
+   * club identity, the same reasons — so a fixture nobody watched is managed by
+   * the same kind of man as one somebody did. The human's own instructions are
+   * never rewritten on his behalf: if he handed the afternoon over, the bench is
+   * managed for him and the plan stays the one he set.
+   */
+  const reviewManager = (side: RunningSide): BenchIntent => {
+    const other = opponent(ctx, side);
+    const reaction = matchReaction(managerStyle[side.side], fastSituation(ctx, side, other), side.lineup.tactics);
+    if (ctx.env.userClubId === side.clubId) return reaction.benchIntent;
+    if (Object.keys(reaction.tactics).length === 0) return reaction.benchIntent;
+    side.lineup.tactics = { ...side.lineup.tactics, ...reaction.tactics };
+    side.profile = tacticalProfile(side.lineup.tactics, ctx.match.conditions);
+    recomputeRates();
+    if (reaction.reason) {
+      emit(ctx, 'note', side.side, {
+        text: `${ctx.env.clubShortName(side.clubId)} ${reaction.reason}.`,
+        x: 0.5,
+        y: 0.5,
+        importance: 1,
+      });
+    }
+    return reaction.benchIntent;
+  };
 
   // --- The whistle ----------------------------------------------------------
   const addedFirst = rng.int(1, 6);
@@ -1100,8 +1299,18 @@ export function simulateMatchFast(match: Match, env: MatchEnvironment): FastMatc
 
     resolveInjuries(ctx);
 
+    // The manager looks up at the clock, and again whenever the bench comes into
+    // it: an instruction sent on at 72 minutes has to be in force before the
+    // change made at 74 is weighed up.
+    if (REACTION_MINUTES.includes(minute)) {
+      for (const s of order) reviewManager(s === 'home' ? home : away);
+    }
+
     if (FAST_CALIBRATION.benchCheckMinutes.includes(minute)) {
-      for (const s of order) reviewBench(ctx, s === 'home' ? home : away);
+      for (const s of order) {
+        const side = s === 'home' ? home : away;
+        reviewBench(ctx, side, reviewManager(side));
+      }
     }
   };
 

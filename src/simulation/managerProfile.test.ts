@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { FaceChoices } from '@/domain/face';
 import { ageOn, defaultManagerProfile, isManagerProfileComplete } from '@/domain/manager';
 import { isCompetitiveMatch } from '@/domain/match';
 import { isOfficial, isPlayer } from '@/domain/person';
@@ -64,6 +65,58 @@ describe('the manager profile', () => {
     expect(manager?.firstName).toBe('Dave');
     expect(manager?.surname).toBe('Fletcher');
     expect(manager?.occupation).toBe('Scaffolder');
+  });
+
+  it('carries the face he picked, on the man and on the stored profile both', () => {
+    // The face is kept in two places for the same reason the profile is: the
+    // *person* is what every screen draws — a portrait, a row in a thread, a club's
+    // list of who runs it — and the *profile* is what a returning manager's saved
+    // profile hands back when he starts again under the same name. One of the two
+    // has to be the copy, and it should not be the one on the drawing.
+    const draft = generateDraft({ seed: 'manager-face' });
+    const clubId = draft.divisionClubIds[0]!;
+    const face: FaceChoices = {
+      shape: 'square',
+      skin: 'olive',
+      hair: 'ginger',
+      hairStyle: 'bald',
+      beard: 'beard',
+      glasses: true,
+      eyeColour: 'green',
+      eyeShape: 'narrow',
+      browWeight: 'heavy',
+      browLift: 'low',
+      nose: 'broad',
+      mouth: 'thin',
+    };
+    const state = startGameFromDraft(draft, {
+      seed: draft.seed,
+      clubId,
+      saveName: 'Face',
+      manager: {
+        firstName: 'Dave',
+        surname: 'Fletcher',
+        nickname: '',
+        birthday: '1978-03-02',
+        occupation: '',
+        hometown: '',
+        face,
+      },
+    });
+
+    expect(state.people['user_manager']?.face).toEqual(face);
+    expect(state.managerProfile.face).toEqual(face);
+
+    // A manager who chose nothing carries nothing rather than a hole in the state:
+    // absent is the normal case and the drawing already knows what to do with it.
+    const bare = startGameFromDraft(draft, {
+      seed: draft.seed,
+      clubId,
+      saveName: 'No face',
+      manager: { firstName: 'Sam', surname: 'Hughes', nickname: '', birthday: '1980-01-01', occupation: '', hometown: '' },
+    });
+    expect(bare.people['user_manager']?.face).toBeUndefined();
+    expect('face' in bare.managerProfile).toBe(false);
   });
 
   it('fills in a complete identity even when the manager gives none', () => {

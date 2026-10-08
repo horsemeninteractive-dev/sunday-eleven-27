@@ -1,7 +1,9 @@
 import { FULL_SIDE, MIN_SIDE, type BenchSlot, type LineupSlot } from '@/domain/match';
 import type { Player } from '@/domain/person';
 import { formationSlots, positionalSimilarity, POSITIONS, type FormationId, type FormationSlot, type PositionCode } from '@/domain/positions';
-import { defaultRoleFor } from '@/simulation/match/roles';
+import { defaultRoleFor, roleProfile, type Role } from '@/simulation/match/roles';
+import type { Tactics } from '@/domain/tactics';
+import { roleCandidates } from './ai/style';
 
 /**
  * Selection support shared by the human manager's UI and by AI clubs.
@@ -55,6 +57,76 @@ export function positionScore(player: Player, position: PositionCode): number {
   return Math.max(0, Math.min(1, attributeScore * (0.62 + 0.38 * familiarity) + groupBonus));
 }
 
+/**
+ * How well a player suits a *job* at a position, rather than merely the position.
+ *
+ * This is the half of selection the game was missing. `positionScore` answers
+ * "can this man play right back", which is a question about where he stands;
+ * this answers "is this man a *supporting* right back or a defensive one",
+ * which is a question about what the manager is asking him to do. The weights
+ * come from the role's own `attributeFocus`, so the table that decides who a man
+ * is in the engine is the same table that decides whether he is picked for it —
+ * one opinion about a role, not two.
+ */
+export function roleFitScore(player: Player, position: PositionCode, role: Role): number {
+  const focus = roleProfile(role).attributeFocus as Record<string, number>;
+  let total = 0;
+  let weightSum = 0;
+  for (const [key, weight] of Object.entries(focus)) {
+    if (!weight || weight <= 0) continue;
+    total += (attributeValue(player, key) / 20) * weight;
+    weightSum += weight;
+  }
+  const focusScore = weightSum > 0 ? total / weightSum : 0.4;
+  // Suitability for the position still gates it: the best poacher alive is not
+  // a poacher while he is standing at centre half.
+  return Math.max(0, Math.min(1, focusScore * (0.55 + 0.45 * positionScore(player, position))));
+}
+
+/**
+ * The job a manager would give this man in this position, for these
+ * instructions.
+ *
+ * The system offers the ordinary version of the position first and its
+ * specialisations after it, and a specialisation has to fit the man *better*
+ * than the ordinary job before it is used. So a balanced side still turns out a
+ * side of ordinary footballers, a direct side picks the target man it has, and
+ * the manager can always overrule the assistant by naming a role himself.
+ */
+export function bestRoleFor(player: Player, position: PositionCode, tactics?: Tactics): Role {
+  const fallback = defaultRoleFor(position);
+  if (!tactics) return fallback;
+  const candidates = roleCandidates(position, tactics);
+  let best = fallback;
+  let bestScore = roleFitScore(player, position, fallback) + 0.012;
+  for (const role of candidates) {
+    if (role === fallback) continue;
+    const score = roleFitScore(player, position, role);
+    if (score > bestScore) {
+      best = role;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+/**
+ * How much a Sunday afternoon wobbles a selection, 0..1 per player.
+ *
+ * Deterministic from the player and the seed, because the alternative — a
+ * manager picking a different eleven every time the screen is drawn — is not
+ * unpredictability, it is a bug. It is small on purpose: it decides which of two
+ * similar players gets the shirt, never whether a good one is left out.
+ */
+const SELECTION_WOBBLE = 0.04;
+
+function wobble(seed: number | undefined, playerId: string): number {
+  if (seed === undefined) return 1;
+  let hash = seed | 0;
+  for (let index = 0; index < playerId.length; index += 1) hash = (hash * 31 + playerId.charCodeAt(index)) % 1000003;
+  return 1 + ((hash % 1000) / 1000 - 0.5) * 2 * SELECTION_WOBBLE;
+}
+
 export function canPlay(player: Player): boolean {
   return player.availability.status !== 'unavailable';
 }
@@ -75,12 +147,25 @@ export interface PickOptions {
    * or he would hand back a 4-4-2 while the screen shows a back three.
    */
   shape?: readonly FormationSlot[];
+  /**
+   * The instructions the XI is being picked for.
+   *
+   * With them the assistant picks for the *system* — a direct side sends out a
+   * target man, a possession side sends out a deeper midfield — and without them
+   * it picks the ordinary version of every position, which is what a caller
+   * asking a neutral question wants.
+   */
+  tactics?: Tactics;
 }
 
-function pickScore(player: Player, position: PositionCode): number {
+function pickScore(player: Player, position: PositionCode, role?: Role, options: PickOptions = {}): number {
   const condition = 0.82 + 0.18 * (player.fitness / 100);
   const form = 0.94 + 0.12 * (player.form / 100);
-  return positionScore(player, position) * condition * form - availabilityPenalty(player);
+  // Suitability for the *job* moves a selection, but it never outweighs being
+  // the better footballer: the range here is ±7 %, which is enough to put a good
+  // fit ahead of a slightly better player who does not suit the system.
+  const fit = role ? 0.86 + 0.14 * roleFitScore(player, position, role) : 1;
+  return positionScore(player, position) * fit * condition * form * wobble(options.seed, player.id) - availabilityPenalty(player);
 }
 
 export interface Selection {
@@ -110,7 +195,14 @@ export function autoPickLineup(
   for (const { slot, index } of slotOrder) {
     const candidates = eligible
       .filter((player) => !used.has(player.id))
-      .map((player) => ({ player, score: pickScore(player, slot.position) }))
+      .map((player) => {
+        // The job the manager's instructions imply for this man in this slot,
+        // and then the score of picking him *to do it* — the two questions are
+        // asked in this order because a role a man cannot play is worth nothing
+        // however well he would play it.
+        const role = bestRoleFor(player, slot.position, options.tactics);
+        return { player, role, score: pickScore(player, slot.position, role, options) };
+      })
       .sort((a, b) => b.score - a.score);
     const chosen = candidates[0];
     if (!chosen) continue;
@@ -118,40 +210,57 @@ export function autoPickLineup(
     starting[index] = {
       playerId: chosen.player.id,
       position: slot.position,
-      // AI clubs get the default role for the slot, never an exotic one: a 4-4-2
-      // should still be a 4-4-2 with sensible jobs, and the balance bench is
-      // the thing that notices if the league starts playing a different game.
-      role: defaultRoleFor(slot.position),
+      role: chosen.role,
       outOfPosition: positionScore(chosen.player, slot.position) < 0.55,
     };
   }
 
   const remaining = eligible
     .filter((player) => !used.has(player.id))
-    .map((player) => ({ player, score: bestScoreAnywhere(player, slots.map((s) => s.position)) }))
+    .map((player) => ({ player, score: bestScoreAnywhere(player, slots.map((s) => s.position), options) }))
     .sort((a, b) => b.score - a.score);
 
+  // The bench covers the shape the side is actually playing — a back three
+  // wants a spare centre half before it wants a fourth forward — and each place
+  // is filled by the best man for that job rather than by whoever happens to be
+  // left. The keeper is always named: a Sunday side without one on the bench is
+  // one injury from an outfield man in goal, and that is not a plan.
   const bench: BenchSlot[] = [];
   const benchTarget = 5;
-  const needs: PositionCode[] = ['GK', 'CB', 'CM', 'ST', 'RB'];
+  const counts = new Map<PositionCode, number>();
+  for (const slot of slots) counts.set(slot.position, (counts.get(slot.position) ?? 0) + 1);
+  const needs: PositionCode[] = [
+    'GK',
+    ...[...counts.keys()].sort((a, b) => (counts.get(b)! - counts.get(a)!) || slotPriority(b) - slotPriority(a)),
+  ];
   for (const need of needs) {
     if (bench.length >= benchTarget) break;
-    const candidate = remaining.find((entry) => !bench.some((b) => b.playerId === entry.player.id) && positionScore(entry.player, need) > 0.5);
-    if (candidate) {
-      bench.push({ playerId: candidate.player.id, position: need, role: defaultRoleFor(need) });
-    }
+    const scored = remaining
+      .filter((entry) => !bench.some((b) => b.playerId === entry.player.id))
+      .map((entry) => {
+        const role = bestRoleFor(entry.player, need, options.tactics);
+        return { entry, role, score: pickScore(entry.player, need, role, options) };
+      })
+      .filter((candidate) => candidate.score > 0.3)
+      .sort((a, b) => b.score - a.score);
+    const candidate = scored[0];
+    if (candidate) bench.push({ playerId: candidate.entry.player.id, position: need, role: candidate.role });
   }
   for (const entry of remaining) {
     if (bench.length >= benchTarget) break;
     if (bench.some((b) => b.playerId === entry.player.id)) continue;
-    bench.push({ playerId: entry.player.id, position: entry.player.preferredPosition, role: defaultRoleFor(entry.player.preferredPosition) });
+    const position = entry.player.preferredPosition;
+    bench.push({ playerId: entry.player.id, position, role: bestRoleFor(entry.player, position, options.tactics) });
   }
 
   return { starting: starting.filter(Boolean), bench };
 }
 
-function bestScoreAnywhere(player: Player, positions: readonly PositionCode[]): number {
-  return positions.reduce((best, position) => Math.max(best, pickScore(player, position)), 0);
+function bestScoreAnywhere(player: Player, positions: readonly PositionCode[], options: PickOptions = {}): number {
+  return positions.reduce(
+    (best, position) => Math.max(best, pickScore(player, position, bestRoleFor(player, position, options.tactics), options)),
+    0,
+  );
 }
 
 function slotPriority(position: PositionCode): number {

@@ -14,6 +14,7 @@ import { candidateOf } from '@/simulation/recruitment/store';
 import { useGame, gameActions } from '../hooks';
 import { Button, Panel, Pill } from './primitives';
 import { ClubLink, PlayerLink } from './Links';
+import { Portrait } from './Portrait';
 import { Dialog } from '../dialogs/Dialog';
 
 /**
@@ -25,6 +26,12 @@ import { Dialog } from '../dialogs/Dialog';
  * the game actually models — no invented wage negotiation — and shows the
  * reasons he might say yes or no, in his own words, alongside what the manager
  * has heard about him.
+ *
+ * It is a conversation with a man, so it opens on him. Everybody in this game is
+ * drawn, so the transcript is headed with his face and his own lines carry it,
+ * which is the same treatment a message gets in the inbox — a name and a
+ * sentence were what a conversation used to be made of, and they are not what a
+ * conversation with a person looks like.
  */
 export function NegotiationModal({ personId }: { personId: string }) {
   const game = useGame();
@@ -35,7 +42,7 @@ export function NegotiationModal({ personId }: { personId: string }) {
 
   if (!person || !isPlayer(person) || !record) {
     return (
-      <Dialog title="Talk terms" narrow onClose={() => gameActions().closeNegotiation()}>
+      <Dialog title="Talk terms" kind="person" narrow onClose={() => gameActions().closeNegotiation()}>
             <p className="empty">
               There is no conversation to have here. Recruitment in this game starts with somebody putting a name to
               you — through the squad, five-a-side, or an open session.
@@ -52,15 +59,36 @@ export function NegotiationModal({ personId }: { personId: string }) {
   const latestQuote = record.interestHints[record.interestHints.length - 1];
 
   return (
-    <Dialog title={`Talk terms · ${personDisplayName(person)}`} subtitle={`${person.preferredPosition} · ${person.age} · ${CANDIDATE_STATUS_LABEL[record.status]}`} onClose={() => gameActions().closeNegotiation()}
+    <Dialog title={`Talk terms · ${personDisplayName(person)}`} kind="person" subtitle={`${person.preferredPosition} · ${person.age} · ${CANDIDATE_STATUS_LABEL[record.status]}`} onClose={() => gameActions().closeNegotiation()}
       footer={<><Button variant="ghost" onClick={() => gameActions().closeNegotiation()}>{settled ? 'Close' : 'Leave it for now'}</Button>{!settled && <Button variant="primary" onClick={() => gameActions().offerToJoin(personId)}>Offer him a place</Button>}</>}>
 
         <div className="negotiation">
           <div className="negotiation__say">
+            {/* Him, at the head of the conversation. `lg` rather than the profile's
+                `xl` on purpose: this is not his page — the page about him is a
+                dialog away — and what is being read here is a conversation with
+                him rather than a dossier about him. */}
+            <div className="negotiation__man">
+              <Portrait person={person} size="lg" />
+              <div>
+                <p className="negotiation__man-name">
+                  {person.firstName} {person.surname}
+                </p>
+                <p className="muted small">
+                  {currentClub ? `Currently with ${currentClub.identity.shortName}` : 'Not registered anywhere'}
+                </p>
+              </div>
+            </div>
+
+            {/* The opening line is the game talking, not him, so it is left
+                without a face: a face belongs beside something a man actually
+                said. */}
             {transcript.length === 0 && (
               <div className="bubble bubble--them">
-                <span className="bubble__from">You</span>
-                Nothing has been said yet. Whatever you do here will be remembered.
+                <div className="bubble__words">
+                  <span className="bubble__from">You</span>
+                  Nothing has been said yet. Whatever you do here will be remembered.
+                </div>
               </div>
             )}
             {transcript.map((entry, index) => {
@@ -68,10 +96,20 @@ export function NegotiationModal({ personId }: { personId: string }) {
               const line = entry.description.replace(/^You\s+/, '');
               return (
                 <div className={`bubble ${mine ? 'bubble--you' : 'bubble--them'}`} key={`${entry.date}-${index}`}>
-                  <span className="bubble__from">
-                    {mine ? 'You say' : `${person.firstName} ${person.surname}`} · {formatShortDate(entry.date)}
-                  </span>
-                  {mine ? `${line.charAt(0).toUpperCase()}${line.slice(1)}` : entry.description}
+                  {/* His face on his own lines, and none on the manager's: the man
+                      being talked round is the one the transcript has to keep
+                      straight. */}
+                  {!mine && (
+                    <span className="bubble__face">
+                      <Portrait person={person} size="sm" />
+                    </span>
+                  )}
+                  <div className="bubble__words">
+                    <span className="bubble__from">
+                      {mine ? 'You say' : `${person.firstName} ${person.surname}`} · {formatShortDate(entry.date)}
+                    </span>
+                    {mine ? `${line.charAt(0).toUpperCase()}${line.slice(1)}` : entry.description}
+                  </div>
                 </div>
               );
             })}

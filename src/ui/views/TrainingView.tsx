@@ -24,9 +24,10 @@ import { developmentSummary } from '@/simulation/training/development';
 import { lastSessionFor, sessionsFor, trainingStore, weeksSince } from '@/simulation/training/store';
 import { gameActions, useGame } from '../hooks';
 import { Button, Callout, PageHeader, Panel, Pill, SortTh } from '../components/primitives';
-import { MetricTile, Section, StatusTile, TileGrid } from '../components/hierarchy';
-import { PlayerLink } from '../components/Links';
-import { applySort, UNSORTED, type SortAccessors, type SortState } from '../tableSort';
+import { FocalFact, MetricTile, Section, TileGrid } from '../components/hierarchy';
+import { PersonLine } from '../components/PersonIdentity';
+import { useRememberedSort } from '../rememberedSort';
+import { applySort, type SortAccessors } from '../tableSort';
 
 /**
  * Training.
@@ -44,10 +45,18 @@ type AttendanceSortKey = 'player' | 'standing' | 'why';
 /** Coming first, then the maybes, then the ones who are not. */
 const ATTENDANCE_ORDER: TrainingAttendanceStatus[] = ['attending', 'trialist', 'doubtful', 'absent'];
 
-function attendanceSort(game: GameState): SortAccessors<TrainingAttendanceEntry, AttendanceSortKey> {
+/**
+ * What each heading reads, over a session the manager has not held yet.
+ *
+ * The world may be missing for the same reason it may be missing in
+ * `WorldView`: the keys of this map are the columns this screen can remember,
+ * and they are known before there is a career to remember them in. The values
+ * are only ever read with a world in hand.
+ */
+function attendanceSort(game: GameState | null): SortAccessors<TrainingAttendanceEntry, AttendanceSortKey> {
   return {
     player: (entry) => {
-      const person = game.people[entry.personId];
+      const person = game?.people[entry.personId];
       return person ? `${person.surname} ${person.firstName}` : '';
     },
     standing: (entry) => ATTENDANCE_ORDER.indexOf(entry.status),
@@ -58,7 +67,7 @@ function attendanceSort(game: GameState): SortAccessors<TrainingAttendanceEntry,
 export function TrainingView() {
   const game = useGame();
   const [showAll, setShowAll] = useState(false);
-  const [sort, setSort] = useState<SortState<AttendanceSortKey>>(UNSORTED);
+  const [sort, setSort] = useRememberedSort('training', game?.saveId ?? null, attendanceSort(game));
   if (!game) return null;
 
   const club = game.clubs[game.userClubId]!;
@@ -100,16 +109,20 @@ export function TrainingView() {
         }
       />
 
+      {/* Attendance is the thing a manager actually worries about on a Thursday
+          night in November — whether he has a team to train at all — so it is the
+          screen's one fact, with the logistics (when, where, how long) as the
+          smaller reading underneath it rather than four tiles of equal weight. */}
+      <FocalFact
+        label={alreadyRun ? 'Who came' : 'Who is coming'}
+        value={`${forecast.attendance.attending.length} attending`}
+        note={`${forecast.attendance.doubtful.length} doubtful · ${forecast.attendance.absent.length} out of ${squad.length}`}
+        tone={thin ? 'warn' : 'ok'}
+      />
       <TileGrid min={180}>
         <MetricTile label="When" value={formatShortDate(forecast.date)} note={`in ${forecast.daysAway} day${forecast.daysAway === 1 ? '' : 's'}`} />
         <MetricTile label="Where" value={forecast.venueName} note={forecast.indoorGround ? '3G — weatherproof' : forecast.hasFloodlights ? 'Floodlights' : 'No floodlights'} />
         <MetricTile label="How long" value={`${forecast.minutes} min`} note={TRAINING_LENGTH_LABEL[plan.length]} />
-        <StatusTile
-          label="Who is coming"
-          status={`${forecast.attendance.attending.length} attending`}
-          note={`${forecast.attendance.doubtful.length} doubtful · ${forecast.attendance.absent.length} out`}
-          tone={thin ? 'warn' : 'ok'}
-        />
       </TileGrid>
 
       {alreadyRun ? (
@@ -221,9 +234,9 @@ export function TrainingView() {
                   return (
                     <tr key={entry.personId}>
                       <td>
-                        <PlayerLink personId={entry.personId}>
+                        <PersonLine personId={entry.personId}>
                           {person ? `${person.firstName} ${person.surname}` : 'Unknown'}
-                        </PlayerLink>
+                        </PersonLine>
                       </td>
                       <td data-label="Standing">
                         <Pill
@@ -273,14 +286,18 @@ export function TrainingView() {
           <div className="tile" style={{ marginTop: 'var(--s2)' }}>
             <span className="tile__label">Coming on</span>
             <ul className="bullets">
+
               {workingOn.map((entry) => (
-                <li key={entry.player.id}>
-                  <PlayerLink personId={entry.player.id}>
+                /* A row rather than a block: the work a man is coming on for
+                   belongs on the same line as the face, and wraps under it only
+                   when the screen is too narrow to hold both. */
+                <li key={entry.player.id} className="row row--wrap">
+                  <PersonLine personId={entry.player.id}>
                     <strong>
                       {entry.player.firstName} {entry.player.surname}
                     </strong>
-                  </PlayerLink>{' '}
-                  — {entry.lines[0]!.toLowerCase()}
+                  </PersonLine>
+                  <span className="muted">— {entry.lines[0]!.toLowerCase()}</span>
                 </li>
               ))}
             </ul>

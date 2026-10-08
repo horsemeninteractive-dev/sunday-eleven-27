@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { COLOUR_PAIRS } from '@/simulation/generation/names';
 import {
+  DARK_INK,
+  LIGHT_INK,
   SCENE_INK,
   sceneFade,
   STRIPE_ANGLE,
@@ -9,11 +11,13 @@ import {
   STRIPE_CONTRAST_FLOOR,
   STRIPE_COUNT,
   STRIPE_SPAN,
+  TEXT_CONTRAST_FLOOR,
   barFade,
   barStripes,
   clubStyle,
   colourDistance,
   contrastRatio,
+  flatClubInk,
   inkForColour,
   inkForColours,
   mixColours,
@@ -254,6 +258,49 @@ describe('clubStyle', () => {
     }
   });
 
+  it('gives the flat paint an ink chosen for the flat colour, whatever it is', () => {
+    for (const colours of COLOUR_PAIRS) {
+      const style = clubStyle(colours);
+      expect(
+        contrastRatio(style['--club-flat-ink']!, style['--club']!),
+        `${colours.primary} flat paint`,
+      ).toBeGreaterThanOrEqual(TEXT_CONTRAST_FLOOR);
+    }
+  });
+
+  it('reaches past the house inks for a colour neither of them can carry', () => {
+    // A mid blue like the one a career is started in: the light ink measures
+    // 4.33 on it and the dark one 3.84, so neither can word a button. Something
+    // outside the two has to, and the ends of the scale are always available —
+    // white and black multiply to 21 against any colour, so the better of the
+    // two can never be below 4.58.
+    expect(
+      Math.max(contrastRatio(LIGHT_INK, '#1f6feb'), contrastRatio(DARK_INK, '#1f6feb')),
+    ).toBeLessThan(TEXT_CONTRAST_FLOOR);
+    for (const flat of ['#1f6feb', '#00838f', '#827717', '#e65100']) {
+      expect(contrastRatio(flatClubInk(flat), flat), `${flat} needs an ink of its own`).toBeGreaterThanOrEqual(
+        TEXT_CONTRAST_FLOOR,
+      );
+    }
+    expect(['#ffffff', '#000000']).toContain(flatClubInk('#1f6feb'));
+    // A colour one of the house inks can carry keeps it, so the palette does not
+    // drift to the ends of the scale for no reason.
+    expect(flatClubInk('#c62828')).toBe(LIGHT_INK);
+    expect(flatClubInk('#f9a825')).toBe(DARK_INK);
+  });
+
+  it('writes the fixture band in an ink chosen for the band itself', () => {
+    for (const colours of COLOUR_PAIRS) {
+      const style = clubStyle(colours);
+      const band = style['--club-band']!;
+      expect(style['--club-band-ink']).toBe(flatClubInk(band));
+      expect(
+        contrastRatio(style['--club-band-ink']!, band),
+        `${colours.primary} fixture band`,
+      ).toBeGreaterThanOrEqual(TEXT_CONTRAST_FLOOR);
+    }
+  });
+
   it('keeps every generated pair legible in the header', () => {
     for (const colours of COLOUR_PAIRS) {
       const style = clubStyle(colours);
@@ -267,5 +314,68 @@ describe('clubStyle', () => {
       // shows, so those have to be legible too.
       expect(stripeColours(colours).length).toBeGreaterThan(2);
     }
+  });
+});
+
+describe('the sheet paints the club’s colour the way the inks expect', () => {
+  const sheet = readFileSync(new URL('./styles.css', import.meta.url), 'utf8').replace(
+    /\/\*[\s\S]*?\*\//g,
+    '',
+  );
+
+  /** Every rule body in the sheet that makes one declaration, with its selector. */
+  function rulesMaking(declaration: RegExp): { selector: string; body: string }[] {
+    return sheet
+      .split('}')
+      .map((chunk) => {
+        const open = chunk.lastIndexOf('{');
+        if (open < 0) return null;
+        return { selector: chunk.slice(0, open).split('{').pop()!.trim(), body: chunk.slice(open + 1) };
+      })
+      .filter(
+        (rule): rule is { selector: string; body: string } =>
+          rule !== null && declaration.test(rule.body),
+      );
+  }
+
+  it('never writes the striped bar’s ink on the flat paint', () => {
+    // Two surfaces are painted the club's colour with a stripe layer over them,
+    // and they are the whole reason `--club-ink` exists: it is chosen across
+    // those stripes. They are also the only two, and the sheet says so by
+    // painting them with `background-color` — the shorthand, with no image of
+    // its own, is flat paint, and flat paint takes the ink chosen for it.
+    const striped = rulesMaking(/background-color:\s*var\(--club\)/);
+    expect(striped.map((rule) => rule.selector)).toEqual(['.topbar', '.mobilebar']);
+    const flat = rulesMaking(/background:\s*var\(--club\)/);
+    const wrong = flat.filter((rule) => /(?:^|[;\s])color:\s*var\(--club-ink\)/.test(rule.body));
+    expect(wrong.map((rule) => rule.selector)).toEqual([]);
+    // And the scan cannot pass by finding nothing to look at.
+    expect(flat.length).toBeGreaterThan(8);
+  });
+
+  it('never fades a label into the colour it is written on', () => {
+    // A faded ink is the ink mixed with its own background, which no contrast
+    // floor can survive: the fixture label measured 4.09:1 at 72% over a band
+    // that clears 6:1 at full strength. The labels on club-coloured surfaces go
+    // quiet by size and tracking instead.
+    const faded = [
+      '.nextmatch__label',
+      '.nextmatch__meta',
+      '.topbar__club-sub',
+      '.topbar__date span',
+    ].filter((selector) =>
+      new RegExp(`${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{[^}]*opacity:`).test(sheet),
+    );
+    expect(faded).toEqual([]);
+  });
+
+  it('gives the screens before a career the same flat ink the rule would', () => {
+    // Before a career starts there is no club to read colours from, so the
+    // sheet's own default carries the token. A fallback that disagreed with
+    // `clubStyle` would be the one screen no club's colours ever reached.
+    const root = /--club:\s*(#[0-9a-fA-F]{6})/.exec(sheet)?.[1];
+    const token = /--club-flat-ink:\s*(#[0-9a-fA-F]{6})/.exec(sheet)?.[1];
+    expect(root).toBeTruthy();
+    expect(token?.toLowerCase()).toBe(flatClubInk(root!).toLowerCase());
   });
 });

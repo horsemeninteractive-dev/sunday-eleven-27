@@ -4,6 +4,7 @@ import type { Player } from '@/domain/person';
 import type { Tactics } from '@/domain/tactics';
 import { stream, type Rng } from '../rng';
 import { computeTeamStrength, type TeamStrength } from './teamStrength';
+import type { ClubStyle } from '../ai/style';
 import { tacticalProfile, type TacticalProfile } from './tacticsModel';
 
 /**
@@ -50,6 +51,16 @@ export interface MatchEnvironment {
    */
   tacticalFamiliarity?: (clubId: ClubId) => number;
   cohesion?: (clubId: ClubId) => number;
+  /**
+   * The football a club plays, as the man in charge of it sees it.
+   *
+   * This is the AI manager's identity, handed to whichever resolution is
+   * playing the fixture, so the same manager sits in the same dugout whether a
+   * match was watched or simulated in the background. Absent when a caller has
+   * built its own environment — a test, a friendly — and the AI layer then reads
+   * the side's own instructions as its identity, which is what an old save has.
+   */
+  clubStyle?: (clubId: ClubId) => ClubStyle;
 }
 
 export function otherSide(side: Side): Side {

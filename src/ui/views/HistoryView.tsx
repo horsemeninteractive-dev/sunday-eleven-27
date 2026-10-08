@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import type { ClubSeasonRecord } from '@/domain/club';
 import { isPlayer } from '@/domain/person';
 import { formatShortDate } from '@/simulation/calendar';
@@ -8,7 +7,8 @@ import { playerName } from '../format';
 import { Button, PageHeader, Pill, SortTh } from '../components/primitives';
 import { MetricTile, Section, TileGrid } from '../components/hierarchy';
 import { ClubLink, CompetitionLink, PlayerLink } from '../components/Links';
-import { applySort, UNSORTED, type SortAccessors, type SortState } from '../tableSort';
+import { useRememberedSort } from '../rememberedSort';
+import { applySort, type SortAccessors } from '../tableSort';
 import { ClubBadge } from '../components/Badge';
 import { openMatchReport } from '../reportActions';
 
@@ -47,7 +47,7 @@ const SEASON_SORT: SortAccessors<ClubSeasonRecord, SeasonSortKey> = {
  */
 export function HistoryView() {
   const game = useGame();
-  const [sort, setSort] = useState<SortState<SeasonSortKey>>(UNSORTED);
+  const [sort, setSort] = useRememberedSort('history', game?.saveId ?? null, SEASON_SORT);
   if (!game) return null;
 
   const club = game.clubs[game.userClubId]!;

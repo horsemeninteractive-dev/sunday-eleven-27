@@ -110,6 +110,26 @@ export const SOAK_BANDS = {
   tierSeparation: 0.015,
 } as const;
 
+/**
+ * What the county thinks of its clubs, as one reading.
+ *
+ * Reputation is the ladder made visible: it is what the divisions were built
+ * from, what a summer's arrivals are generated at, and — since the standing
+ * layer — what a season of results moves. The soak watches it for the same
+ * reason it watches ability: a mean that climbs every year is a county inflating
+ * itself, and a spread that collapses is a pyramid whose rungs have stopped
+ * meaning anything.
+ */
+function standingStats(state: GameState): { standingMin: number; standingMean: number; standingSpread: number } {
+  const values = Object.values(state.clubs)
+    .filter((club) => club.active)
+    .map((club) => club.reputation);
+  if (values.length === 0) return { standingMin: 0, standingMean: 0, standingSpread: 0 };
+  const average = mean(values);
+  const variance = mean(values.map((value) => (value - average) ** 2));
+  return { standingMin: Math.min(...values), standingMean: round(average), standingSpread: round(Math.sqrt(variance)) };
+}
+
 const ATTRIBUTE_GROUPS = ['technical', 'physical', 'mental', 'behavioural'] as const;
 /** The groups the match engine actually reads, for the ability reading. */
 const ABILITY_GROUPS = ['technical', 'physical', 'mental'] as const;
@@ -179,6 +199,11 @@ export interface SoakSnapshot {    season: number;
   balanceMean: number;
   balanceMax: number;
   clubsInTheRed: number;
+
+  /** What the county thinks of its clubs: the standing the ladder is made of. */
+  standingMin: number;
+  standingMean: number;
+  standingSpread: number;
 
   unattached: number;
   unattachedAbility: number;
@@ -364,6 +389,7 @@ function snapshotSeason(
     balanceMean: Math.round(mean(balances)),
     balanceMax: Math.round(Math.max(...balances)),
     clubsInTheRed: balances.filter((balance) => balance < 0).length,
+    ...standingStats(state),
     unattached: unattached.length,
     unattachedAbility: round(mean(unattached.map((player) => mean(attributeValues(player, ABILITY_GROUPS))))),
     managerPool: Object.values(state.people).filter(
@@ -1181,6 +1207,8 @@ export interface SoakColumn {
 }
 
 export const SOAK_TREND_COLUMNS: SoakColumn[] = [
+  { header: 'standing', width: 9, digits: 1, pick: (s) => s.standingMean },
+  { header: 'standvar', width: 9, digits: 1, pick: (s) => s.standingSpread },
   { header: 'squad', width: 7, digits: 1, pick: (s) => s.squadMean },
   { header: 'ability', width: 8, digits: 2, pick: (s) => s.abilityMean },
   { header: 'tier1', width: 7, digits: 2, pick: (s) => s.tierAbility[0] ?? 0 },

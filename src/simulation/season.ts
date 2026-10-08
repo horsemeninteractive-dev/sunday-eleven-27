@@ -20,6 +20,7 @@ import {
   tierPrizeMoney,
   tierOf,
 } from './pyramid';
+import { applySeasonStanding } from './standing';
 import { generatePlayer, resetPlayerIdCounter } from './generation/playerGenerator';
 import { clubQualityFromReputation } from './generation/worldGenerator';
 import { linkNewTeammate } from './generation/relationshipGenerator';
@@ -160,6 +161,12 @@ export function finishSeason(state: GameState): SeasonFinishResult {
     seasonLabel: state.season.label,
   });
   recordMovementsOnClubs(state, ladder.movements);
+  // And what the season did to what the county thinks of everybody: a good
+  // finish lifts a club, a bad one lowers it, and going up a division is worth
+  // more than either. Read against the club's own standing rather than against
+  // the table alone, so a side that keeps finishing above itself keeps climbing
+  // and a side that has caught up with its results stops moving.
+  applySeasonStanding(state, ladder.movements);
   events.push(...ladder.events);
   state.promotionHistory = [...(state.promotionHistory ?? []), ...ladder.movements];
 

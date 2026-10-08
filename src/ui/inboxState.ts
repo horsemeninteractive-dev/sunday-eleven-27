@@ -9,7 +9,7 @@ import type {
 import { demandsAttention, MANAGER_PERSON_ID } from '@/domain/communication';
 import type { GameState } from '@/domain/game';
 import type { ISODate, PersonId } from '@/domain/ids';
-import { personDisplayName } from '@/domain/person';
+import { personDisplayName, type Person } from '@/domain/person';
 import { daysBetween, DAY_NAMES, dayOfWeek } from '@/simulation/calendar';
 import { availabilityStanding } from '@/simulation/communication/availabilityComms';
 import { officeRoleOf, officerResponseOptions } from '@/simulation/communication/organisationComms';
@@ -56,6 +56,23 @@ export function conversationName(game: GameState, conversation: Conversation): s
 export function personName(game: GameState, personId: PersonId): string {
   const person = game.people[personId];
   return person ? personDisplayName(person) : 'Former member';
+}
+
+/**
+ * The one face a thread can be headed with.
+ *
+ * A one-to-one is a conversation *with* a man, so the thread is headed with him
+ * — the same question `conversationName` answers, asked of the drawing rather
+ * than of the naming. A group is a room with several people in it and has no
+ * single face, so it is headed with its name alone: putting one of them up there
+ * would be claiming the thread is about him, and a committee thread is about all
+ * of them at once. Nobody is returned for somebody the save no longer holds,
+ * because a face cannot be drawn for a man the game has forgotten.
+ */
+export function threadFace(game: GameState, conversation: Conversation): Person | null {
+  const others = conversation.participantIds.filter((id) => id !== MANAGER_PERSON_ID);
+  if (others.length !== 1) return null;
+  return game.people[others[0]!] ?? null;
 }
 
 /** Who wrote a message, as a manager would refer to them. */
@@ -144,6 +161,16 @@ export function previewOf(message: Message | null, limit = 90): string {
 export interface InboxRow {
   conversationId: string;
   name: string;
+  /**
+   * The man the thread is with, where it is with one man.
+   *
+   * A Sunday League inbox is a contacts list, and a contacts list is people: the
+   * row was a name and a sentence, and the name is now a face as well. It is the
+   * same question `threadFace` answers for the thread's own head, asked of the
+   * row, so a row and the thread it opens are drawn the same way — and a room
+   * full of people, which has no single face, is drawn with its name alone.
+   */
+  face: Person | null;
   /** The kind of thread, where it is worth saying: a group is not a person. */
   kind: ConversationType;
   kindLabel: string;
@@ -245,6 +272,7 @@ function toRow(game: GameState, conversation: Conversation, today: ISODate): Inb
   return {
     conversationId: conversation.id,
     name: conversationName(game, conversation),
+    face: threadFace(game, conversation),
     kind: conversation.type,
     kindLabel: kindLabel(conversation),
     preview: previewOf(last),
@@ -295,6 +323,17 @@ export interface ThreadMessage {
   body: string;
   mine: boolean;
   sender: string;
+  /**
+   * Who wrote it, so the thread can draw him and not merely name him.
+   *
+   * The name was enough while a person *was* a name. Now that he is drawn, a
+   * message has to carry the id of the man who wrote it, or the face beside the
+   * sentence would have to be guessed back out of the words. It is the manager's
+   * own id on his own messages, and the screen draws nothing for that: his words
+   * are already his, and nobody needs a picture of himself beside his own
+   * sentence.
+   */
+  senderId: PersonId;
   when: string;
   whenTitle: string;
   read: boolean;
@@ -330,6 +369,7 @@ export function threadMessages(game: GameState, conversationId: string): ThreadM
       body: message.body,
       mine: message.direction === 'outbound',
       sender: senderName(game, message),
+      senderId: message.senderId,
       when: relativeTime(message.timestamp, today),
       whenTitle: fullDate(message.timestamp),
       read: message.read,

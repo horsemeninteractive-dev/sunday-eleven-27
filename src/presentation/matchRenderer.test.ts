@@ -135,8 +135,18 @@ describe('the render state', () => {
     const render = buildEngineRenderState(engine, match, state);
     expect(render.teams.home.clubId).toBe(match.homeClubId);
     expect(render.teams.away.clubId).toBe(match.awayClubId);
-    expect(render.teams.home.colours).toEqual(state.clubs[match.homeClubId]!.identity.colours);
-    expect(render.teams.away.colours).toEqual(state.clubs[match.awayClubId]!.identity.colours);
+    // The colours carry one field a club's identity does not: the shirt its
+    // keeper is in. The builder reads a club's identity rather than its kit —
+    // the strips are drawn from the career, which a match does not carry — so it
+    // starts that at the club's own first colour, and the match screen replaces
+    // it with the third strip exactly as it replaces `primary` with the shirt the
+    // side actually turned out in.
+    const asDrawn = (clubId: typeof match.homeClubId) => ({
+      ...state.clubs[clubId]!.identity.colours,
+      keeper: state.clubs[clubId]!.identity.colours.primary,
+    });
+    expect(render.teams.home.colours).toEqual(asDrawn(match.homeClubId));
+    expect(render.teams.away.colours).toEqual(asDrawn(match.awayClubId));
   });
 
   it('lays the teams out from their formation when there is no continuous state', () => {

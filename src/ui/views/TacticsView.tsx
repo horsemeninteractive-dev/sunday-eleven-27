@@ -16,7 +16,11 @@ import {
   type Tactics,
 } from '@/domain/tactics';
 import { FORMATION_IDS, getFormation } from '@/domain/positions';
+import { PITCH_LABEL, WEATHER_LABEL } from '@/domain/match';
 import { isPlayer } from '@/domain/person';
+import { formatDate, formatKickOff } from '@/simulation/calendar';
+import { matchOpponent } from '@/simulation/queries';
+import { clubStyle } from '@/simulation/ai/style';
 import { gameActions, useGame, useNextFixture, useSquad } from '../hooks';
 import { applyFormation } from '../lineupEditing';
 import { Button, PageHeader, Panel, Pill } from '../components/primitives';
@@ -42,6 +46,7 @@ export function TacticsView() {
   const club = game.clubs[game.userClubId]!;
   const tactics: Tactics = club.tactics;
   const isHome = fixture ? fixture.homeClubId === club.id : true;
+  const opponent = fixture ? game.clubs[matchOpponent(fixture, club.id)] : undefined;
 
   const set = (patch: Partial<Tactics>) => {
     const next = { ...tactics, ...patch };
@@ -106,7 +111,33 @@ export function TacticsView() {
             the ball" moves the picture and the controls together — one idea,
             one control, rather than a second tab strip inside the diagram. */}
         <FormationBoard game={game} formation={tactics.formation} slots={positions} tactics={tactics} phase={instructions === 'shape' ? 'shape' : instructions === 'ball' ? 'with-ball' : 'without-ball'} />
-        <Button variant="ghost" onClick={() => gameActions().setView('team')}>Team selection</Button>
+        {/* The board says how the side will play; this says who it is playing, where
+            and in what. A deep line is a decision *for* a heavy pitch, so the two
+            belong on one line under the picture rather than three scrolls apart. */}
+        <div className="tactics-caption">
+          <span className="letterpress">This week</span>
+          {fixture ? (
+            <>
+              <span>
+                <b>{opponent?.identity.name ?? 'Opponent to be confirmed'}</b> · {isHome ? 'at home' : 'away'}
+              </span>
+              <span>
+                {formatDate(fixture.date)} · kick-off {formatKickOff(fixture.kickOff)}
+              </span>
+              <span>
+                {PITCH_LABEL[fixture.conditions.pitch]} pitch · {WEATHER_LABEL[fixture.conditions.weather].toLowerCase()}, {fixture.conditions.temperatureC}°C
+              </span>
+              {/* One line on the opposition, and the same line every week: how
+                  they play is derived from the club, so it is a fact about them
+                  rather than a guess, and it is what tells a manager whether
+                  this is a day to sit in or a day to have a go. */}
+              {opponent && <span>Their game: {clubStyle(opponent).label.toLowerCase()}</span>}
+            </>
+          ) : (
+            <span>Nothing in the diary yet — the next fixture will appear here.</span>
+          )}
+          <Button variant="ghost" onClick={() => gameActions().setView('team')}>Team selection</Button>
+        </div>
       </div>
       <Panel level="primary" title="How you want to play" className="workspace-panel tactics-instructions">
         <Tabs label="Instructions" options={[{ value: 'shape', label: 'Shape' }, { value: 'ball', label: 'In possession' }, { value: 'defend', label: 'Out of possession' }]} value={instructions} onChange={setInstructions}>

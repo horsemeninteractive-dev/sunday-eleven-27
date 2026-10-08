@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { FaceChoices } from '@/domain/face';
 import type { Player } from '@/domain/person';
 import { listProfiles } from './managerProfiles';
 import { addDays } from '@/simulation/calendar';
@@ -508,5 +509,41 @@ describe('choosing the kit', () => {
     expect(after.season).toBe(state.season.label);
     expect(after.season).not.toBe(before.season);
     expect(useGameStore.getState().notice ?? '').toMatch(/new kit/i);
+  });
+});
+
+describe('the manager changes his own face', () => {
+  it('writes it on the man and on the profile, and takes it off both again', () => {
+    const game = newCareer('manager-face');
+    const face: FaceChoices = {
+      shape: 'square',
+      skin: 'olive',
+      hair: 'ginger',
+      hairStyle: 'bald',
+      beard: 'beard',
+      glasses: true,
+      eyeColour: 'green',
+      eyeShape: 'narrow',
+      browWeight: 'heavy',
+      browLift: 'low',
+      nose: 'broad',
+      mouth: 'thin',
+    };
+    // Nobody has chosen anything at the start of a career: the manager is drawn by
+    // the name he typed until he says otherwise.
+    expect(game.people['user_manager']!.face).toBeUndefined();
+
+    useGameStore.getState().setManagerFace(face);
+    const chosen = useGameStore.getState().game!;
+    expect(chosen.people['user_manager']!.face).toEqual(face);
+    expect(chosen.managerProfile.face).toEqual(face);
+
+    // Back to the roll. Absent rather than present-and-`undefined`, because absent
+    // is what the drawing reads as "his own name decides", and a field left holding
+    // a hole is a field every later reader of the state has to know about.
+    useGameStore.getState().setManagerFace(null);
+    const bare = useGameStore.getState().game!;
+    expect('face' in bare.people['user_manager']!).toBe(false);
+    expect('face' in bare.managerProfile).toBe(false);
   });
 });

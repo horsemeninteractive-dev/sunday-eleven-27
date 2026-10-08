@@ -49,7 +49,35 @@ export const POSITIONS: Record<PositionCode, PositionDefinition> = {
 export const KEEPER_LINE = POSITIONS.GK.base.x;
 export const KEEPER_ACROSS: readonly [number, number] = [0.26, 0.74];
 
+/**
+ * The deepest row a man in front of the keeper may stand in: the six-yard line.
+ *
+ * A centre half pushed right back is standing on the edge of his own six-yard
+ * box and no deeper, and it is a football number rather than a drawing one
+ * because the picture is drawn *from* these numbers: a defender moved back is
+ * drawn as far back as the pitch can honestly show him, rather than stopping at
+ * a line the drawing invented for itself. It has to stay strictly deeper than
+ * `KEEPER_LINE`, which is the row the keeper is given behind the defence — if
+ * the two met, a defender could be stood, and drawn, on his own goalkeeper.
+ */
+export const OUTFIELD_LINE = 0.06;
+
 export const ALL_POSITION_CODES = Object.keys(POSITIONS) as PositionCode[];
+
+/** The lines of a team, in the order a team sheet is read: keeper, back, middle, front. */
+export const POSITION_GROUP_ORDER: PositionGroup[] = ['GK', 'DEF', 'MID', 'FWD'];
+
+/**
+ * How far up the team sheet a job is.
+ *
+ * A keeper comes before a right back and a right back before a striker: the
+ * order a manager reads his own side in, from his own goal outwards. The squad
+ * screen and the selection screen both order a list by it, so the two of them
+ * read the same way — see `squadInTeamOrder` in `ui/lineupEditing`.
+ */
+export function positionRank(position: PositionCode): number {
+  return POSITION_GROUP_ORDER.indexOf(POSITIONS[position].group) * 100 + ALL_POSITION_CODES.indexOf(position);
+}
 
 /**
  * How closely one position resembles another. Used to derive a player's

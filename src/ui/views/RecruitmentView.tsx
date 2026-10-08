@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import type { GameState } from '@/domain/game';
 import type { PersonId } from '@/domain/ids';
 import { isPlayer, personDisplayName } from '@/domain/person';
@@ -15,9 +14,10 @@ import { candidatesOf, recruitmentStore } from '@/simulation/recruitment/store';
 import { gameActions, useGame } from '../hooks';
 import { Button, PageHeader, Panel, Pill, SortTh } from '../components/primitives';
 import { MetricTile, Section, Tile, TileGrid } from '../components/hierarchy';
-import { PlayerLink } from '../components/Links';
-import { Glyph } from '../components/icons';
-import { applySort, UNSORTED, type SortAccessors, type SortState } from '../tableSort';
+import { PersonLine } from '../components/PersonIdentity';
+import { Portrait } from '../components/Portrait';
+import { useRememberedSort } from '../rememberedSort';
+import { applySort, type SortAccessors } from '../tableSort';
 
 /**
  * Recruitment.
@@ -43,7 +43,7 @@ const NEED_SORT: SortAccessors<SquadNeed, NeedSortKey> = {
 
 export function RecruitmentView() {
   const game = useGame();
-  const [sort, setSort] = useState<SortState<NeedSortKey>>(UNSORTED);
+  const [sort, setSort] = useRememberedSort('recruitment', game?.saveId ?? null, NEED_SORT);
   if (!game) return null;
 
   const club = game.clubs[game.userClubId]!;
@@ -188,9 +188,14 @@ export function RecruitmentView() {
               {closed.map((candidate) => (
                 <li key={candidate.personId}>
                   <div className="row row--wrap">
-                    <PlayerLink personId={candidate.personId}>
+                    {/* The men the club decided against are still men, and this
+                        list is the only place a manager ever sees them again: the
+                        open candidates above are drawn, and a face here is what
+                        makes it a list of people rather than a list of decisions.
+                        */}
+                    <PersonLine personId={candidate.personId}>
                       <strong>{personName(game, candidate.personId)}</strong>
-                    </PlayerLink>
+                    </PersonLine>
                     <Pill tone={candidate.status === 'joined' ? 'ok' : 'muted'}>
                       {CANDIDATE_STATUS_LABEL[candidate.status]}
                     </Pill>
@@ -241,6 +246,9 @@ function CandidateRow({
 }) {
   const counts = knowledgeCounts(candidate.knowledge);
   const sourceName = candidate.sourcePersonId ? personName(state, candidate.sourcePersonId) : null;
+  // The candidate's own record, so the row can be marked like every other row of
+  // a person in the game rather than carrying a second, hand-rolled mark.
+  const person = state.people[candidate.personId];
 
   return (
     <Tile
@@ -254,10 +262,16 @@ function CandidateRow({
       onClick={() => gameActions().openNegotiation(candidate.personId)}
       title={`Talk terms with ${personName(state, candidate.personId)}`}
     >
-      <span className="person-mark" aria-hidden="true"><Glyph name="manager" /></span>
-      <span className="player-tile__top">
-        <span className="player-tile__name">{personName(state, candidate.personId)}</span>
-        <span className="player-tile__position">{personHint(state, candidate.personId)}</span>
+      {/* The face beside the name rather than above it, which is how every other
+          list of people in the game draws a man — and on a tile two thirds empty
+          the stacked version left him floating on a line of his own with a gap
+          under it. */}
+      <span className="player-tile__head">
+        {person && <Portrait person={person} />}
+        <span className="player-tile__top">
+          <span className="player-tile__name">{personName(state, candidate.personId)}</span>
+          <span className="player-tile__position">{personHint(state, candidate.personId)}</span>
+        </span>
       </span>
       <span className="muted small">
         {DISCOVERY_SOURCE_LABEL[candidate.discoveredVia]}

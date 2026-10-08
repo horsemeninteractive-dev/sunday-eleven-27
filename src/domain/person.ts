@@ -1,4 +1,5 @@
 import type { PlayerAttributes } from './attributes';
+import type { FaceChoices } from './face';
 import type { ClubId, ClubRole, GroundId, ISODate, PersonId, PlayerId, TownId } from './ids';
 import type { PositionCode, PositionGroup } from './positions';
 
@@ -30,9 +31,34 @@ export interface PersonBase {
   reputation: number;
   /** Roles held at clubs. A person can hold more than one (player-manager). */
   roles: Array<{ clubId: ClubId; role: ClubRole; since: ISODate }>;
+  /**
+   * The face he chose for himself, if he chose one.
+   *
+   * Absent on almost everybody, and absent is the normal case: everybody else in
+   * the game is drawn from the seeded roll their own name gives them. The one
+   * person who gets a say is the manager, because his is the only face in the
+   * game he has to look at every week — so this is an override of the roll
+   * rather than a replacement for it, and a person without one is drawn exactly
+   * as he was before this existed.
+   */
+  face?: FaceChoices;
 }
 
 export type AvailabilityStatus = 'available' | 'doubtful' | 'unavailable';
+
+/**
+ * The three states of a man's availability, best first.
+ *
+ * Every list in the game that can be sorted by whether a man can play sorts by
+ * this rank rather than by the words: alphabetically a fit man comes before a
+ * doubtful one and an unavailable one last, which happens to be right and is a
+ * coincidence waiting to stop being right.
+ */
+const AVAILABILITY_ORDER: AvailabilityStatus[] = ['available', 'doubtful', 'unavailable'];
+
+export function availabilityRank(status: AvailabilityStatus): number {
+  return AVAILABILITY_ORDER.indexOf(status);
+}
 
 export type AvailabilityReason =
   | 'work'

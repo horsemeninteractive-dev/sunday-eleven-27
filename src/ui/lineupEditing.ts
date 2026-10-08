@@ -1,7 +1,7 @@
 import type { BenchSlot, LineupSlot, MatchLineup } from '@/domain/match';
 import { defaultRoleFor } from '@/simulation/match/roles';
 import type { Player } from '@/domain/person';
-import { KEEPER_ACROSS, KEEPER_LINE, formationSlots, positionForPoint, type FormationId, type FormationSlot } from '@/domain/positions';
+import { KEEPER_ACROSS, KEEPER_LINE, OUTFIELD_LINE, formationSlots, positionForPoint, positionRank, type FormationId, type FormationSlot } from '@/domain/positions';
 import { positionScore } from '@/simulation/selection';
 
 /**
@@ -25,12 +25,14 @@ export function assignToStarting(lineup: MatchLineup, slotIndex: number, playerI
     }
     if (entry.playerId === playerId) {
       // Dragged from another slot: swap the two players rather than duplicating.
-      const displacedPlayer = player;
+      // The man who leaves keeps the slot he was already standing in, and with it
+      // his own answer to whether he is out of position there: asking that
+      // question of the man arriving marks one man for the other man's job.
       return {
         playerId: displaced,
         position: entry.position,
         role: defaultRoleFor(entry.position),
-        outOfPosition: isOutOfPosition(displacedPlayer, entry.position),
+        outOfPosition: entry.outOfPosition,
       };
     }
     return entry;
@@ -154,8 +156,16 @@ function clamp(value: number, min: number, max: number): number {
  *
  * The goalkeeper is the one exception, and it is a football rule rather than a
  * technical one: he stays the goalkeeper and stays on his own line, so a side
- * cannot lose its keeper to a mis-drag — and nobody becomes one by dragging a
- * striker into the six-yard box (`outfieldOnly`).
+ * cannot lose its keeper by pushing his dot around — and a striker dragged into
+ * the six-yard box does not become one (`outfieldOnly`). The way in and out of
+ * that shirt is a swap rather than a move: a man is made the keeper by being put
+ * *in* it, which is `placeInSlot`, and the same gesture takes the keeper out of
+ * it by putting the other man in.
+ *
+ * The floors are the picture's own, so a man cannot be held somewhere the pitch
+ * cannot draw him: the deepest row is the six-yard line (`OUTFIELD_LINE`),
+ * because the row behind it belongs to the keeper, and a defender pushed past it
+ * used to be drawn standing on top of his own goalkeeper.
  */
 export function moveSlot(lineup: MatchLineup, slotIndex: number, x: number, y: number, player?: Player): MatchLineup {
   const slot = lineup.starting[slotIndex];
@@ -163,7 +173,7 @@ export function moveSlot(lineup: MatchLineup, slotIndex: number, x: number, y: n
   const keeper = slot.position === 'GK';
   const point = keeper
     ? { x: KEEPER_LINE, y: clamp(y, KEEPER_ACROSS[0], KEEPER_ACROSS[1]) }
-    : { x: clamp(x, 0.05, 0.92), y: clamp(y, 0.06, 0.94) };
+    : { x: clamp(x, OUTFIELD_LINE, 0.88), y: clamp(y, 0.1, 0.9) };
   const position = keeper ? 'GK' : positionForPoint(point.x, point.y, { outfieldOnly: true });
   const shape = formationSlots(lineup.tactics.formation, lineup.tactics.shape).map((entry, index) =>
     index === slotIndex ? { position, x: point.x, y: point.y } : entry,
@@ -285,4 +295,51 @@ function applySlots(
     captainId: captainStillIn ? lineup.captainId : starting[0]?.playerId ?? null,
     tactics: { ...lineup.tactics, formation: tactics.formation, shape: tactics.shape, shapeId: tactics.shapeId },
   };
+}
+
+/**
+ * The squad as a manager reads it off a team sheet.
+ *
+ * Three answers in one order: the eleven who are picked, in the order the shape
+ * stands them on the pitch — keeper first, the front men last — then the
+ * substitutes, keeper first again, and then everybody else, by the job he
+ * plays. It is the order the selection screen's list opens in, so the question
+ * a manager came to that screen with is answered by the top of the list rather
+ * than by scrolling it: who is in the side, and where on the pitch he is.
+ *
+ * Pure, and out here rather than in the view, because it is a rule about a
+ * lineup and a squad rather than about a drawing of them — which is why it can
+ * be asked directly what order it puts a side in.
+ */
+export interface SquadPlace {
+  player: Player;
+  /** His place in the XI, in the order the shape reads it: keeper first. -1 if he is not in it. */
+  slotIndex: number;
+  /** His place on the bench, in the order it is written. -1 if he is not on it. */
+  benchIndex: number;
+}
+
+/** The bands `squadInTeamOrder` sorts in. Wide enough apart that the ranking
+ *  inside one band can never reach into the next: no position outranks being
+ *  in the side. */
+const XI_BAND = 0;
+const BENCH_BAND = 1000;
+const REST_BAND = 2000;
+
+export function squadInTeamOrder(squad: readonly Player[], lineup: MatchLineup): SquadPlace[] {
+  const places: SquadPlace[] = squad.map((player) => ({
+    player,
+    slotIndex: lineup.starting.findIndex((slot) => slot.playerId === player.id),
+    benchIndex: lineup.bench.findIndex((slot) => slot.playerId === player.id),
+  }));
+  // The XI's own order is the shape's: `lineupShape` lays the eleven out from
+  // the keeper forwards, and the list is drawn from the same array. Where the
+  // men behind them fall is by job, because a substitute has no place on a
+  // pitch until he comes on — his position is all the sheet can say about him.
+  const band = (place: SquadPlace) => {
+    if (place.slotIndex >= 0) return XI_BAND + place.slotIndex;
+    if (place.benchIndex >= 0) return BENCH_BAND + positionRank(place.player.preferredPosition);
+    return REST_BAND + positionRank(place.player.preferredPosition);
+  };
+  return places.sort((left, right) => band(left) - band(right));
 }

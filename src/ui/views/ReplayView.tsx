@@ -11,7 +11,8 @@ import { matchSecondsPerRealSecond } from '../matchPace';
 import { minuteLabel } from '../matchFeed';
 import { MatchIncidentBanner } from '../match/MatchIncidentBanner';
 import { MatchStatsStrip } from '../match/MatchStats';
-import { matchKitColours } from '../kit';
+import { matchTeamColours } from '../kit';
+import { TeamSheet } from '../match/TeamSheet';
 import { Button } from '../components/primitives';
 import { ClubBadge } from '../components/Badge';
 
@@ -32,6 +33,12 @@ import { ClubBadge } from '../components/Badge';
  * moment to the next, holding the teams where the moment puts them. Either way
  * it is the same seam, with a clock of its own, and not a second simulation.
  *
+ * The two team sheets stand down either side of it, as they stand beside the
+ * live pitch and for the same reason: the picture says where the eleven were,
+ * and the list says who they are, in the shirts they were in. What the list does
+ * not say is what they did — the goals and the bookings wait for the commentary
+ * line under the pitch, because a replay must not spoil its own ending.
+ *
  * The clock is local to this screen. A replay cannot touch the career, so it has
  * no business in the store; the store only remembers which match is being
  * watched and where to go back to.
@@ -42,13 +49,13 @@ export function ReplayView() {
   const rendererPreference = useGameStore((state) => state.preferences.renderer);
 
   const match = game && target ? (game.matches[target.matchId] ?? null) : null;
-  // The strips worn in the match being watched back, which for a visiting side
-  // is its away shirt rather than its club colour.
-  const kitColours = useMemo(
-    () =>
-      game && match
-        ? matchKitColours(game, match.homeClubId, match.awayClubId)
-        : { home: '#888888', away: '#888888' },
+  // The strips worn in the match being watched back, which for a visiting side is
+  // its away shirt rather than its club colour, and which puts each keeper in his
+  // club’s own third strip. One reading of them for the pitch, the two sheets
+  // beside it and the figures under it, because a replay is an afternoon watched
+  // again and it has to be played in the shirts the afternoon was played in.
+  const strips = useMemo(
+    () => (game && match ? matchTeamColours(game, match.homeClubId, match.awayClubId) : null),
     [game, match],
   );
   const replay = useMemo(() => (match ? buildReplay(match) : null), [match]);
@@ -105,20 +112,27 @@ export function ReplayView() {
     () => (match && frame ? recordedFrame(match, frame.second) : null),
     [match, frame?.second],
   );
-  const renderState = useMemo(
-    () =>
-      match && game && frame
-        ? buildMatchRenderState(match, game, {
-            minute: frame.minute,
-            revealed: frame.revealed,
-            focus: { x: frame.x, y: frame.y },
-            players: recorded?.players,
-            ball: recorded?.ball,
-          })
-        : null,
+  const renderState = useMemo(() => {
+    if (!match || !game || !frame) return null;
+    const base = buildMatchRenderState(match, game, {
+      minute: frame.minute,
+      revealed: frame.revealed,
+      focus: { x: frame.x, y: frame.y },
+      players: recorded?.players,
+      ball: recorded?.ball,
+    });
+    // The record carries the two clubs' own colours; the pitch is drawn in the
+    // strips the sides turned out in, exactly as the live pitch is.
+    if (!strips) return base;
+    return {
+      ...base,
+      teams: {
+        home: { ...base.teams.home, colours: strips.home },
+        away: { ...base.teams.away, colours: strips.away },
+      },
+    };
     // Rebuilt as the replay moves: the frame's numbers are the whole input.
-    [match, game, frame?.minute, frame?.revealed, frame?.x, frame?.y, recorded],
-  );
+  }, [match, game, frame?.minute, frame?.revealed, frame?.x, frame?.y, recorded, strips]);
 
   if (!game || !match || !replay || !frame || !renderState) return null;
 
@@ -154,13 +168,38 @@ export function ReplayView() {
       </div>
 
       <div className="matchday__main">
-        <div className="matchday__visual">
-          {/* The same renderer the live match uses, handed the same shape of
-              state — only the state was built from the record, not the match. */}
-          <div className="matchday__renderer">
-            <Renderer state={renderState} side={side} playerById={playerById} />
-            <MatchIncidentBanner state={renderState} playerById={playerById} />
+        <div className="matchday__stage">
+          {/* The same two lists the live match stands beside its pitch, in the
+              same shirts: which men were out there is half of what a sheet is
+              read for, and this is the same afternoon. The marks are left off,
+              because a replay exists to be watched back without being told how
+              it ends. */}
+          <TeamSheet
+            side="home"
+            club={home}
+            lineup={match.lineups.home}
+            match={match}
+            playerById={playerById}
+            colours={renderState.teams.home.colours}
+            marks={false}
+          />
+          <div className="matchday__visual">
+            {/* The same renderer the live match uses, handed the same shape of
+                state — only the state was built from the record, not the match. */}
+            <div className="matchday__renderer">
+              <Renderer state={renderState} side={side} playerById={playerById} />
+              <MatchIncidentBanner state={renderState} playerById={playerById} />
+            </div>
           </div>
+          <TeamSheet
+            side="away"
+            club={away}
+            lineup={match.lineups.away}
+            match={match}
+            playerById={playerById}
+            colours={renderState.teams.away.colours}
+            marks={false}
+          />
         </div>
 
         <div className="replaybar">
@@ -220,7 +259,7 @@ export function ReplayView() {
 
       <div className="matchday__stats">
         <p className="small muted replay-stats-label">Full-match totals · the score and pitch above follow the replay clock</p>
-        <MatchStatsStrip match={match} homeColour={kitColours.home} awayColour={kitColours.away} />
+        <MatchStatsStrip match={match} homeColour={renderState.teams.home.colours.primary} awayColour={renderState.teams.away.colours.primary} />
       </div>
     </div>
   );

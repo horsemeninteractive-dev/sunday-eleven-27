@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { MANAGER_PERSON_ID } from '@/domain/communication';
 import { ageOn, isManagerProfileComplete, MAX_MANAGER_AGE, MIN_MANAGER_AGE, type ManagerProfile } from '@/domain/manager';
 import { firstSundayOfSeptember } from '@/simulation/gameSetup';
 import { preSeasonStart } from '@/simulation/calendar';
@@ -8,7 +9,9 @@ import { useGameStore } from '@/state/gameStore';
 import { listProfiles } from '@/state/managerProfiles';
 import { gameActions } from '../hooks';
 import { Button, PageHeader, Panel } from '../components/primitives';
+import { FaceDesigner } from '../components/FaceDesigner';
 import { SceneBackdrop } from '../components/SceneBackdrop';
+import { randomFaceChoices, rolledFaceChoices, type FaceSubject } from '../face';
 
 /**
  * How many of the offered worlds the panel shows.
@@ -19,6 +22,16 @@ import { SceneBackdrop } from '../components/SceneBackdrop';
  */
 const SUGGESTIONS_SHOWN = 9;
 const START_YEAR = 2026;
+
+/**
+ * How old the face is drawn as before a birthday has been typed.
+ *
+ * The roll reads a man's age, because hair thins with it — a sixty-year-old is
+ * offered different cuts from a twenty-four-year-old — so the preview cannot
+ * pretend he has no age. Thirty-eight is what `defaultManagerProfile` gives him,
+ * so the face on screen does not jump the moment he touches the date field.
+ */
+const PREVIEW_AGE = 38;
 
 /**
  * Who the manager is, before he is anybody's manager.
@@ -52,6 +65,18 @@ export function ProfileView() {
     gameActions().setManagerProfile({ ...profile, ...patch });
 
   const age = /^\d{4}-\d{2}-\d{2}$/.test(profile.birthday) ? ageOn(profile.birthday, seasonStart) : null;
+
+  // The face he is looking at, worked out from the same facts the career will
+  // build his face from when the world is generated: the manager's fixed id, the
+  // name as it will be trimmed, and the age his birthday gives him on the day the
+  // career starts. Nothing here is a guess, and that is the only reason a preview
+  // is worth showing him.
+  const subject: FaceSubject = {
+    id: MANAGER_PERSON_ID,
+    firstName: profile.firstName.trim(),
+    surname: profile.surname.trim(),
+    age: age ?? PREVIEW_AGE,
+  };
 
   /**
    * Whether the header button should be live.
@@ -189,6 +214,21 @@ export function ProfileView() {
               />
             </label>
           </div>
+        </Panel>
+
+        <Panel title="Your face">
+          {/* The one thing in the game a manager gets to choose about himself.
+              It opens on the face his name already draws, so this is a way of
+              changing a face rather than of building one from nothing — and
+              nothing is written until he touches a row. */}
+          <FaceDesigner
+            subject={subject}
+            choices={profile.face ?? rolledFaceChoices(subject)}
+            chosen={Boolean(profile.face)}
+            onChange={(face) => update({ face })}
+            onShuffle={() => update({ face: randomFaceChoices(rollSeed(), subject.age) })}
+            onReset={profile.face ? () => update({ face: undefined }) : undefined}
+          />
         </Panel>
 
         <Panel title="The world">

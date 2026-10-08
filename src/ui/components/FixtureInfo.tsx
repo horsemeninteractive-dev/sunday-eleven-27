@@ -2,7 +2,7 @@ import type { Club } from '@/domain/club';
 import type { GameState } from '@/domain/game';
 import type { Match } from '@/domain/match';
 import { PITCH_LABEL, WEATHER_LABEL } from '@/domain/match';
-import { isPlayer, type Official } from '@/domain/person';
+import { isPlayer, type Official, type Player } from '@/domain/person';
 import { MENTALITY_LABEL, PRESSING_LABEL } from '@/domain/tactics';
 import { formatDate } from '@/simulation/calendar';
 import { expectedAttendanceFor } from '@/simulation/matchday';
@@ -13,7 +13,10 @@ import { playerName } from '../format';
 import { FixtureCard } from './FixtureCard';
 import { Button, FormPips, Panel, Pill, Stat } from './primitives';
 import { PlayerLink } from './Links';
+import { PersonLine } from './PersonIdentity';
 import { CommentaryTranscript } from '../match/CommentaryTranscript';
+import { TeamSheet } from '../match/TeamSheet';
+import { matchTeamColours } from '../kit';
 
 /**
  * The manager never has perfect information. Opposition reports are
@@ -111,9 +114,15 @@ export function NextFixturePanel({ state, match }: { state: GameState; match: Ma
               : `${unavailable.length} of ${squad.length} not fully available:`}
           </p>
           <ul className="tight-list">
+
             {unavailable.slice(0, 6).map((player) => (
-              <li key={player.id}>
-                <strong>{playerName(player)}</strong>{' '}
+              <li key={player.id} className="row row--wrap">
+                {/* Who cannot play, and why, is a list of men rather than a
+                    sentence about one: the manager reads it to see who he has,
+                    so every name in it is drawn as it is drawn everywhere. */}
+                <PersonLine personId={player.id}>
+                  <strong>{playerName(player)}</strong>
+                </PersonLine>
                 <span className="muted small">{player.availability.note ?? player.availability.reason}</span>
               </li>
             ))}
@@ -147,6 +156,16 @@ export function MatchDetailPanel({ state, match }: { state: GameState; match: Ma
       </Panel>
     );
   }
+
+  // The shirts the afternoon was played in, read from the kits rather than from
+  // the clubs' own colours: a side that turned out in its away strip is in it
+  // here, and so is each keeper, in the third strip. The same answer the pitch
+  // and the sheets on it read, because it is the same reading.
+  const strips = matchTeamColours(state, match.homeClubId, match.awayClubId);
+  const playerById = (id: string): Player | undefined => {
+    const person = state.people[id];
+    return isPlayer(person) ? person : undefined;
+  };
 
   return (
     <div className="stack match-report__body">
@@ -212,6 +231,38 @@ export function MatchDetailPanel({ state, match }: { state: GameState; match: Ma
         </div>
       </div>
 
+      {/* The two teams as they were picked, in the shirts they played in. A
+          report is the written record of an afternoon, and the line-ups are the
+          half of it no other line of the page carries: the ratings say how each
+          man played, and this says who was out there at all, in the order and the
+          shape he was picked in. It is the same sheet the manager read while the
+          match was on, in the same shirts, so the record and the afternoon cannot
+          tell two different stories about him. Drawn only when both sides were
+          actually picked: a fixture settled on a forfeit has no eleven to list. */}
+      {match.lineups.home.starting.length > 0 && match.lineups.away.starting.length > 0 && (
+        <div>
+          <h4 className="subhead">The teams</h4>
+          <div className="split">
+            <TeamSheet
+              side="home"
+              club={home}
+              lineup={match.lineups.home}
+              match={match}
+              playerById={playerById}
+              colours={strips.home}
+            />
+            <TeamSheet
+              side="away"
+              club={away}
+              lineup={match.lineups.away}
+              match={match}
+              playerById={playerById}
+              colours={strips.away}
+            />
+          </div>
+        </div>
+      )}
+
       <details className="more"><summary>Full commentary</summary>
         <CommentaryTranscript match={match} />
       </details>
@@ -237,9 +288,14 @@ function RatingList({
           const isUserPlayer = person?.clubId === state.userClubId;
           return (
             <li key={performance.playerId} className={isUserPlayer ? 'rating-row rating-row--mine' : 'rating-row'}>
-              <PlayerLink personId={performance.playerId}>
+              {/* Fourteen men with a mark each is a list of people, and a match
+                  report is read by finding your own among them: the ratings are
+                  drawn so a manager can see who he is looking at. The scorers
+                  above are left as words — a goal is a sentence about a match,
+                  and this is a list about men. */}
+              <PersonLine personId={performance.playerId}>
                 {person ? `${person.firstName.charAt(0)}. ${person.surname}` : 'Unknown'}
-              </PlayerLink>
+              </PersonLine>
               <span className="muted small">
                 {performance.goals > 0 ? `${performance.goals}⚽ ` : ''}
                 {performance.minutesPlayed}&#39;

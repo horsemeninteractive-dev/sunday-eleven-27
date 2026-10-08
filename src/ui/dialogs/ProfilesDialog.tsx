@@ -60,7 +60,7 @@ export function ProfilesDialog() {
         means typing the details again next time.
       </p>
     </Dialog>
-    {pending && <Dialog title="Forget this manager profile?" narrow onClose={() => setPending(null)} footer={<><Button variant="ghost" onClick={() => setPending(null)}>Keep profile</Button><Button variant="danger" onClick={() => forget(pending.id)}>Forget profile</Button></>}><p>{pending.profile.firstName} {pending.profile.surname} will no longer appear as a setup shortcut. Their saved careers will not be deleted.</p></Dialog>}
+    {pending && <Dialog title="Forget this manager profile?" kind="confirm" narrow onClose={() => setPending(null)} footer={<><Button variant="ghost" onClick={() => setPending(null)}>Keep profile</Button><Button variant="danger" onClick={() => forget(pending.id)}>Forget profile</Button></>}><p>{pending.profile.firstName} {pending.profile.surname} will no longer appear as a setup shortcut. Their saved careers will not be deleted.</p></Dialog>}
     </>
   );
 }

@@ -56,6 +56,14 @@ const BADGE_SHAPE_LABEL: Record<BadgeShape, string> = {
   oval: 'Oval',
   arch: 'Arch',
   pennant: 'Pennant',
+  // The five the generator deals from since the county was five badges between
+  // them. Named as a manager would name a badge, not as the path is written: the
+  // swallowtail is a banner to anyone looking at it, and the lozenge is a diamond.
+  octagon: 'Octagon',
+  plaque: 'Plaque',
+  swallowtail: 'Banner',
+  gable: 'Gable',
+  ovalWide: 'Wide oval',
 };
 
 const BADGE_PATTERN_LABEL: Record<BadgePattern, string> = {
@@ -67,6 +75,9 @@ const BADGE_PATTERN_LABEL: Record<BadgePattern, string> = {
   quarters: 'Quarters',
   sash: 'Sash',
   chevron: 'Chevron',
+  bordure: 'Border',
+  perFess: 'Split across',
+  saltire: 'Saltire',
 };
 
 /** The names a device is offered under, where its own name is not enough. */
@@ -78,6 +89,8 @@ const DEVICE_LABEL: Partial<Record<BadgeDevice, string>> = {
   sheaf: 'Sheaf of corn',
   barrels: 'Barrels',
   chequers: 'Chequers',
+  fleece: 'A fleece',
+  pickaxe: 'Pick and shovel',
 };
 
 function deviceLabel(device: BadgeDevice): string {

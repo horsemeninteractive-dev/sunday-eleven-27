@@ -20,7 +20,8 @@ import type { GameState } from '@/domain/game';
 import type { ClubId, GroundId, ISODate, SeasonId } from '@/domain/ids';
 import type { GameEvent } from '@/domain/news';
 import { isOfficial } from '@/domain/person';
-import { defaultTactics } from '@/domain/tactics';
+import { Rng } from './rng';
+import { styleTactics } from './ai/style';
 import { yearOf } from './calendar';
 import { generateSquad } from './generation/playerGenerator';
 import {
@@ -45,7 +46,61 @@ export const CLUB_LIFECYCLE = {
   terminalDebt: -4000,
   /** How far a bad finish cuts a club's standing. */
   administrationReputationHit: 3,
+  /**
+   * How much a newly formed club's standing varies within its own division.
+   *
+   * Small on purpose: the rung is the anchor, and the roll exists only so two
+   * of the county's new clubs are not the same club. It is then clamped to the
+   * division's own band, so a replacement can arrive no higher or lower than
+   * the rung it has joined.
+   */
+  replacementStandingRoll: 3,
 } as const;
+
+/** One reading of a division's standard: where its middle is, and how far it spans. */
+export interface DivisionStanding {
+  low: number;
+  median: number;
+  high: number;
+}
+
+/**
+ * The standing of the division a club is entering, read from the clubs in it.
+ *
+ * A replacement used to be minted at whatever standing its *town* drew
+ * (`reputationForTown`), which has nothing to do with the rung it was joining.
+ * Measured on a generated county, the bottom division's clubs stand at 24–38
+ * with a median of 33, while the town draws for those same clubs run 25–41: a
+ * club folding in Division Three was routinely replaced by one of Division Two's
+ * standard, and a new club could arrive *above* or *below* the rung it joined.
+ * The rung that churns hardest therefore climbed — over fifteen seasons of the
+ * soak, division 3 rose 3–6% while division 1 was flat, and the pyramid
+ * flattened towards itself.
+ *
+ * So the rung is the anchor: a new club is minted at the median standing of the
+ * clubs already in the division whose place it takes. The clubs' own reputations
+ * are what the ladder *is* — it is built by sorting them and cutting from the
+ * top — so reading the rung back off its members is the only definition of a
+ * division's standard the world actually holds. `null` when the division has been
+ * emptied in this pass, which is the one case with nothing to read.
+ */
+export function divisionStanding(
+  state: GameState,
+  divisionClubIds: readonly ClubId[],
+): DivisionStanding | null {
+  const standings = divisionClubIds
+    .map((id) => state.clubs[id])
+    .filter((club): club is Club => Boolean(club) && club.active)
+    .map((club) => club.reputation)
+    .sort((a, b) => a - b);
+  if (standings.length === 0) return null;
+  const middle = standings.length >> 1;
+  const median =
+    standings.length % 2 === 1
+      ? standings[middle]!
+      : Math.round((standings[middle - 1]! + standings[middle]!) / 2);
+  return { low: standings[0]!, median, high: standings[standings.length - 1]! };
+}
 
 export interface ClubLifecycleContext {
   seasonId: SeasonId;
@@ -243,7 +298,20 @@ function formReplacement(
     yearOf(context.seasonStart),
   );
 
-  const reputation = reputationForTown(rng, town);
+  // The football follows the rung, the place follows the town: a county's new
+  // club is named after where it is, plays on the pitch it can get, and plays at
+  // the standard of the division it is stepping into. The town draw is kept only
+  // as the fallback for a division with nobody left in it to read.
+  const rung = divisionStanding(state, divisionClubIds);
+  const reputation = rung
+    ? Math.max(
+        rung.low,
+        Math.min(
+          rung.high,
+          Math.round(rung.median + rng.gaussian(0, CLUB_LIFECYCLE.replacementStandingRoll)),
+        ),
+      )
+    : reputationForTown(rng, town);
   const ground = state.world.grounds[groundId];
   if (ground) {
     ground.tenantClubId = clubId;
@@ -262,7 +330,14 @@ function formReplacement(
   for (const player of squad) state.people[player.id] = player;
 
   const chairman = generateChairman(rng, townId, 0);
-  chairman.id = `chm_${context.seasonId}_${townId}`;
+  // Keyed on the club being replaced, exactly as the club's own id is, and for
+  // exactly the same reason: two clubs in one town can fold in the same summer,
+  // and a chairman id keyed on the town mints the same man twice. The second
+  // write wins, both clubs then name one person, and the day either club folds
+  // again the fold deletes the officials it owns and leaves the other club
+  // pointing at a chairman who has gone (found by the fifteen-season soak:
+  // `club-official-exists`).
+  chairman.id = `chm_${context.seasonId}_${replacedClubId}`;
   chairman.clubId = clubId;
   chairman.roles = [{ clubId, role: 'chairman', since: context.seasonStart }];
   chairman.notes = [`Helped found the club ahead of ${context.seasonLabel}.`];
@@ -293,7 +368,10 @@ function formReplacement(
     managerId: null, // the managers' market fills it, the same as any vacancy
     staff,
     sponsorIds: [],
-    tactics: defaultTactics('4-4-2'),
+    // A club formed this summer plays like the club its standing says it is,
+    // from its own stream: the men who founded it have their own idea of
+    // football, and it must not be drawn from the stream the finances are.
+    tactics: styleTactics(new Rng(`${state.seed}::tactics::${clubId}`), reputation),
     finances: buildFinances(rng, town, reputation),
     // A club founded this summer has founded nothing yet: `emptyHistory` gives an
     // established club a potted honour or two, which a brand-new one cannot have.

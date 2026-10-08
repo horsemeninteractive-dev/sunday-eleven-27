@@ -3,9 +3,22 @@ import { useGameStore } from '@/state/gameStore';
 import { Button } from '../components/primitives';
 import { useModalTarget, useModal } from '../components/useModal';
 
+/**
+ * What kind of thing a dialog is holding.
+ *
+ * The mechanics are one system and are not up for variation — the scrim, the
+ * escape key, the focus trap, where focus lands when it closes. What is *in* the
+ * dialog is not one thing, though, and a person's dossier, the club's own page,
+ * a match report and a question with two answers were all arriving with the same
+ * head on them, which is why they read as the same pop-up with different words.
+ * The kind is put on the overlay as `data-modal` and the stylesheet paints it;
+ * no dialog behaves differently because of it.
+ */
+export type DialogKind = 'person' | 'club' | 'report' | 'confirm';
+
 /** Contextual information over the current screen, never a second application. */
 export function Dialog({
-  title, subtitle, onClose, narrow = false, children, footer, actions, className = '',
+  title, subtitle, onClose, narrow = false, children, footer, actions, className = '', kind,
 }: {
   title: string;
   subtitle?: ReactNode;
@@ -15,6 +28,8 @@ export function Dialog({
   footer?: ReactNode;
   actions?: ReactNode;
   className?: string;
+  /** Left off for the plain dialog, which is what a utility is. */
+  kind?: DialogKind;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const titleId = useId();
@@ -22,7 +37,7 @@ export function Dialog({
   const top = useModalTarget();
   useModal(ref, onClose);
   return (
-    <div className={`overlay ${className}`}>
+    <div className={`overlay ${className}`} data-modal={kind}>
       <div className="overlay__scrim" onClick={onClose} aria-hidden="true" />
       <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId}
         className={`overlay__panel${narrow ? ' overlay__panel--narrow' : ''}`}>

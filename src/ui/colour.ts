@@ -106,13 +106,46 @@ export function inkForColours(...colours: string[]): string {
   return best;
 }
 
+/**
+ * The contrast every scrap of small text needs: the WCAG's own floor for body
+ * text, and the number this sheet has always quoted by hand.
+ */
+export const TEXT_CONTRAST_FLOOR = 4.5;
+
 /** Club-coloured text needs a different ink from paint on a crest or shirt. */
 export function readableClubColour(primary: string): string {
   for (let step = 0; step <= 20; step += 1) {
     const ink = mixColours(primary, LIGHT_INK, step / 20);
-    if (contrastRatio(ink, '#1f252c') >= 4.5) return ink;
+    if (contrastRatio(ink, '#1f252c') >= TEXT_CONTRAST_FLOOR) return ink;
   }
   return LIGHT_INK;
+}
+
+/**
+ * The ink a club's colour is *painted* in — a button, a chip, a badge, a dot.
+ *
+ * Paint is the one place the game cannot choose its surface: the club's colour
+ * is a free variable and it goes on flat. The header's ink is not the answer
+ * here, because it is chosen across the *stripes* the club's two colours make,
+ * and a compromise that keeps a faded band readable can be wrong for the flat
+ * colour underneath — a career blue took the ink its stripes had picked and
+ * measured 3.84:1 on its own buttons, which axe catches on every screen. Flat
+ * paint is one colour, so it gets one answer, and that answer is never below
+ * the floor small text needs.
+ *
+ * The app's two inks are tried first, so a club keeps the house ink wherever it
+ * works. A mid-toned colour that neither of them clears needs the far end of the
+ * scale — white or black — and one of those always works: their ratios against
+ * any colour multiply to 21, so the better of the two can never be below 4.58.
+ * That is what makes this a guarantee rather than an improvement.
+ */
+export function flatClubInk(primary: string): string {
+  for (const ink of [LIGHT_INK, DARK_INK]) {
+    if (contrastRatio(ink, primary) >= TEXT_CONTRAST_FLOOR) return ink;
+  }
+  return contrastRatio('#ffffff', primary) >= contrastRatio('#000000', primary)
+    ? '#ffffff'
+    : '#000000';
 }
 
 /** The second colour, or the first when a club only has one. */
@@ -407,10 +440,17 @@ export function clubStyle(colours: ClubColours): Record<string, string> {
     '--club-text': readableClubColour(primary),
     '--club-2': secondary,
     '--club-band': band,
-    '--club-band-ink': inkForColours(band),
+    // The band is flat paint too, so its ink is chosen the same way: for that
+    // colour alone, with the floor small text needs. The fixture's date, its
+    // competition and its venue are all read in it.
+    '--club-band-ink': flatClubInk(band),
     // Ink is chosen for the two colours the header actually shows, not just for
-    // the flat one, so the stripes never swallow the text on top of them.
+    // the flat one, so the stripes never swallow the text on top of them. This
+    // is the *striped bar's* ink and only the bar's — it is a compromise across
+    // the bands, which is why nothing painted flat may borrow it.
     '--club-ink': inkForColours(...stripeColours(colours)),
+    // The ink for the club's colour painted flat, chosen for that colour alone.
+    '--club-flat-ink': flatClubInk(primary),
     '--club-2-ink': inkForColour(secondary),
     '--club-wash': withAlpha(primary, 0.16),
     '--club-soft': withAlpha(primary, 0.26),

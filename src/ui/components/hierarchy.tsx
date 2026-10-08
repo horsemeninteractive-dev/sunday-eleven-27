@@ -126,6 +126,47 @@ export function Tile({
   );
 }
 
+/**
+ * The one fact a screen is about.
+ *
+ * Most screens in SE27 are a list, a table or a form, and the single number that
+ * answers the screen's own question — where we are in the table, what is in the
+ * bank, how many are fit for Sunday — ends up buried in the first row of the
+ * thing it summarises, at the same size as every other number in it. This is that
+ * fact, drawn once, under the screen's name, on the rule that separates the two:
+ * the letterpress over it, the number at the display size, and a line of plain
+ * words saying what it means.
+ *
+ * It is deliberately not a tile. A tile is a small box scanned among its peers;
+ * this is one thing, early, with room around it, and nothing beside it competing.
+ * The tone is a colour on the number and nothing else, because a fact that needs
+ * a raised surface to be noticed is a fact the hierarchy has already lost.
+ */
+export function FocalFact({
+  label,
+  value,
+  note,
+  aside,
+  tone = 'default',
+  className,
+}: {
+  label: ReactNode;
+  value: ReactNode;
+  note?: ReactNode;
+  aside?: ReactNode;
+  tone?: 'default' | 'ok' | 'warn' | 'bad' | 'accent';
+  className?: string;
+}) {
+  return (
+    <div className={`focal-fact focal-fact--${tone}${className ? ` ${className}` : ''}`}>
+      <span className="focal-fact__label letterpress">{label}</span>
+      <span className="focal-fact__value">{value}</span>
+      {note && <span className="focal-fact__note">{note}</span>}
+      {aside && <span className="focal-fact__aside">{aside}</span>}
+    </div>
+  );
+}
+
 /** A number that matters, with its label above and an optional note below. */
 export function MetricTile({
   label,

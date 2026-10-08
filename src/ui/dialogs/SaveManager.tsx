@@ -35,6 +35,6 @@ export function SaveManager({ onClose }: { onClose: () => void }) {
       </ul>}
       <p className="small muted" role={busy ? 'status' : undefined}>{busy ? 'Saving the whole career…' : 'Autosave keeps the current career up to date. Manual slots stay as you left them.'}</p>
     </Dialog>
-    {overwrite && <Dialog title="Replace this saved career?" narrow onClose={() => { if (!busy) setOverwrite(null); }} footer={<><Button variant="ghost" disabled={busy} onClick={() => setOverwrite(null)}>Keep existing save</Button><Button variant="danger" disabled={busy} onClick={() => void save(overwrite.slot)}>Replace save</Button></>}><p><strong>{overwrite.clubName}</strong>, {overwrite.seasonLabel}, {formatShortDate(overwrite.date)} will be replaced with your current career. This cannot be undone.</p></Dialog>}
+    {overwrite && <Dialog title="Replace this saved career?" kind="confirm" narrow onClose={() => { if (!busy) setOverwrite(null); }} footer={<><Button variant="ghost" disabled={busy} onClick={() => setOverwrite(null)}>Keep existing save</Button><Button variant="danger" disabled={busy} onClick={() => void save(overwrite.slot)}>Replace save</Button></>}><p><strong>{overwrite.clubName}</strong>, {overwrite.seasonLabel}, {formatShortDate(overwrite.date)} will be replaced with your current career. This cannot be undone.</p></Dialog>}
   </>;
 }

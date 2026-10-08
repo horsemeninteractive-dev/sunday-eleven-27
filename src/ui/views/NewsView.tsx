@@ -6,7 +6,9 @@ import { useGame } from '../hooks';
 import { playerName } from '../format';
 import { isPlayer } from '@/domain/person';
 import { EmptyState, PageHeader } from '../components/primitives';
-import { ClubLink, PlayerLink } from '../components/Links';
+import { ClubLink } from '../components/Links';
+import { PersonLine } from '../components/PersonIdentity';
+import { NewsPlate } from '../components/NewsPlate';
 
 const FILTERS: Array<NewsCategory | 'All'> = ['All', 'Match', 'Squad', 'Club', 'League', 'World', 'Finances'];
 
@@ -43,7 +45,15 @@ function StoryMeta({ item }: { item: NewsItem }) {
   );
 }
 
-/** The clubs and the people a story is about, as the links every other screen draws. */
+/**
+ * The clubs and the people a story is about.
+ *
+ * A story's clubs have always been drawn — the crest is how this game says which
+ * club — and its people were only named, which made the same sentence say two
+ * different things about two of the things it was about. They are drawn now, for
+ * the same reason: a story about Kev Taylor is about a man, and the paper is
+ * where a manager first meets him.
+ */
 function StoryLinks({ item, game }: { item: NewsItem; game: GameState }) {
   return (
     <div className="row row--wrap">
@@ -54,9 +64,9 @@ function StoryLinks({ item, game }: { item: NewsItem; game: GameState }) {
         .map((id) => game.people[id])
         .filter(isPlayer)
         .map((person) => (
-          <PlayerLink key={person.id} personId={person.id}>
+          <PersonLine key={person.id} personId={person.id}>
             {playerName(person)}
-          </PlayerLink>
+          </PersonLine>
         ))}
     </div>
   );
@@ -75,6 +85,7 @@ function LeadStory({ item, game }: { item: NewsItem; game: GameState }) {
   const leadsOn = rest.length > 0;
   return (
     <article className="news-lead">
+      <NewsPlate category={item.category} className="news-plate--lead" />
       <StoryMeta item={item} />
       <h2 className="news-lead__headline">{item.headline}</h2>
       {opening && (
@@ -153,8 +164,11 @@ export function NewsView() {
                     .map((item) => (
                       <details className="news-story" key={item.id}>
                         <summary>
-                          <StoryMeta item={item} />
-                          <span className="news-story__headline">{item.headline}</span>
+                          <NewsPlate category={item.category} />
+                          <span className="news-story__text">
+                            <StoryMeta item={item} />
+                            <span className="news-story__headline">{item.headline}</span>
+                          </span>
                         </summary>
                         <div className="news-story__body">
                           {paragraphsOf(item).map((paragraph, index) => (

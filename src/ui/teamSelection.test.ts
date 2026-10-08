@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { GameState } from '@/domain/game';
 import type { Match, MatchLineup } from '@/domain/match';
 import type { Player } from '@/domain/person';
-import { KEEPER_LINE, POSITIONS, formationSlots, getFormation, isNamedShape, positionForPoint } from '@/domain/positions';
+import { FORMATION_IDS, KEEPER_LINE, OUTFIELD_LINE, POSITIONS, formationSlots, getFormation, isNamedShape, positionForPoint, positionRank } from '@/domain/positions';
 import { defaultRoleFor } from '@/simulation/match/roles';
 import { positionScore } from '@/simulation/selection';
 import { ensureUserXi } from '@/simulation/matchday';
@@ -19,8 +19,9 @@ import {
   removeFromBench,
   replaceOnBench,
   swapWithBench,
+  squadInTeamOrder,
 } from './lineupEditing';
-import { diagramPosition, diagramStyle } from './tacticalDiagram';
+import { SHIRT_REACH, diagramFraction, diagramPosition, diagramStyle, nearestDrawnSlot, onShirt, pitchPointAt, pitchPointerFraction } from './tacticalDiagram';
 
 const source = (file: string) => readFileSync(`src/ui/${file}`, 'utf8');
 
@@ -69,6 +70,68 @@ describe('a dot dropped on the pitch takes the job that zone is for', () => {
     for (const [x, y] of [[0.04, 0.5], [0.02, 0.55], [0.06, 0.45], [0.01, 0.9]]) {
       expect(positionForPoint(x!, y!, { outfieldOnly: true })).not.toBe('GK');
     }
+  });
+
+  it('lets a defender be stood as deep as the six-yard line, and no deeper', () => {
+    const box = { left: 0, top: 0, width: 1, height: 1 };
+    // The bottom edge of the picture — his own goal line — is as deep as a dot
+    // may be *moved* to, and the floor under it is the six-yard line rather than
+    // the line the drawing used to stop at: a centre half pushed right back is
+    // now drawn standing in his own six-yard box.
+    const goalLine = pitchPointAt(box, 0.5, 1);
+    expect(goalLine.x).toBeCloseTo(OUTFIELD_LINE, 10);
+    expect(pitchPointAt(box, 0.5, 0.5).x).toBeGreaterThan(goalLine.x);
+    expect(diagramFraction(goalLine).top).toBeGreaterThan(diagramFraction({ x: 0.13, y: 0.5 }).top);
+    // And still in front of the keeper, whose row is his own: the two floors are
+    // strictly apart, which is what keeps a defender off the top of him.
+    expect(diagramFraction(goalLine).top).toBeLessThan(diagramFraction({ x: KEEPER_LINE, y: 0.5 }).top);
+  });
+
+  it("lets a shirt on the keeper's own row be aimed at", () => {
+    const slots = getFormation('4-4-2').slots;
+    const drawn = diagramFraction(diagramPosition(slots[0]!));
+    // He is drawn behind every outfield row, which is exactly why he could never
+    // be the nearest shirt to a drop read through the outfield floor.
+    expect(drawn.top).toBeGreaterThan(diagramFraction({ x: OUTFIELD_LINE, y: 0.5 }).top);
+    const drop = nearestDrawnSlot(drawn, slots);
+    expect(drop.index).toBe(0);
+    expect(drop.distance).toBeCloseTo(0, 10);
+    expect(onShirt(drop)).toBe(true);
+    // And a drop a finger's width away from his shirt is beside him, not on him.
+    const beside = nearestDrawnSlot({ left: drawn.left + SHIRT_REACH.left * 3, top: drawn.top }, slots);
+    expect(onShirt(beside)).toBe(false);
+  });
+
+  it('leaves no drop within reach of two shirts at once', () => {
+    // The reach is a box around a man, and the swap it asks for has to be
+    // unambiguous: if one drop were within reach of two shirts, which man a
+    // manager swapped with would come down to which of them he was a hair
+    // nearer. So the closest two shirts on any formation are held more than a
+    // reach apart on at least one axis — which is also what leaves dropping a
+    // man into the space between two of them a move rather than a swap.
+    for (const formation of FORMATION_IDS) {
+      const slots = getFormation(formation).slots;
+      for (let a = 0; a < slots.length; a += 1) {
+        for (let b = a + 1; b < slots.length; b += 1) {
+          const first = diagramFraction(diagramPosition(slots[a]!));
+          const second = diagramFraction(diagramPosition(slots[b]!));
+          const apart =
+            Math.abs(first.left - second.left) > SHIRT_REACH.left * 2 ||
+            Math.abs(first.top - second.top) > SHIRT_REACH.top * 2;
+          expect(apart, `${formation}: shirts ${a} and ${b}`).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('reads a drop off the picture rather than off the pitch', () => {
+    // The same pointer read both ways. The football mapping floors the point
+    // into the rows a dot may stand in; the place on the picture is simply where
+    // the finger is, which is what lets a shirt be aimed at that is drawn in a
+    // row nobody stands in.
+    const box = { left: 10, top: 20, width: 100, height: 300 };
+    expect(pitchPointerFraction(box, 60, 320)).toEqual({ left: 0.5, top: 1 });
+    expect(pitchPointAt(box, 60, 320).x).toBeCloseTo(OUTFIELD_LINE, 10);
   });
 });
 
@@ -145,6 +208,26 @@ describe('moving a dot', () => {
     expect(diagramPosition({ position: 'GK', x: 0.9, y: 0.5 })).toEqual({ x: KEEPER_LINE, y: 0.5 });
   });
 
+  it('lets a defender be pushed back to the six-yard line, and keeps him out of goal', () => {
+    const { game, lineup } = career('selection-deep');
+    const index = lineup.starting.findIndex((slot) => slot.position === 'CB');
+    const keeper = lineup.starting.findIndex((slot) => slot.position === 'GK');
+    const player = game.people[lineup.starting[index]!.playerId] as Player;
+    // Pushed to the very bottom of the picture, which is where the old defensive
+    // line used to stop him.
+    const moved = moveSlot(lineup, index, KEEPER_LINE, 0.5, player);
+    expect(moved.tactics.shape![index]!.x).toBe(OUTFIELD_LINE);
+    // He is still a centre half: the deepest row is a place to stand rather than
+    // a shirt, and being pushed back does not make him the goalkeeper.
+    expect(moved.starting[index]!.position).toBe('CB');
+    expect(moved.starting.filter((slot) => slot.position === 'GK')).toHaveLength(1);
+    expect(moved.starting[keeper]!.playerId).toBe(lineup.starting[keeper]!.playerId);
+    // And he is drawn in front of the keeper rather than on top of him.
+    expect(diagramFraction(moved.tactics.shape![index]!).top).toBeLessThan(
+      diagramFraction(moved.tactics.shape![keeper]!).top,
+    );
+  });
+
   it('does not invent a shape until somebody actually moves', () => {
     const { lineup } = career('selection-untouched');
     expect(lineup.tactics.shape).toBeUndefined();
@@ -161,6 +244,32 @@ describe('dropping a man on a shirt', () => {
     expect(swapped.starting[0]!.playerId).toBe(second!.playerId);
     expect(swapped.starting[1]!.playerId).toBe(first!.playerId);
     expect(new Set(swapped.starting.map((slot) => slot.playerId)).size).toBe(11);
+  });
+
+  it("puts a man in the goalkeeper's shirt, and the goalkeeper in his", () => {
+    const { game, lineup } = career('selection-keeper-swap');
+    const keeperIndex = lineup.starting.findIndex((slot) => slot.position === 'GK');
+    const outfieldIndex = lineup.starting.findIndex((slot) => slot.position === 'ST');
+    const keeper = game.people[lineup.starting[keeperIndex]!.playerId] as Player;
+    const striker = game.people[lineup.starting[outfieldIndex]!.playerId] as Player;
+    // The same edit the screen makes when a dot is let go on a shirt, either way
+    // round: the man entering the shirt is the one who was dropped on it.
+    const after = placeInSlot(lineup, keeperIndex, striker.id, striker);
+
+    expect(after.starting[keeperIndex]!.playerId).toBe(striker.id);
+    expect(after.starting[outfieldIndex]!.playerId).toBe(keeper.id);
+    // What changed hands is the shirt, not the shape or the positions: the
+    // eleven still stand where they were set out, and the side still has a
+    // goalkeeper, which is the one thing the selection rules ask for.
+    expect(after.starting[keeperIndex]!.position).toBe('GK');
+    expect(after.starting[outfieldIndex]!.position).toBe('ST');
+    expect(after.starting.filter((slot) => slot.position === 'GK')).toHaveLength(1);
+    expect(after.tactics.shape).toBe(lineup.tactics.shape);
+    // Both answers are asked of the right man: the man arriving in goal is judged
+    // at the job he has taken on, and the keeper keeps his own answer at his own.
+    expect(after.starting[keeperIndex]!.outOfPosition).toBe(positionScore(striker, 'GK') < 0.55);
+    expect(after.starting[outfieldIndex]!.outOfPosition).toBe(lineup.starting[outfieldIndex]!.outOfPosition);
+    expect(new Set(after.starting.map((slot) => slot.playerId)).size).toBe(11);
   });
 
   it('sends the displaced man to the bench when a substitute comes on', () => {
@@ -370,6 +479,24 @@ describe('the selection screen says what it can do', () => {
     expect(view).toContain('pitch__player--target');
   });
 
+  it('swaps two men when a dot is let go on another, keeper included', () => {
+    // The gesture the screen was missing. A dot let go *on* a shirt hands that
+    // shirt over, which is the only way a keeper is made or unmade by dragging:
+    // the zone rule will not make one (`outfieldOnly`) and a keeper let go on
+    // grass is pinned back to his line. The shirt aimed at is chosen from where
+    // the finger is, because the keeper is drawn in a row of his own that no
+    // zone reaches, and it is marked before the manager lets go.
+    expect(view).toContain('swapDots');
+    expect(view).toContain('nearestDrawnSlot');
+    expect(view).toContain('pitchPointerFraction');
+    expect(view).toContain('onShirt');
+    expect(view).toContain('Swap with');
+    expect(view).toContain('pitch__player--target');
+    // And both his dot's jobs are said out loud, on the pitch and in the hint.
+    expect(view).toContain('onto a teammate to swap');
+    expect(view).toContain('drop him on a shirt to swap');
+  });
+
   it('lets the same move be made from the keyboard', () => {
     expect(view).toContain('ArrowUp');
     expect(view).toContain('ArrowLeft');
@@ -405,6 +532,17 @@ describe('the selection screen says what it can do', () => {
     // on this screen is how they drifted apart the first time.
     expect(view).toContain('diagramStyle(diagramPosition(formationSlot))');
     expect(view).toContain('lineupShape');
+  });
+
+  it('dresses the keeper in his own kit, because his shirt is how he is found', () => {
+    // The one man on this pitch who is not in the club's colours. The dot the
+    // manager drags around is drawn in the third strip the Kit screen drew for
+    // him, so the keeper he drops where he wants him is the keeper who will turn
+    // out — and his shirt is the only thing telling him from the ten either side
+    // of him.
+    expect(view).toContain('goalkeeperKitColour(game, clubId)');
+    expect(view).toContain('style={keeper ? keeperStyle : undefined}');
+    expect(view).toContain('flatClubInk');
   });
 });
 
@@ -493,5 +631,141 @@ describe('the position vocabulary the pitch adapts into', () => {
     for (const code of ['LB', 'RB', 'CB', 'CM', 'DM', 'AM', 'LM', 'RM', 'LW', 'RW', 'ST'] as const) {
       expect(POSITIONS[code].label.length).toBeGreaterThan(2);
     }
+  });
+});
+
+
+/**
+ * The list a side is picked from, in the order it opens in.
+ *
+ * The screen asks `squadInTeamOrder` for that order rather than sorting the
+ * squad itself, so what is pinned here is the rule: the XI as it stands on the
+ * pitch, keeper first; then the substitutes, by the job each of them does; then
+ * everybody else. It is the order a manager reads a team sheet in, and the
+ * reason the screen opens in it is that "who is picked, and where" is the
+ * question he came to that screen to ask.
+ */
+describe('the squad list a side is picked from', () => {
+  const view = source('views/TeamSelectionView.tsx');
+
+  it('puts the eleven first, in the order the shape stands them on the pitch', () => {
+    const { lineup, squad } = career('selection-order');
+    const places = squadInTeamOrder(squad, lineup);
+
+    // Everybody, once. This list is the whole squad, as the picker has always
+    // been, and a man missing from it is a man who cannot be picked.
+    expect(places).toHaveLength(squad.length);
+    expect(new Set(places.map((place) => place.player.id)).size).toBe(squad.length);
+
+    const picked = places.filter((place) => place.slotIndex >= 0);
+    expect(picked).toHaveLength(11);
+    expect(picked.map((place) => place.player.id)).toEqual(lineup.starting.map((slot) => slot.playerId));
+    // Read from the back, the way a teamsheet is drawn: the keeper is first,
+    // because his is the first shirt on the pitch.
+    expect(POSITIONS[lineup.starting[0]!.position].group).toBe('GK');
+    // And the eleven are in the order the pitch draws them, which is the order
+    // `lineupShape` hands the diagram.
+    expect(picked.map((place) => place.slotIndex)).toEqual([...Array(11).keys()]);
+  });
+
+  it('puts the substitutes behind them, and the rest of the squad behind those', () => {
+    const { lineup, squad } = career('selection-order-ranks');
+    const places = squadInTeamOrder(squad, lineup);
+    const inXI = (place: { slotIndex: number }) => place.slotIndex >= 0;
+
+    const benchPlaces = places.filter((place) => !inXI(place) && place.benchIndex >= 0);
+    expect(benchPlaces).toHaveLength(lineup.bench.length);
+    expect(benchPlaces.map((place) => place.player.id).sort()).toEqual(lineup.bench.map((slot) => slot.playerId).sort());
+    // A substitute has no place on a pitch until he comes on, so his job is what
+    // puts him in order: keeper first, the front men last.
+    const ranks = benchPlaces.map((place) => positionRank(place.player.preferredPosition));
+    expect(ranks).toEqual([...ranks].sort((left, right) => left - right));
+
+    // Three bands and no interleaving: every member of the XI, then every
+    // substitute, then the men who are in neither.
+    expect(places.map(inXI).lastIndexOf(true)).toBeLessThan(places.findIndex((place) => !inXI(place)));
+    const firstSpare = places.findIndex((place) => !inXI(place) && place.benchIndex < 0);
+    const lastBench = places.map((place) => !inXI(place) && place.benchIndex >= 0).lastIndexOf(true);
+    expect(firstSpare).toBeGreaterThan(lastBench);
+  });
+
+  it('moves a man up the list when he is picked, and the man he replaced down it', () => {
+    const { game, lineup, squad } = career('selection-order-swap');
+    const reserve = lineup.bench[2]!;
+    const reservePlayer = game.people[reserve.playerId] as Player;
+    const displaced = lineup.starting[4]!.playerId;
+    const after = swapWithBench(lineup, 4, reserve.playerId, reservePlayer);
+
+    const places = squadInTeamOrder(squad, after);
+    // The shirt is the place in the list: he is where the man he replaced was.
+    expect(places.filter((place) => place.slotIndex >= 0)[4]!.player.id).toBe(reserve.playerId);
+    const dropped = places.findIndex((place) => place.player.id === displaced);
+    expect(dropped).toBeGreaterThan(10);
+    // And he is read as a substitute now, rather than as a member of the XI.
+    expect(places[dropped]!.slotIndex).toBe(-1);
+    expect(places[dropped]!.benchIndex).toBeGreaterThanOrEqual(0);
+  });
+
+  it('sorts on the facts the squad screen sorts on, and offers the same headings', () => {
+    // One answer to "sort a squad", in both screens: the values come from the
+    // domain (`positionRank`, `availabilityRank`), so the two lists cannot drift
+    // apart, and the cycling is `tableSort`'s, so neither can the gesture.
+    expect(view).toContain('squadInTeamOrder(squad, lineup)');
+    expect(view).toContain('applySort(roster, sort, PICKER_SORT)');
+    expect(view).toContain('toggleSort(sort, key)');
+    // The headings live with the thing that remembers one, in `selectionSort.ts`,
+    // so the list cannot remember a heading it does not offer or offer one it
+    // cannot remember.
+    expect(view).toContain('SELECTION_SORT_KEYS.map');
+    const headings = source('selectionSort.ts');
+    for (const heading of ["label: 'Player'", "label: 'Pos'", "label: 'Fitness'", "label: 'Form'", "label: 'Morale'", "label: 'Availability'"]) {
+      expect(headings, `the selection list cannot be sorted by ${heading}`).toContain(heading);
+    }
+    // And the one heading the squad screen has no use for: how well a man plays
+    // the shirt being picked for, which is the order this list used to open in.
+    expect(headings).toContain("key: 'fit'");
+    // Every heading offered is one the screen can actually sort by, and every
+    // accessor is a heading a manager can press: two lists that could drift are
+    // two lists that will.
+    const offered = [...headings.matchAll(/key: '([a-z]+)'/g)].map((match) => match[1]);
+    const accessors = view.slice(view.indexOf('const PICKER_SORT'));
+    const sorted = [...accessors.slice(0, accessors.indexOf('};')).matchAll(/^ {2}([a-z]+): /gm)].map((match) => match[1]);
+    expect(sorted.sort()).toEqual(offered.sort());
+    expect(offered).toHaveLength(7);
+    // A sorted heading says so, and says which way: the squad table's `th` gets
+    // its `aria-sort` from `SortTh`, and a button has no such attribute.
+    expect(view).toContain('aria-pressed={direction !== null}');
+  });
+
+  it("opens on the heading the manager last left it on, in the career he left it in", () => {
+    // Asked for before the first paint, so walking to another screen and coming
+    // back does not quietly put the names into the team's order instead — which
+    // is the whole of what remembering this is for — and handed the accessors
+    // that sort the rows, so the headings it can press and the ones it can
+    // remember are one list rather than two.
+    expect(view).toContain("useRememberedSort('selection', game?.saveId ?? null, PICKER_SORT)");
+    // The writing is the hook's job rather than the screen's, so this screen
+    // cannot forget to do it and has no idea where a choice is kept.
+    expect(view).not.toContain('rememberSortChoice');
+    expect(view).not.toContain('localStorage');
+    // Kept per career and per screen, in the browser-local namespace the other
+    // screen state uses, and out of the save: it is a reading of a squad rather
+    // than a fact about one, so a save handed to somebody else brings no view
+    // preferences with it.
+    const memory = source('rememberedSort.ts');
+    expect(memory).toContain("'se27.ui.sort.'");
+    expect(memory).toContain('loadSortChoice<K extends string>(');
+  });
+
+  it('says about a man what the squad list says about him', () => {
+    // The same row, in the same words, because a manager reads the two lists
+    // against each other: who is in the side here, how fit he is there.
+    expect(view).toContain('<PersonIdentity person={player} detail={player.occupation} />');
+    expect(view).toContain('availabilityTone(player.availability.status)');
+    for (const fact of ['Pos', 'Fitness', 'Form', 'Morale', 'Availability']) {
+      expect(view, `the selection list says nothing about ${fact}`).toContain(`data-label="${fact}"`);
+    }
+    // What is still this screen's own: where the man already is.
+    expect(view).toContain('whereAbout(slotIndex, onBench)');
   });
 });

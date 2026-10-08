@@ -13,7 +13,26 @@
  * and a club that has never been near a designer carries no badge at all.
  */
 
-export type BadgeShape = 'shield' | 'roundel' | 'oval' | 'arch' | 'pennant';
+/**
+ * The silhouette a badge is cut to.
+ *
+ * Five of these were enough for a while, and a county of forty clubs looked
+ * like five badges between them. Every silhouette here is plain enough to be
+ * read at 18px in a league table — that is the whole test of one — and each is
+ * shaped so the name band is still the full width of the badge at the height
+ * the letters sit, which is why there is no pointed-topped shape among them.
+ */
+export type BadgeShape =
+  | 'shield'
+  | 'roundel'
+  | 'oval'
+  | 'arch'
+  | 'pennant'
+  | 'octagon'
+  | 'plaque'
+  | 'swallowtail'
+  | 'gable'
+  | 'ovalWide';
 
 export type BadgePattern =
   | 'plain'
@@ -23,7 +42,13 @@ export type BadgePattern =
   | 'quarters'
   | 'sash'
   | 'chevron'
-  | 'pinstripes';
+  | 'pinstripes'
+  // The heraldic three, added as the field library grew. A bordure is the one
+  // every real badge has and this generator did not: an edge band in the second
+  // colour, which is why the crests of the county stopped looking flat.
+  | 'bordure'
+  | 'saltire'
+  | 'perFess';
 
 /** The symbol a badge carries. Each one means something about the club. */
 export type BadgeDevice =
@@ -74,7 +99,24 @@ export type BadgeDevice =
   | 'vine'
   | 'millstone'
   | 'spade'
-  | 'sword';
+  | 'sword'
+  // The third wave: the birds that were all one bird, the creatures of the pub
+  // signs, and the mill and the pick a local club is named after. Appending
+  // here rather than folding them into the middle of the table keeps every
+  // crest that clubs already wear exactly where it was.
+  | 'eagle'
+  | 'owl'
+  | 'peacock'
+  | 'dolphin'
+  | 'hare'
+  | 'boar'
+  | 'bear'
+  | 'unicorn'
+  | 'griffin'
+  | 'dragon'
+  | 'windmill'
+  | 'fleece'
+  | 'pickaxe';
 
 /** What a manager decided about his own club's badge, if he decided anything. */
 export interface BadgeChoice {

@@ -3,6 +3,7 @@ import type { ClubId, ISODate, MatchId, PersonId } from '@/domain/ids';
 import type { Match, MatchConditions, MatchLineup, PitchCondition, Weather } from '@/domain/match';
 import type { Official, Player } from '@/domain/person';
 import type { Ground } from '@/domain/world';
+import { defaultTactics } from '@/domain/tactics';
 import { monthOf } from './calendar';
 import { stream, Rng } from './rng';
 import { estimateAttendance } from './match/attendance';
@@ -11,6 +12,7 @@ import { isPlayer } from '@/domain/person';
 import { nextFixtureFor } from './schedule';
 import { fixtureIdsOnMatchday } from './pyramid';
 import { autoPickLineup } from './selection';
+import { clubStyle } from './ai/style';
 import { clubCohesionValue, clubSystemFamiliarity } from './training/cohesion';
 
 /**
@@ -262,7 +264,16 @@ export function buildLineupForClub(state: GameState, clubId: ClubId): MatchLineu
   const tactics = club.tactics;
   // The assistant picks for the shape the manager has set out, not merely for
   // the name it was built from: a back three is a back three.
-  const selection = autoPickLineup(squad, tactics.formation, { shape: tactics.shape });
+  // The assistant picks for the system, not merely for the shape: the
+  // instructions decide what each job in the XI is, and the men picked are the
+  // ones who can do those jobs. The seed is the club, the day and the world, so
+  // the same club picks the same side for the same fixture however many times
+  // the screen is drawn — a wobble has to be stable to be a wobble.
+  const selection = autoPickLineup(squad, tactics.formation, {
+    shape: tactics.shape,
+    tactics,
+    seed: stream(state.seed, 'lineup', clubId, state.date).int(1, 2 ** 30),
+  });
   const captain = selection.starting
     .map((slot) => state.people[slot.playerId])
     .filter(isPlayer)
@@ -363,6 +374,13 @@ export function matchEnvironment(state: GameState, match: Match, options: Enviro
     // other plays a little better than the same eleven who do not.
     tacticalFamiliarity: (clubId) => clubSystemFamiliarity(state, clubId),
     cohesion: (clubId) => clubCohesionValue(state, clubId),
+    // The man in the other dugout, handed to whichever resolution plays the
+    // fixture: an identity derived from the club, so it is the same character
+    // every time anybody asks and needs nothing stored.
+    clubStyle: (clubId) => {
+      const club = state.clubs[clubId];
+      return club ? clubStyle(club) : clubStyle({ id: clubId, reputation: 50, tactics: defaultTactics() });
+    },
   };
 }
 

@@ -1,16 +1,13 @@
-import { useEffect, useMemo, useRef, type CSSProperties } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { POSITIONS, type PositionCode } from '@/domain/positions';
+import type { Side } from '@/domain/matchState';
 import type { Player } from '@/domain/person';
 import { playerName } from '../format';
-import { inkForColour } from '../colour';
-import type { MatchRendererProps } from '@/presentation/renderContract';
-import {
-  facingRadians,
-  interpolatedX,
-  interpolatedY,
-  involvementOf,
-  isMoving,
-} from '@/presentation/matchPresentation';
+import { flatClubInk } from '../colour';
+import type { MatchRendererProps, MatchRenderState } from '@/presentation/renderContract';
+import { interpolatedX, interpolatedY, involvementOf, isMoving } from '@/presentation/matchPresentation';
+import { attackDirection, facingIn, frameForBox, pitchPoint, type PitchFrame } from './pitchFrame';
+import { shirtFor } from './shirt';
 
 /**
  * The 2D match renderer.
@@ -36,7 +33,10 @@ import {
  * not fight each other and the attack reads at a glance.
  *
  * Nothing is React state: a match at sixty frames a second would otherwise be
- * sixty renders a second, so positions are written straight to the DOM.
+ * sixty renders a second, so positions are written straight to the DOM. The one
+ * thing here that *is* state is which way round the pitch is drawn, because it
+ * changes when a phone is turned rather than sixty times a second — see
+ * `pitchFrame`, where the rules of the turn live.
  */
 
 interface NodeShape {
@@ -48,14 +48,62 @@ interface NodeShape {
   y: number;
   action: string;
   mine: boolean;
-  /** The strip this side is wearing, so both teams are drawn in their own colour. */
+  /**
+   * The shirt this man is drawn in: his own side's strip, or the third strip for
+   * the keeper. See {@link shirtOf}.
+   */
   colour: string;
+}
+
+/**
+ * The shirt a man on the pitch is drawn in.
+ *
+ * The rule itself is `shirtFor` in `shirt.ts`, because the two team sheets beside
+ * the pitch — the written version of the same eleven — ask it too, and one rule
+ * about a football match should not be written out twice. A keeper in a white away
+ * shirt is not drawn in white, on the grass or in the list.
+ */
+export function shirtOf(
+  state: MatchRenderState,
+  node: { side: Side; position: PositionCode },
+): string {
+  return shirtFor(state.teams[node.side].colours, node.position);
 }
 
 export function MatchPitch({ state, side, playerById }: MatchRendererProps) {
   const dotRefs = useRef(new Map<string, HTMLSpanElement>());
   const ballRef = useRef<HTMLSpanElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
+
+  /*
+   * Which way round the pitch is drawn: across the box, or up it.
+   *
+   * Measured off the box the renderer was actually given, because that box is
+   * whatever the score, the commentary and the control strip have left over — on
+   * a phone held upright it comes out taller than it is wide, and a landscape
+   * pitch drawn in it is a pitch nobody can play on.
+   *
+   * A layout effect rather than an ordinary one, so the measurement is taken
+   * before the browser paints: a pitch that flipped the right way round after
+   * the manager had already seen it would lurch on every visit to the match.
+   * The observer then keeps it honest for the rest of the afternoon, since a
+   * handset can be turned and a window can be dragged.
+   */
+  const [frame, setFrame] = useState<PitchFrame>('landscape');
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const measure = () => setFrame(frameForBox(root.getBoundingClientRect()));
+    measure();
+    if (typeof ResizeObserver === 'undefined') {
+      // No observer: the window is the only thing that can change the box.
+      window.addEventListener('resize', measure);
+      return () => window.removeEventListener('resize', measure);
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(root);
+    return () => observer.disconnect();
+  }, []);
 
   // The roster, built once per rendered revision: identity and a first position.
   // The per-frame movement is written to the DOM below, never through React.
@@ -70,14 +118,14 @@ export function MatchPitch({ state, side, playerById }: MatchRendererProps) {
         y: node.y,
         action: node.action,
         mine: node.side === side,
-        colour: state.teams[node.side].colours.primary,
+        colour: shirtOf(state, node),
       })),
     [state, state.revision, side, playerById],
   );
 
   // The render loop: read the authoritative state, draw it, do nothing else.
   useEffect(() => {
-    let frame = 0;
+    let tick = 0;
     const draw = () => {
       const alpha = state.alpha();
       const involvement = involvementOf(state);
@@ -85,8 +133,11 @@ export function MatchPitch({ state, side, playerById }: MatchRendererProps) {
       for (const node of state.players) {
         const element = dotRefs.current.get(node.playerId);
         if (!element) continue;
-        element.style.left = `${interpolatedX(node, alpha) * 100}%`;
-        element.style.top = `${interpolatedY(node, alpha) * 100}%`;
+        // Where he is, drawn the way round this box is: the frame is a turn of
+        // the whole picture, never a stretch of it.
+        const at = pitchPoint(interpolatedX(node, alpha), interpolatedY(node, alpha), frame);
+        element.style.left = `${at.left * 100}%`;
+        element.style.top = `${at.top * 100}%`;
 
         // Which way he is actually going, from the velocity the simulation owns.
         const vx = node.vx ?? 0;
@@ -103,7 +154,7 @@ export function MatchPitch({ state, side, playerById }: MatchRendererProps) {
         // So while he is at rest the last real direction is kept, and the notch
         // fades in pointing at where he was actually going rather than at noise.
         if (moving) {
-          element.style.setProperty('--facing', `${facingRadians(vx, vy)}rad`);
+          element.style.setProperty('--facing', `${facingIn(frame, vx, vy)}rad`);
         }
         element.classList.toggle('pitch__dot--moving', moving);
 
@@ -127,51 +178,67 @@ export function MatchPitch({ state, side, playerById }: MatchRendererProps) {
       }
       const ball = ballRef.current;
       if (ball) {
-        ball.style.left = `${interpolatedX(state.ball, alpha) * 100}%`;
-        ball.style.top = `${interpolatedY(state.ball, alpha) * 100}%`;
+        const at = pitchPoint(interpolatedX(state.ball, alpha), interpolatedY(state.ball, alpha), frame);
+        ball.style.left = `${at.left * 100}%`;
+        ball.style.top = `${at.top * 100}%`;
         ball.dataset.status = state.ball.status;
       }
-      frame = window.requestAnimationFrame(draw);
+      tick = window.requestAnimationFrame(draw);
     };
-    frame = window.requestAnimationFrame(draw);
-    return () => window.cancelAnimationFrame(frame);
-  }, [state]);
+    tick = window.requestAnimationFrame(draw);
+    return () => window.cancelAnimationFrame(tick);
+  }, [state, frame]);
 
-  const ball = { x: state.ball.x, y: state.ball.y };
+  const ball = pitchPoint(state.ball.x, state.ball.y, frame);
 
   return (
-    <div ref={rootRef} className="pitch pitch--live matchpitch" data-renderer="2d" data-celebrating="false" data-possession="none">
+    <div
+      ref={rootRef}
+      className="pitch pitch--live matchpitch"
+      data-renderer="2d"
+      data-celebrating="false"
+      data-possession="none"
+      data-shape={frame}
+    >
       <span className="pitch__halfway" />
       <span className="pitch__circle" />
       <span className="pitch__box pitch__box--left" />
       <span className="pitch__box pitch__box--right" />
       {/* Which way the manager's side is attacking, in the fixed frame the match
-          uses: the home side always attacks toward x = 1. */}
-      <span className="pitch__attack" data-dir={side === 'home' ? 'right' : 'left'} aria-hidden="true" />
-      {nodes.map((node) => (
-        <span
-          key={node.key}
-          ref={(element) => {
-            if (element) dotRefs.current.set(node.key, element);
-            else dotRefs.current.delete(node.key);
-          }}
-          className={`pitch__dot${node.mine ? ' pitch__dot--mine' : ''}${node.action === 'carrying' ? ' pitch__dot--carrying' : ''}${node.position === 'GK' ? ' pitch__dot--keeper pitch__dot--named' : ''}`}
-          style={
-            {
-              left: `${node.x * 100}%`,
-              top: `${node.y * 100}%`,
-              '--dot-club': node.colour,
-              '--dot-ink': inkForColour(node.colour),
-            } as CSSProperties
-          }
-          title={node.player ? `${playerName(node.player)} — ${POSITIONS[node.position].label}` : node.position}
-        >
-          <span className="pitch__dot-ball">{node.position}</span>
-          <span className="pitch__dot-face" aria-hidden="true" />
-          <span className="pitch__dot-name">{node.player?.surname ?? ''}</span>
-        </span>
-      ))}
-      <span ref={ballRef} className="pitch__ball" style={{ left: `${ball.x * 100}%`, top: `${ball.y * 100}%` }} />
+          uses: the home side always attacks toward x = 1 — the right of a
+          landscape pitch, the top of a portrait one. */}
+      <span className="pitch__attack" data-dir={attackDirection(frame, side)} aria-hidden="true" />
+      {nodes.map((node) => {
+        const at = pitchPoint(node.x, node.y, frame);
+        return (
+          <span
+            key={node.key}
+            ref={(element) => {
+              if (element) dotRefs.current.set(node.key, element);
+              else dotRefs.current.delete(node.key);
+            }}
+            className={`pitch__dot${node.mine ? ' pitch__dot--mine' : ''}${node.action === 'carrying' ? ' pitch__dot--carrying' : ''}${node.position === 'GK' ? ' pitch__dot--keeper pitch__dot--named' : ''}`}
+            style={
+              {
+                left: `${at.left * 100}%`,
+                top: `${at.top * 100}%`,
+                // A dot is flat paint in whatever colour the strip is, so its
+                // ink is chosen for that colour with the floor small text needs:
+                // a keeper's shirt is often a mid pink or orange, where an ink
+                // picked by brightness alone lands close to 3:1.
+                '--dot-club': node.colour,
+                '--dot-ink': flatClubInk(node.colour),
+              } as CSSProperties
+            }
+            title={node.player ? `${playerName(node.player)} — ${POSITIONS[node.position].label}` : node.position}
+          >
+            <span className="pitch__dot-ball">{node.position}</span>
+            <span className="pitch__dot-face" aria-hidden="true" />
+            <span className="pitch__dot-name">{node.player?.surname ?? ''}</span>
+          </span>
+        );
+      })}
+      <span ref={ballRef} className="pitch__ball" style={{ left: `${ball.left * 100}%`, top: `${ball.top * 100}%` }} />
     </div>
   );
 }

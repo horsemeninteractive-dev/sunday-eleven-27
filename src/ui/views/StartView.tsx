@@ -2,9 +2,11 @@ import { Fragment, useEffect, useState, type CSSProperties } from 'react';
 import { DEFAULT_PYRAMID } from '@/domain/competition';
 import { formatShortDate } from '@/simulation/calendar';
 import { orderSaves, type SaveSlotInfo } from '@/state/persistence';
+import { useGameStore } from '@/state/gameStore';
 import { versionLabel } from '@/version';
 import { gameActions } from '../hooks';
 import { Button } from '../components/primitives';
+import { CareerImportConfirm, ImportCareerButton } from '../components/CareerFile';
 import { BrandLockup } from '../components/BrandMark';
 import { InstallCard } from '../components/InstallCard';
 import { SceneBackdrop } from '../components/SceneBackdrop';
@@ -45,6 +47,16 @@ export function StartView() {
   const [saves, setSaves] = useState<SaveSlotInfo[]>([]);
   const [reading, setReading] = useState(true);
   const [failure, setFailure] = useState<string | null>(null);
+  /**
+   * What went wrong before the menu could be drawn, if anything.
+   *
+   * It is read from the store rather than decided here because it is known
+   * before this screen is built — at boot, when the career that would have been
+   * reopened would not open. A browser whose storage could not be read looks
+   * exactly like a browser with nothing saved, and those two must never be
+   * presented as the same thing: one of them is a manager's whole season.
+   */
+  const bootError = useGameStore((state) => state.bootError);
 
   const refreshSaves = () => {
     setReading(true);
@@ -132,10 +144,17 @@ export function StartView() {
                   Most recently saved first. Your career is saved as you play, and everything stays in this browser.
                 </p>
               </div>
-              <Button variant="ghost" size="sm" onClick={refreshSaves}>
-                Refresh
-              </Button>
+              <div className="row row--wrap">
+                {/* Restoring is offered beside the list rather than inside it: on
+                    a new device there is nothing here to click, and the file is
+                    the whole reason the manager came to this section. */}
+                <ImportCareerButton size="sm" label="Restore from a file…" />
+                <Button variant="ghost" size="sm" onClick={refreshSaves}>
+                  Refresh
+                </Button>
+              </div>
             </header>
+            {bootError && <p className="callout callout--bad" role="alert"><span>{bootError}</span></p>}
             {reading ? <p className="small muted" role="status">Reading saved careers…</p> : failure ? <p role="alert" className="tone tone--bad">{failure}</p> : saves.length === 0 ? (
               <p className="empty">Nothing saved yet. Start a career and the game keeps it up to date on its own.</p>
             ) : (
@@ -188,6 +207,8 @@ export function StartView() {
           </p>
         </div>
       </div>
+      {/* The file that has been chosen, put to the manager over the menu. */}
+      <CareerImportConfirm />
     </div>
   );
 }

@@ -483,6 +483,88 @@ const LINE_HEIGHT = 1.14;
 /** The most a line of name text may be drawn at, by how many lines there are. */
 const NAME_SIZE_CAP = [8.6, 7.4, 6.4];
 const NAME_SIZE_FLOOR = 4.2;
+
+/**
+ * Capital letters run wider than the mixed-case average `GLYPH_WIDTH` describes.
+ *
+ * Measured off a crest sheet: the same name set in capitals comes out about six
+ * per cent longer than the same name set in title case at the same size. A
+ * treatment that is all capitals has to be fitted a little smaller for it, or
+ * the ends of a long name run out through the silhouette.
+ */
+const CAPS_EXTRA = 1.06;
+
+/**
+ * The lettering a club's name is cut in.
+ *
+ * A county of crests in one face is a county of crests printed from the same
+ * book. Every club's name was set in the interface font at weight 800, so forty
+ * sides read as forty copies of one badge with different colours in it — and a
+ * real crest is cut, embroidered or painted by somebody who chose the lettering.
+ * This is that choice: the sign-writer's heavy sans that most of the county
+ * wears, a traditional serif for a club that thinks itself older than it is, a
+ * narrow black face that will fit a long name, lettering opened out with air
+ * between the letters for a short name and a wide band, and one that writes the
+ * name the way the club writes it rather than in capitals.
+ *
+ * The tracking is small on purpose. A badge is read at eighteen pixels, where
+ * letters spread apart read as a gap rather than as a style, so only the one
+ * treatment is spaced at all and none of them is spaced far.
+ */
+export interface BadgeLettering {
+  family: string;
+  weight: number;
+  /** Extra space after every letter, in ems. */
+  tracking: number;
+  /** Whether the name is set in capitals. */
+  caps: boolean;
+}
+
+export const BADGE_LETTERING: BadgeLettering[] = [
+  { family: "'Inter', 'Segoe UI', system-ui, sans-serif", weight: 800, tracking: 0.01, caps: true },
+  { family: "Georgia, 'Times New Roman', 'Noto Serif', serif", weight: 700, tracking: 0.03, caps: true },
+  {
+    family: "'Arial Narrow', 'Helvetica Neue', 'Segoe UI', system-ui, sans-serif",
+    weight: 900,
+    tracking: 0.02,
+    caps: true,
+  },
+  { family: "'Inter', 'Segoe UI', system-ui, sans-serif", weight: 700, tracking: 0.06, caps: true },
+  { family: "'Inter', 'Segoe UI', system-ui, sans-serif", weight: 700, tracking: 0, caps: false },
+];
+
+/** How wide one letter of a treatment is drawn, as a share of its size. */
+function glyphWidthFor(lettering: BadgeLettering): number {
+  return GLYPH_WIDTH * (lettering.caps ? CAPS_EXTRA : 1) + lettering.tracking;
+}
+
+/**
+ * How wide a line of lettering is actually drawn.
+ *
+ * Exported because it is the number any fitting has to be checked against: a
+ * name is fitted to its band, and the capitals and the tracking are both added
+ * on top of what was fitted.
+ */
+export function letteringWidth(longest: number, size: number, lettering: BadgeLettering): number {
+  return Math.max(1, longest) * size * glyphWidthFor(lettering);
+}
+
+/**
+ * The size that makes the longest line of a name fit, in the club's own lettering.
+ *
+ * `fitSize` fits a name in the badge's ordinary face; this fits the same name in
+ * whichever face the club actually wears, which is wider wherever the treatment
+ * is capitals or spread — the two things the plain fitting knows nothing about.
+ */
+export function fitLettering(
+  longest: number,
+  width: number,
+  cap: number,
+  lettering: BadgeLettering,
+): number {
+  return Math.max(NAME_SIZE_FLOOR, Math.min(cap, width / (glyphWidthFor(lettering) * Math.max(1, longest))));
+}
+
 /** Long names go around a round badge instead of across it. */
 const ARC_MAX_CHARS = 17;
 const YEAR_SIZE = 4.6;
@@ -602,7 +684,10 @@ export interface BadgePlan {
   device: BadgeDevice;
   /** The club's own name, exactly as the club is called. */
   name: string;
-  /** The name, broken into the lines the badge has room for. */
+  /**
+   * The name, broken into the lines the badge has room for, exactly as the club
+   * writes it: a treatment that is set in capitals uppercases it as it draws.
+   */
   nameLines: string[];
   /** How the name is carried: a chief band, a top arc, or both arcs. */
   nameLayout: 'chief' | 'arc' | 'ring';
@@ -610,6 +695,8 @@ export interface BadgePlan {
   nameSize: number;
   /** The width the name had to fit into. */
   nameWidth: number;
+  /** The face the club's name is cut in. */
+  lettering: BadgeLettering;
   /** Baselines for the lines of a chief band. */
   nameBaselines: number[];
   bandTop: number;
@@ -702,7 +789,7 @@ export function badgePlan(
   // A club that designed its own badge wears that; anything it left alone it
   // takes from the generator, exactly as every other club in the world does.
   const choice = club.badge;
-  // Three separate streams off the club's own id, the way every other unrelated
+  // Four separate streams off the club's own id, the way every other unrelated
   // draw in the game is taken. One hash cut into thirds does not spread: clubs
   // generated in a run have near-identical ids, and the low bits of their hashes
   // are near-identical too — which is why forty anonymous sides used to wear
@@ -720,6 +807,12 @@ export function badgePlan(
     choice?.device ??
     deviceFor(identity.name, identity.nickname) ??
     GENERIC_DEVICES[hashString(`${club.id}:device`) % GENERIC_DEVICES.length]!;
+
+  // And a fourth for the lettering, which is deliberately not part of a club's
+  // own badge design: a manager may draw himself a crest but the face it is cut
+  // in is the generator's business. It is also the one thing on a badge that
+  // used to be identical on every crest in the county.
+  const lettering = BADGE_LETTERING[hashString(`${club.id}:lettering`) % BADGE_LETTERING.length]!;
 
   // The symbol is drawn over the primary colour, so it takes that colour's ink.
   const ink = inkForColour(primary);
@@ -749,10 +842,11 @@ export function badgePlan(
       // which is exactly how a real round badge with a long name does it.
       const lines = balanceLines(words, 2);
       const longest = Math.max(...lines.map((line) => line.length));
-      const nameSize = fitSize(
+      const nameSize = fitLettering(
         longest,
         ARC_SPAN * frame.arcRadius,
         Math.min(NAME_SIZE_CAP[1]!, arcNameCapFor(shape)),
+        lettering,
       );
       // Both lines of a long name are the name: one round the top, one round the
       // bottom, so the ring clears whichever of them reaches furthest in.
@@ -767,6 +861,7 @@ export function badgePlan(
         name,
         nameLines: lines,
         nameLayout: 'ring',
+        lettering,
         nameSize,
         nameWidth: ARC_SPAN * frame.arcRadius,
         nameBaselines: [],
@@ -794,7 +889,7 @@ export function badgePlan(
 
     // A short name goes round the top, and the year — if the club shows one —
     // round the bottom, which is the classic round badge.
-    const nameSize = fitSize(name.length, ARC_SPAN * frame.arcRadius, arcNameCapFor(shape));
+    const nameSize = fitLettering(name.length, ARC_SPAN * frame.arcRadius, arcNameCapFor(shape), lettering);
     // The name above, the year below, and the ring inside whichever of the two
     // reaches nearest the middle.
     const ringRadius = ringRadiusFor(frame.arcRadius, [
@@ -808,6 +903,7 @@ export function badgePlan(
       name,
       nameLines: [name],
       nameLayout: 'arc',
+      lettering,
       nameSize,
       nameWidth: ARC_SPAN * frame.arcRadius,
       nameBaselines: [],
@@ -841,7 +937,7 @@ export function badgePlan(
 
   // The name is set as large as the badge allows, then given ground — a little
   // at a time — until the symbol has a box it can actually be drawn in.
-  let nameSize = fitSize(longest, frame.nameWidth, NAME_SIZE_CAP[lines.length - 1]!);
+  let nameSize = fitLettering(longest, frame.nameWidth, NAME_SIZE_CAP[lines.length - 1]!, lettering);
   let lineHeight = nameSize * LINE_HEIGHT;
   let bandBottom = frame.bandTop + BAND_PAD_TOP + lines.length * lineHeight + BAND_PAD_BOTTOM;
   while (frame.fieldBottom - (bandBottom + 1.5) < floorDevice && nameSize > NAME_SIZE_FLOOR + 0.001) {
@@ -872,6 +968,7 @@ export function badgePlan(
     name,
     nameLines: lines,
     nameLayout: 'chief',
+    lettering,
     nameSize,
     nameWidth: frame.nameWidth,
     nameBaselines,

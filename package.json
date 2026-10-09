@@ -1,12 +1,19 @@
 {
   "name": "sunday-eleven-27",
+  "productName": "Sunday Eleven 27",
   "private": true,
-  "version": "0.10.1",
+  "version": "0.10.2",
   "type": "module",
+  "author": "Horsemen Interactive",
   "description": "Sunday Eleven 27 - grassroots English Sunday League football management simulation",
+  "main": "desktop/build/main.js",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "build:native": "tsc --noEmit && vite build --mode native",
     "preview": "vite preview",
     "release": "vite-node tools/release.ts",
     "typecheck": "tsc --noEmit",
@@ -22,9 +29,26 @@
     "scene": "vite-node tools/scene.ts",
     "og": "vite-node tools/og.ts",
     "match-readout": "vite-node tools/matchReadout.ts",
-    "timeline-readout": "vite-node tools/timelineReadout.ts"
+    "timeline-readout": "vite-node tools/timelineReadout.ts",
+    "android:sync": "npx cap sync android",
+    "android:preflight": "vite-node tools/androidRelease.ts",
+    "android:bundle": "vite-node tools/androidRelease.ts --bundle",
+    "android:apk": "vite-node tools/androidRelease.ts --apk",
+    "desktop:shell": "tsc -p tsconfig.desktop.json",
+    "desktop:renderer": "vite build --mode desktop --outDir desktop/renderer",
+    "desktop:build": "npm run typecheck && npm run desktop:shell && npm run desktop:renderer",
+    "desktop:dev": "npm run desktop:build && electron .",
+    "desktop:start": "electron .",
+    "desktop:pack": "npm run desktop:build && electron-builder --win --config electron-builder.yml",
+    "desktop:smoke": "node tools/desktopSmoke.mjs"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/cli": "^8.5.3",
+    "@capacitor/core": "^8.5.3",
+    "@capacitor/keyboard": "^8.0.6",
+    "@capacitor/status-bar": "^8.0.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "zustand": "^4.5.5"
@@ -34,6 +58,8 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "electron": "44.7.0",
+    "electron-builder": "26.15.3",
     "fake-indexeddb": "^6.2.5",
     "sharp": "^0.35.5",
     "typescript": "^5.6.3",

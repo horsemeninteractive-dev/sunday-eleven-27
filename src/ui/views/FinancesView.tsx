@@ -15,6 +15,7 @@ import { gameActions, useGame } from '../hooks';
 import { Button, Callout, PageHeader, Panel, Pill, SortTh } from '../components/primitives';
 import { FocalFact, MetricTile, Section, TileGrid } from '../components/hierarchy';
 import { PersonLine } from '../components/PersonIdentity';
+import { SponsorMark } from '../components/SponsorMark';
 import { useRememberedSort } from '../rememberedSort';
 import { applySort, type SortAccessors } from '../tableSort';
 
@@ -117,6 +118,9 @@ export function FinancesView() {
   const finances = club.finances;
   const treasurer = treasurerSummary(game);
   const sponsorship = sponsorshipSummary(game, club.id);
+  // The business behind the agreement, where there is one: the name on the
+  // board is the business's, so the board itself is drawn from the business.
+  const sponsorBusiness = sponsorship.deal ? game.world.businesses[sponsorship.deal.sponsorId] ?? null : null;
   const obligations = upcomingObligations(game, club.id, { weeks: 6, limit: 5 });
   const ledger = finances.ledger.slice().reverse().slice(0, 60);
   const rows = applySort(ledger, sort, LEDGER_SORT);
@@ -268,6 +272,9 @@ export function FinancesView() {
         {sponsorship.deal ? (
           <>
             <div className="row row--wrap">
+              {/* The sponsor's own board, drawn: the trade on it and the name
+                  across it, which is what a manager sees on the ground. */}
+              {sponsorBusiness && <SponsorMark business={sponsorBusiness} height={56} />}
               <strong>{sponsorship.sponsorName}</strong>
               <Pill tone={sponsorship.standing === 'active' ? 'ok' : sponsorship.standing === 'renewal-due' ? 'warn' : 'bad'}>
                 {sponsorship.standing === 'active'
@@ -307,9 +314,12 @@ export function FinancesView() {
             </div>
             {sponsorship.candidates.length > 0 && (
               <ul className="tight-list">
-                {sponsorship.candidates.slice(0, 4).map((candidate) => (
+                {sponsorship.candidates.slice(0, 4).map((candidate) => {
+                  const business = game.world.businesses[candidate.businessId];
+                  return (
                   <li key={candidate.businessId}>
                     <div className="row row--wrap">
+                      {business && <SponsorMark business={business} height={22} />}
                       <strong>{candidate.name}</strong>
                       <Pill tone="muted">{candidate.kindLabel}</Pill>
                       <span className="muted small">
@@ -318,7 +328,8 @@ export function FinancesView() {
                       </span>
                     </div>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             )}
           </>

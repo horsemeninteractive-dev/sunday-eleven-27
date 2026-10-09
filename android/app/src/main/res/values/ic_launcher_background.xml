@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      The colour behind the adaptive launcher icon: the game's own near-black,
+      the same one the manifest's theme colour and the booting placeholder use.
+      The template ships white here, which would put a bright ring around a dark
+      mark on every home screen.
+    -->
+    <color name="ic_launcher_background">#08090B</color>
+</resources>

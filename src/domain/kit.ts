@@ -1,3 +1,5 @@
+import type { BusinessKind } from './world';
+
 /**
  * The club's kit.
  *
@@ -92,6 +94,15 @@ export interface KitSponsor {
   name: string;
   /** Set when the sponsor is a business in the world, so the two agree. */
   businessId: string | null;
+  /**
+   * What the business does, where the sponsor is one in the world.
+   *
+   * Carried rather than looked up because the shirt draws the sponsor's mark on
+   * its chest, and the mark reads its device off the trade. It is part of the
+   * kit rather than of the save: the kit is rebuilt from the world every time it
+   * is drawn, so a career written before this existed is unchanged.
+   */
+  kind: BusinessKind | null;
 }
 
 /** One strip: the shirt, the shorts and the socks, and how they are coloured. */

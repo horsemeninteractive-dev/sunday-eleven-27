@@ -33,7 +33,7 @@ function request(seed: string, clubId = 'club_1', seasonLabel = '2026/27'): KitR
     clubId,
     seasonLabel,
     colours: { primary: '#c62828', secondary: '#ffffff' },
-    sponsor: { id: 'biz_1', name: 'The Old White Hart', businessId: 'biz_1' },
+    sponsor: { id: 'biz_1', name: 'The Old White Hart', businessId: 'biz_1', kind: 'pub' },
   };
 }
 
@@ -127,7 +127,7 @@ describe('a generated kit', () => {
         wealth: 12,
         sponsoredClubIds: [],
       }),
-    ).toEqual({ id: 'biz_9', name: 'Riverside Garage', businessId: 'biz_9' });
+    ).toEqual({ id: 'biz_9', name: 'Riverside Garage', businessId: 'biz_9', kind: 'garage' });
   });
 });
 

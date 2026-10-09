@@ -1,0 +1,4 @@
+{
+  "//": "The desktop shell's compiled output is CommonJS, and this file is what says so. The game's own package.json declares \"type\": \"module\" for the web build, and Node decides a .js file's module system from the nearest package.json — which, for desktop/build/main.js, is this one. It is also why the preload can be a sandboxed CJS script at all: Electron forbids ESM in a sandboxed preload. Nothing else is declared here on purpose; the application's identity, version and entry point all live in the root package.json, where the game's version already is.",
+  "type": "commonjs"
+}

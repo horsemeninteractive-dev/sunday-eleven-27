@@ -1,0 +1,97 @@
+# The Windows package, as electron-builder builds it.
+#
+# Read this with `DESKTOP.md`, which says what the commands are and what has been
+# verified about the result. The short version of the decisions below:
+#
+#   - **identity.** `appId` is the game's one immutable name, and it is the same
+#     string as the Android application id, because it is one game. `productName`
+#     is what Windows shows in the Start menu, in the installer and in Add or
+#     remove programs. The *version* is not stated here at all: electron-builder
+#     reads it from `package.json`, which is where the game writes it down once
+#     (`tools/release.ts` bumps it, `vite.config.ts` bakes it into the bundle, and
+#     `desktop/main.ts` reports it in the title bar's Help menu).
+#
+#   - **what is inside.** The application is the game's own renderer build
+#     (`desktop/renderer`) and the compiled shell (`desktop/build`), and nothing
+#     else — no `node_modules`, because the shell requires only Electron and
+#     Node's own modules, and the game ships pre-built. The two `package.json`
+#     files are both needed: the root one carries the identity and the entry
+#     point, and `desktop/package.json` is what tells Node that the shell's
+#     compiled output is CommonJS.
+#
+#   - **what is not.** No remote anything: the shell has no `server.url`, so the
+#     installed application cannot load the website even by accident. No secrets:
+#     there are none in the repository to bundle, and nothing in this
+#     configuration reads an environment variable.
+#
+#   - **careers.** Exported career files go to the manager's Documents folder,
+#     and the careers he is playing live in IndexedDB inside `userData`
+#     (`%APPDATA%\Sunday Eleven 27`). Neither is inside the installation
+#     directory, and `deleteAppDataOnUninstall: false` below is the line that
+#     stops an uninstall taking his saves with it — which is the default, and is
+#     written out because it is a promise rather than an accident.
+appId: com.sundayeleven.se27
+productName: Sunday Eleven 27
+copyright: © Horsemen Interactive
+
+# Which Electron to package.
+#
+# `npm install` already downloads the exact Electron this project pins (the
+# `electron` devDependency fetches its own distribution), so this names that
+# copy instead of letting electron-builder download and unpack a second one of
+# the same version. It is the distribution's *contents*, copied into the package
+# rather than extracted from a zip — which is faster, needs no temporary
+# directory, and is one less thing that can go wrong between a checkout and an
+# installer. Remove the line to go back to electron-builder's own download.
+electronDist: node_modules/electron/dist
+
+directories:
+  # The installer lands here, apart from `dist/` (the website Cloudflare Pages
+  # deploys) and apart from `dist-ssr/`. Nothing in the desktop build writes to
+  # the web deployment's output, and nothing in the web build writes here.
+  output: desktop-release
+  buildResources: desktop/resources
+
+files:
+  - package.json
+  - desktop/package.json
+  - desktop/build/**
+  - desktop/renderer/**
+  # The game's React and Zustand are already inside the renderer bundle; the
+  # shell needs neither. Leaving node_modules out is most of the difference
+  # between a 200 MB installer and a 100 MB one.
+  - '!node_modules/**'
+
+# Keep the application's files in one compressed archive. It is not a security
+# measure on its own — anyone can extract it — but it keeps an installation from
+# being thousands of loose files.
+asar: true
+
+win:
+  # The store artwork's 1024×1024 mark, converted to the multi-resolution .ico
+  # electron-builder needs. `npm run icons` regenerates it from `public/favicon.svg`,
+  # so the desktop icon cannot drift from the game's own mark.
+  icon: store/apple-icon-1024.png
+  target:
+    - target: nsis
+      arch:
+        - x64
+
+nsis:
+  # Not a one-click installer: a manager installing a game should be able to see
+  # where it is going and to change his mind about the desktop shortcut.
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Sunday Eleven 27
+  # The artifact's name is derived from the product and the version, so two
+  # builds are told apart by their filenames rather than by their dates.
+  artifactName: Sunday-Eleven-27-Setup-${version}.${ext}
+  deleteAppDataOnUninstall: false
+
+# Nothing is published anywhere by this configuration. Steam, Play and the App
+# Store are separate stages; this stage produces an installer on the build
+# machine and stops there.
+publish: null

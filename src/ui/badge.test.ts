@@ -4,11 +4,15 @@ import { describe, expect, it } from 'vitest';
 import type { Club } from '@/domain/club';
 import {
   BADGE_DEVICES,
+  BADGE_LETTERING,
   BADGE_PATTERNS,
   BADGE_SHAPE_PATHS,
   BADGE_SHAPES,
+  type BadgeLettering,
   badgePlan,
   deviceFor,
+  fitLettering,
+  letteringWidth,
   patternIsBusy,
 } from './badge';
 import { BADGE_DEVICE_SHAPES, DEVICE_INK } from './badgeDevices';
@@ -441,8 +445,11 @@ describe('drawing a badge', () => {
     const markup = renderToStaticMarkup(createElement(ClubBadge, { club: entry }));
     const plan = badgePlan(entry);
     expect(markup).toContain('class="badge"');
-    // Every line of the name is drawn as text on the badge.
-    for (const line of plan.nameLines) expect(markup).toContain(`>${line}</text>`);
+    // Every line of the name is drawn as text on the badge, in the club's own
+    // lettering — which uppercases a crest that is cut in capitals.
+    for (const line of plan.nameLines) {
+      expect(markup).toContain(`>${plan.lettering.caps ? line.toUpperCase() : line}</text>`);
+    }
     // No shorthand standing in for the name.
     expect(markup).not.toContain('>TOW<');
     expect(markup).toMatch(/stroke-width="2\.4"/);
@@ -466,5 +473,89 @@ describe('drawing a badge', () => {
     // And a name on an arc gets paths of its own, also uniquely identified.
     const textPaths = [...markup.matchAll(/href="#([^"]+)"/g)].map((match) => match[1]);
     expect(new Set(textPaths).size).toBe(textPaths.length);
+  });
+});
+
+/**
+ * The lettering a badge is cut in.
+ *
+ * A club's name is the one thing every badge in the county carries, and for a
+ * long time every one of them carried it in the same face — the interface font
+ * at weight 800 — so a league of crests read as one crest with different colours
+ * in it. Each club is now cut in a treatment of its own. Two things have to hold
+ * for that to be a crest and not a poster: no two clubs need wear the same face,
+ * and the fitting must still account for the capitals and the spacing a
+ * treatment adds, which the plain fitting knows nothing about.
+ */
+describe('the lettering on a badge', () => {
+  function treatmentOf(lettering: BadgeLettering): string {
+    return `${lettering.family}|${lettering.weight}|${lettering.caps}|${lettering.tracking}`;
+  }
+
+  function county() {
+    return Array.from({ length: 40 }, (_, index) =>
+      club(`club_${String(index).padStart(3, '0')}`, 'Draywick Social Club FC', '#ef6c00', '#212121'),
+    );
+  }
+
+  it('does not set a whole county in one face', () => {
+    const plans = county().map(badgePlan);
+    // Forty sides with near-identical ids: exactly the draw that used to come
+    // back with one face for every crest in the league.
+    expect(new Set(plans.map((plan) => plan.lettering.family)).size).toBeGreaterThan(2);
+    expect(new Set(plans.map((plan) => treatmentOf(plan.lettering))).size).toBeGreaterThan(2);
+  });
+
+  it('reaches every treatment there is', () => {
+    const seen = new Set<string>();
+    for (let index = 0; index < 400; index += 1) {
+      seen.add(treatmentOf(badgePlan(club(`club_${String(index).padStart(3, '0')}`, 'Fenmoor Athletic', '#1565c0', '#ffffff')).lettering));
+    }
+    expect(seen.size).toBe(BADGE_LETTERING.length);
+  });
+
+  it('is the same treatment for the same club, every time', () => {
+    const entry = club('club_007', 'Draywick Social Club FC', '#ef6c00', '#212121');
+    expect(badgePlan(entry).lettering).toEqual(badgePlan(entry).lettering);
+  });
+
+  it('keeps a name fitted in that treatment inside the room it was fitted to', () => {
+    for (const lettering of BADGE_LETTERING) {
+      for (const [longest, width, cap] of [
+        [12, 46, 8.6],
+        [16, 50, 7.4],
+        [24, 42, 6.4],
+        [6, 34, 8.6],
+      ] as Array<[number, number, number]>) {
+        const size = fitLettering(longest, width, cap, lettering);
+        expect(size).toBeLessThanOrEqual(cap);
+        // The floor is a floor: a name too long for its band is set at the
+        // smallest legible size and overruns it, which is the badge giving
+        // ground rather than the fitting being wrong.
+        if (size > 4.2) expect(letteringWidth(longest, size, lettering)).toBeLessThanOrEqual(width + 0.001);
+      }
+    }
+  });
+
+  it('sets a name in capitals and spacing smaller than the same name plain', () => {
+    const plain: BadgeLettering = { family: 'x', weight: 800, tracking: 0, caps: false };
+    const others = BADGE_LETTERING.filter((entry) => entry.caps || entry.tracking > 0);
+    expect(others.length).toBeGreaterThan(0);
+    for (const lettering of others) {
+      expect(fitLettering(14, 46, 8.6, lettering)).toBeLessThanOrEqual(fitLettering(14, 46, 8.6, plain));
+    }
+  });
+
+  it('draws the name the way the club’s own treatment does', () => {
+    for (const [index, entry] of county().entries()) {
+      const plan = badgePlan(entry);
+      const markup = renderToStaticMarkup(createElement(ClubBadge, { club: entry }));
+      const line = plan.nameLines[0]!;
+      expect(markup, `club ${String(index)}`).toContain(plan.lettering.caps ? line.toUpperCase() : line);
+      // The name and the year are set in the club's face rather than the
+      // interface's, which is the whole of what this adds.
+      expect(markup).toContain('font-family');
+      expect(markup).toContain('font-weight');
+    }
   });
 });

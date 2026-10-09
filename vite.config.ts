@@ -1,5 +1,5 @@
-import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { join, relative, resolve, sep } from 'node:path';
 import { configDefaults, defineConfig, type Plugin } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import { fileURLToPath } from 'node:url';
@@ -30,15 +30,22 @@ import { SLOW_TEST_PATTERNS } from './vitest.patterns';
 function precacheManifest(): Plugin {
   const SENTINEL = 'self.__PRECACHE__';
   const REPLACEMENT = /self\.__PRECACHE__/;
+  // The directory Vite was actually told to write, rather than a hard-coded
+  // `dist`. Three builds now share this file — the website, the mobile bundle and
+  // the desktop bundle — and the packaged ones write somewhere else on purpose
+  // (`--outDir desktop/renderer`), so the plugins ask instead of assuming.
+  let outDir = resolve(process.cwd(), 'dist');
 
   return {
     name: 'se27:precache-manifest',
     apply: 'build',
+    configResolved(config) {
+      outDir = resolve(process.cwd(), config.build.outDir);
+    },
     // closeBundle rather than generateBundle: by this point every file is on
     // disk, including the ones Vite copied out of public/, which is what the
     // manifest has to be built from.
     closeBundle() {
-      const outDir = join(process.cwd(), 'dist');
       const workerPath = join(outDir, 'sw.js');
 
       let worker: string;
@@ -50,7 +57,7 @@ function precacheManifest(): Plugin {
 
       if (!REPLACEMENT.test(worker)) {
         throw new Error(
-          `precache-manifest: dist/sw.js has no ${SENTINEL} placeholder for the asset list to go in. ` +
+          `precache-manifest: ${workerPath} has no ${SENTINEL} placeholder for the asset list to go in. ` +
             'The worker must keep that line, or it ships with nothing to precache.',
         );
       }
@@ -92,8 +99,56 @@ function precacheManifest(): Plugin {
   };
 }
 
-export default defineConfig({
-  plugins: [react(), precacheManifest()],
+/**
+ * What a packaged build leaves behind.
+ *
+ * An application that ships the whole game inside itself — Capacitor on a phone,
+ * Electron on a desktop — has no use for three files that exist to serve a
+ * *website*: the service worker, which neither shell registers (and which a
+ * desktop window, loading from `app://`, has nothing to precache for);
+ * `_headers`, which tells Cloudflare's edge how to answer; and `og.png`, the
+ * half-megabyte link-preview card that no browser running the game ever asks for
+ * — the precache manifest already leaves it out of the offline cache for exactly
+ * that reason.
+ *
+ * This is the only exclusion any build makes, it is named file by file rather
+ * than by pattern, and it happens for `--mode native` and `--mode desktop` and
+ * for nothing else. The web build is unchanged, the precache plugin above still
+ * runs for every target and still fails the build if `self.__PRECACHE__` has gone
+ * from `public/sw.js`.
+ */
+const PACKAGED_OMISSIONS = ['sw.js', '_headers', 'og.png'];
+
+/**
+ * The two packaged targets — `native` (Capacitor) and `desktop` (Electron).
+ *
+ * Both ship the game inside an application, so both leave the same three files
+ * behind, and both are told where they are writing. The web build is untouched:
+ * it is the one build where those three files are the point.
+ */
+function bundledApplication(mode: string): Plugin {
+  let outDir = resolve(process.cwd(), 'dist');
+
+  return {
+    name: 'se27:bundled-application',
+    apply: 'build',
+    // `enforce: 'post'` so this runs after `closeBundle` on the precache plugin,
+    // which reads `sw.js` to write the asset list into it and would fail the
+    // build if the worker had already been taken away.
+    enforce: 'post',
+    configResolved(config) {
+      outDir = resolve(process.cwd(), config.build.outDir);
+    },
+    closeBundle() {
+      if (mode !== 'native' && mode !== 'desktop') return;
+      for (const name of PACKAGED_OMISSIONS) rmSync(join(outDir, name), { force: true });
+      console.log(`\n  ${mode}-bundle: left out ${PACKAGED_OMISSIONS.join(', ')} — this build has no browser behind it\n`);
+    },
+  };
+}
+
+export default defineConfig(({ mode }) => ({
+  plugins: [react(), precacheManifest(), bundledApplication(mode)],
   // The version is written down once, in package.json, and reaches the game
   // from here — so the changelog, the menu and the package can never disagree
   // about which build this is.
@@ -138,4 +193,4 @@ export default defineConfig({
     // `vitest.patterns.ts`, so neither can drift from the other.
     exclude: [...configDefaults.exclude, ...SLOW_TEST_PATTERNS],
   },
-});
+}));

@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import type { Club } from '@/domain/club';
-import { BADGE_SHAPE_PATHS, badgePlan, type BadgePattern, type BadgeShape } from '../badge';
+import { BADGE_SHAPE_PATHS, badgePlan, type BadgeLettering, type BadgePattern, type BadgeShape } from '../badge';
 import { BADGE_DEVICE_SHAPES } from '../badgeDevices';
 import { LIGHT_INK } from '../colour';
 
@@ -150,18 +150,44 @@ function patternNodes(pattern: BadgePattern, colour: string, field: string, shap
   }
 }
 
-/** The club's name, set the way a badge sets it: bold, centred, tightly led. */
+/**
+ * The font every line of a badge's lettering is set in.
+ *
+ * A crest's name and its year are written by the same hand, so both take the
+ * club's family and weight. The spacing is worked out from the size of the line
+ * it is set on, which is why it is taken here rather than kept as one number on
+ * the plan: a year at 4.6 and a name at 8.6 want different amounts of it.
+ */
+function letteringAttrs(lettering: BadgeLettering, size: number) {
+  return {
+    fontFamily: lettering.family,
+    fontWeight: lettering.weight,
+    letterSpacing: lettering.tracking * size,
+  };
+}
+
+/** A line of a badge's text as the club's own lettering sets it. */
+function setLine(line: string, lettering: BadgeLettering): string {
+  return lettering.caps ? line.toUpperCase() : line;
+}
+
+/**
+ * A line of the club's name, set the way a badge sets it: centred, tightly led,
+ * and in whatever face the club's crest is cut in.
+ */
 function NameText({
   x,
   y,
   size,
   ink,
+  lettering,
   children,
 }: {
   x: number;
   y: number;
   size: number;
   ink: string;
+  lettering: BadgeLettering;
   children: string;
 }) {
   return (
@@ -170,14 +196,14 @@ function NameText({
       y={y}
       textAnchor="middle"
       fontSize={size}
-      fontWeight={800}
       fill={ink}
       stroke={haloFor(ink)}
       strokeWidth={size * HALO_WIDTH}
       strokeLinejoin="round"
       paintOrder="stroke"
+      {...letteringAttrs(lettering, size)}
     >
-      {children}
+      {setLine(children, lettering)}
     </text>
   );
 }
@@ -241,7 +267,14 @@ export function BadgeArt({ club }: { club: Club }) {
             <rect x={0} y={plan.bandBottom - 0.65} width={64} height={2.2} fill={haloFor(plan.ink)} opacity={0.55} />
             <rect x={0} y={plan.bandBottom} width={64} height={0.9} fill={plan.ink} opacity={0.55} />
             {plan.nameLines.map((line, index) => (
-              <NameText key={line} x={32} y={plan.nameBaselines[index]!} size={plan.nameSize} ink={nameInk}>
+              <NameText
+                key={line}
+                x={32}
+                y={plan.nameBaselines[index]!}
+                size={plan.nameSize}
+                ink={nameInk}
+                lettering={plan.lettering}
+              >
                 {line}
               </NameText>
             ))}
@@ -251,15 +284,15 @@ export function BadgeArt({ club }: { club: Club }) {
         {plan.nameLayout !== 'chief' && (
           <text
             fontSize={plan.nameSize}
-            fontWeight={800}
             fill={plan.ink}
             stroke={haloFor(plan.ink)}
             strokeWidth={plan.nameSize * HALO_WIDTH}
             strokeLinejoin="round"
             paintOrder="stroke"
+            {...letteringAttrs(plan.lettering, plan.nameSize)}
           >
             <textPath href={`#${uid}-top`} startOffset="50%" textAnchor="middle">
-              {plan.nameLines[0]}
+              {setLine(plan.nameLines[0] ?? '', plan.lettering)}
             </textPath>
           </text>
         )}
@@ -267,15 +300,15 @@ export function BadgeArt({ club }: { club: Club }) {
         {plan.nameLayout === 'ring' && (
           <text
             fontSize={plan.nameSize}
-            fontWeight={800}
             fill={plan.ink}
             stroke={haloFor(plan.ink)}
             strokeWidth={plan.nameSize * HALO_WIDTH}
             strokeLinejoin="round"
             paintOrder="stroke"
+            {...letteringAttrs(plan.lettering, plan.nameSize)}
           >
             <textPath href={`#${uid}-bottom`} startOffset="50%" textAnchor="middle">
-              {plan.nameLines[1]}
+              {setLine(plan.nameLines[1] ?? '', plan.lettering)}
             </textPath>
           </text>
         )}
@@ -307,7 +340,7 @@ export function BadgeArt({ club }: { club: Club }) {
         {/* The year the club was founded, where the badge has room for it. */}
         {plan.year && plan.nameLayout === 'chief' && (
           <>
-            <NameText x={32} y={plan.yearY} size={plan.yearSize} ink={plan.ink}>
+            <NameText x={32} y={plan.yearY} size={plan.yearSize} ink={plan.ink} lettering={plan.lettering}>
               {plan.year}
             </NameText>
             <g fill={plan.ink} opacity={0.75}>
@@ -320,12 +353,12 @@ export function BadgeArt({ club }: { club: Club }) {
         {plan.year && plan.yearOnArc && (
           <text
             fontSize={plan.yearSize}
-            fontWeight={800}
             fill={plan.ink}
             stroke={haloFor(plan.ink)}
             strokeWidth={plan.yearSize * HALO_WIDTH}
             strokeLinejoin="round"
             paintOrder="stroke"
+            {...letteringAttrs(plan.lettering, plan.yearSize)}
           >
             <textPath href={`#${uid}-bottom`} startOffset="50%" textAnchor="middle">
               {plan.year}

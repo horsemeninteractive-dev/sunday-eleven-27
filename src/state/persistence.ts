@@ -162,25 +162,102 @@ function legacyStorage(): Storage | null {
  * whatever order it likes, which would leave an older career sitting in the
  * slot after a newer one had already put itself there.
  *
- * The fix is a promise chain per slot rather than a global lock: each write
- * waits for the previous write *to that slot* and nothing else, so the
+ * The fix is a queue per slot rather than a global lock: each write waits for
+ * the writes already queued *for that slot* and for nothing else, so the
  * autosave never waits behind a manual save into a different slot, and the
  * manager is never blocked — a write that is queued has already returned to the
  * caller. Autosaving A, B and C in a burst therefore ends with C stored.
+ *
+ * A queued write flagged as a `snapshot` is a copy of the whole career as it is
+ * being played, and a *newer* snapshot of the same career makes it pointless:
+ * whatever the manager did between the two is in the later one, so the earlier
+ * one is dropped rather than written and immediately superseded. That matters
+ * for more than tidiness. Every queued write holds a whole world in memory and
+ * serialises it when its turn comes, so a burst of autosaves — a watched match,
+ * a day advancing, a team sheet dragged — would otherwise write the same career
+ * out several times over and pay for all of it. A snapshot that is superseded
+ * settles with the answer of the write that replaced it, which is the truth
+ * about the slot: it holds a career at least as new as the one asked for.
+ *
+ * Manual saves and imports are *not* snapshots and are never dropped. When a
+ * manager says "save this career here", that is an instruction rather than an
+ * observation, and it is carried out.
  */
-const writeChains = new Map<string, Promise<unknown>>();
+interface WriteCell {
+  work: () => Promise<unknown>;
+  snapshot: boolean;
+  resolve: (value: unknown) => void;
+  reject: (error: unknown) => void;
+  promise: Promise<unknown>;
+}
 
-function enqueueWrite<T>(slot: string, work: () => Promise<T>): Promise<T> {
-  const previous = writeChains.get(slot) ?? Promise.resolve();
-  // `then(work, work)` rather than `then(work)`: a failed write must not stop
-  // the ones behind it, or one quota error would freeze the autosave for the
-  // rest of the session.
-  const next = previous.then(work, work);
-  writeChains.set(
-    slot,
-    next.catch(() => undefined),
-  );
-  return next;
+interface SlotQueue {
+  waiting: WriteCell[];
+  running: boolean;
+}
+
+const slotQueues = new Map<string, SlotQueue>();
+
+function queueFor(slot: string): SlotQueue {
+  let queue = slotQueues.get(slot);
+  if (!queue) {
+    queue = { waiting: [], running: false };
+    slotQueues.set(slot, queue);
+  }
+  return queue;
+}
+
+function writeCell(work: () => Promise<unknown>, snapshot: boolean): WriteCell {
+  let resolve!: (value: unknown) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<unknown>((settle, fail) => {
+    resolve = settle;
+    reject = fail;
+  });
+  return { work, snapshot, resolve, reject, promise };
+}
+
+function pump(slot: string): void {
+  const queue = queueFor(slot);
+  if (queue.running) return;
+  const cell = queue.waiting.shift();
+  if (!cell) return;
+  queue.running = true;
+  // `then(run, run)`: a failed write must not stop the ones behind it, or one
+  // quota error would freeze the autosave for the rest of the session. The work
+  // is entered from a microtask as well, so a write that throws on the way in is
+  // a rejected promise rather than an exception thrown out of the caller.
+  Promise.resolve()
+    .then(cell.work)
+    .then(cell.resolve, cell.reject)
+    .then(() => {
+      queue.running = false;
+      pump(slot);
+    });
+}
+
+function enqueueWrite<T>(
+  slot: string,
+  work: () => Promise<T>,
+  options: { snapshot?: boolean } = {},
+): Promise<T> {
+  const queue = queueFor(slot);
+  const last = queue.waiting[queue.waiting.length - 1];
+
+  if (options.snapshot === true && last?.snapshot) {
+    const superseding = writeCell(work as () => Promise<unknown>, true);
+    queue.waiting[queue.waiting.length - 1] = superseding;
+    // Both callers get the surviving write's answer. The derived promise cannot
+    // reject unhandled: each branch only hands the outcome on.
+    superseding.promise.then(last.resolve, last.reject);
+    pump(slot);
+    return superseding.promise as Promise<T>;
+  }
+
+  const cell = writeCell(work as () => Promise<unknown>, options.snapshot === true);
+  queue.waiting.push(cell);
+  pump(slot);
+  return cell.promise as Promise<T>;
 }
 
 /**
@@ -768,12 +845,33 @@ export async function initialise(): Promise<void> {
   }
 }
 
-/** Write a career to a slot. Resolves null if the browser would not store it. */
+/**
+ * What came of asking to write a career out.
+ *
+ * Two things, because they are two different questions and only one of them is
+ * about the slot: `info` is the listing the slot now has, and `error` is what to
+ * tell the manager when there is no listing because nothing was written. A
+ * caller cannot read one and mistake it for the other, which is what stops a
+ * failed write from being reported as a successful one.
+ */
+export interface SaveResult {
+  info: SaveSlotInfo | null;
+  error: string | null;
+}
+
+/**
+ * Write a career to a slot.
+ *
+ * `info` is null when the browser would not store it, and `error` says why in
+ * words the manager can act on. Passing `auto` marks the write as a snapshot of
+ * the career being played, which a newer snapshot may supersede — see the queue
+ * above.
+ */
 export function saveGame(
   state: GameState,
   slot: string,
   options: { auto?: boolean } = {},
-): Promise<SaveSlotInfo | null> {
+): Promise<SaveResult> {
   const info: SaveSlotInfo = {
     slot,
     saveName: state.saveName,
@@ -796,17 +894,28 @@ export function saveGame(
     info,
   };
 
-  return enqueueWrite(slot, async () => {
-    try {
-      await idb.put(idb.SAVES, record);
-      return info;
-    } catch (error) {
-      // A full disk, a blocked write, a browser that has thrown us out. The
-      // career in memory is untouched and the manager keeps playing.
-      console.warn(`Saving "${slot}" failed.`, error);
-      return null;
-    }
-  });
+  return enqueueWrite(
+    slot,
+    async (): Promise<SaveResult> => {
+      try {
+        await idb.put(idb.SAVES, record);
+        // The first career that actually lands is the moment it is worth asking
+        // the browser to keep this game's storage: there is something to lose
+        // now, and a request made before anything has been written is a request
+        // a browser is entitled to ignore. It is not awaited — the save is
+        // already done and the manager should not wait on a question he cannot
+        // see being asked.
+        void askToKeepStorage();
+        return { info, error: null };
+      } catch (error) {
+        // A full disk, a blocked write, a browser that has thrown us out. The
+        // career in memory is untouched and the manager keeps playing.
+        console.warn(`Saving "${slot}" failed.`, error);
+        return { info: null, error: await storageFailureReason(error) };
+      }
+    },
+    { snapshot: options.auto === true },
+  );
 }
 
 /**
@@ -817,13 +926,120 @@ export function saveGame(
  * copy of the live career and marks it as the one to reopen, while leaving the
  * manager's own slots exactly as he left them.
  */
-export async function autosave(state: GameState): Promise<boolean> {
-  const info = await saveGame(state, AUTOSAVE_SLOT, { auto: true });
-  if (!info) return false;
+export async function autosave(state: GameState): Promise<SaveResult> {
+  const result = await saveGame(state, AUTOSAVE_SLOT, { auto: true });
+  if (!result.info) return result;
   // The resume mark is written only once the career it points at is actually
   // stored, so a mark never points at a slot that holds nothing.
   await setResumeSlot(AUTOSAVE_SLOT);
-  return true;
+  return result;
+}
+
+/* ------------------------------------------------------------------------ *
+ * What the browser will and will not do with our storage
+ * ------------------------------------------------------------------------ */
+
+/**
+ * What to tell the manager when a write did not land.
+ *
+ * The cases are told apart because they ask different things of him. A full
+ * browser is something he can act on, and it is the one that says how full. A
+ * browser that has withdrawn its storage is not his to fix, and saying so stops
+ * him clearing space that was never the problem. A value the browser refuses to
+ * clone is a fault in this game rather than in his machine, and it is named as
+ * one: dressing that up as a storage problem would send whoever has to fix it
+ * looking in the wrong place entirely.
+ */
+export async function storageFailureReason(error: unknown): Promise<string> {
+  const name = errorName(error);
+  if (error instanceof idb.StorageUnavailableError || name === 'StorageUnavailableError') {
+    return `${errorText(error)} Your career is still open on screen, and nothing already saved has been changed.`;
+  }
+  if (name === 'QuotaExceededError' || name === 'NS_ERROR_DOM_QUOTA_REACHED') {
+    return `This browser has no room left for saved careers.${await storageUsage()} Your career is still open and has not been lost — free some space, or export it to a file, and it can be saved again.`;
+  }
+  if (name === 'DataCloneError') {
+    return 'This career could not be written out: part of it is not a shape the browser can store. That is a fault in this game rather than in your browser, and your career is still open on screen.';
+  }
+  return 'The browser would not store that save — its storage is blocked, full or unavailable. Your career is still open and nothing already saved has been changed.';
+}
+
+/** How much room the browser says it has, in a sentence, when it will say at all. */
+async function storageUsage(): Promise<string> {
+  const estimate = await idb.estimate();
+  if (!estimate || !estimate.quota) return '';
+  return ` It reports ${bytes(estimate.usage)} of ${bytes(estimate.quota)} in use.`;
+}
+
+function bytes(value: number): string {
+  if (value >= 1024 ** 3) return `${(value / 1024 ** 3).toFixed(1)} GB`;
+  return `${Math.max(1, Math.round(value / 1024 ** 2))} MB`;
+}
+
+function errorName(error: unknown): string {
+  const name = (error as { name?: unknown } | null)?.name;
+  return typeof name === 'string' ? name : '';
+}
+
+function errorText(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message;
+  return 'The browser would not give the game its storage.';
+}
+
+/** Whether the game has asked the browser to keep its storage, and what it said. */
+export interface StoragePersistence {
+  asked: boolean;
+  status: idb.PersistenceStatus;
+}
+
+let storagePersistence: StoragePersistence = { asked: false, status: 'unknown' };
+
+/** What the browser last said about keeping these careers. */
+export function storagePersistenceStatus(): StoragePersistence {
+  return storagePersistence;
+}
+
+/**
+ * Ask the browser to keep this game's storage, once.
+ *
+ * Called when a career first lands on disk and when the manager opens the save
+ * list — moments at which asking is honest, because there is something to lose
+ * — and never more than once in a session, because a question asked on every
+ * write is noise and noise gets refused. Whatever the answer is, it is only the
+ * answer: a browser may grant this and still be cleared by hand, and one that
+ * refuses may well keep everything for years. Nothing in the game reads it as a
+ * guarantee, and the sentence the manager is given says so.
+ */
+export async function askToKeepStorage(): Promise<StoragePersistence> {
+  if (storagePersistence.asked) return storagePersistence;
+  // Marked before the await, so two writes landing together ask once between
+  // them rather than twice.
+  storagePersistence = { asked: true, status: 'unknown' };
+  const status = await idb.requestPersistence();
+  storagePersistence = { asked: true, status };
+  return storagePersistence;
+}
+
+/**
+ * The honest sentence about careers that live in a browser.
+ *
+ * There is no version of this that promises a saved career is safe. What can be
+ * promised is that the manager is told which of the two situations he is in, so
+ * that "keep a copy" is a decision he makes rather than one he discovers.
+ */
+export function storagePersistenceNote(status: idb.PersistenceStatus): string {
+  if (status === 'granted') {
+    return 'This browser has agreed to make saved careers persistent, so it will not clear them just because space runs short. Nothing here is permanent: export a career you would be sorry to lose.';
+  }
+  if (status === 'denied') {
+    return 'This browser stores careers on a best-effort basis and can clear them if it runs short of space. Export a career you would be sorry to lose.';
+  }
+  return 'Careers live in this browser alone. Export one before you clear site data, change device or want a second copy.';
+}
+
+/** Only for tests: forget that the browser has been asked. */
+export function resetStoragePersistenceForTests(): void {
+  storagePersistence = { asked: false, status: 'unknown' };
 }
 
 /** The slot the next page load should open, if any. */
@@ -861,16 +1077,30 @@ export async function setResumeSlot(slot: string | null): Promise<void> {
  * A reload lands the manager back on his own dashboard rather than on the menu.
  * A mark pointing at a save that has gone or will not parse is cleared, so a
  * stale mark cannot lock the game out of its own front door.
+ *
+ * The reason it would not open comes back with the answer rather than being
+ * swallowed. Clearing the mark is a decision about *where the next load starts*,
+ * not about the career: the save is left exactly where it is, still listed and
+ * still loadable by hand, and the manager who was dropped back on the menu is
+ * told why instead of being left to guess whether his season is gone.
  */
-export async function resumeCareer(): Promise<GameState | null> {
+export interface ResumeResult {
+  state: GameState | null;
+  /** The slot the mark named, when there was a mark at all. */
+  slot: string | null;
+  /** A sentence for the manager when the career would not open. Null otherwise. */
+  error: string | null;
+}
+
+export async function resumeCareer(): Promise<ResumeResult> {
   const slot = await resumeSlot();
-  if (!slot) return null;
+  if (!slot) return { state: null, slot: null, error: null };
   const result = await loadGame(slot);
   if (!result.state) {
     await setResumeSlot(null);
-    return null;
+    return { state: null, slot, error: `Your last career could not be reopened: ${result.error}` };
   }
-  return result.state;
+  return { state: result.state, slot, error: null };
 }
 
 export async function loadGame(slot: string): Promise<{ state: GameState | null; error: string | null }> {
@@ -892,16 +1122,20 @@ export async function loadGame(slot: string): Promise<{ state: GameState | null;
 /**
  * Turn a stored save file into a career the game can play.
  *
- * Shared by the database and by `deserialiseGame`, so both go through exactly
- * the same version check and the same migrations and neither can drift from the
- * other.
+ * Shared by the database, by the compatibility boundary (`deserialiseGame`) and
+ * by the import of a career file, so all three go through exactly the same
+ * version check and the same migrations and none of them can drift from the
+ * others.
  */
-function readSaveFile(file: SaveFile): { state: GameState | null; error: string | null } {
+export function readSaveFile(file: SaveFile): { state: GameState | null; error: string | null } {
   try {
     if (!file || typeof file !== 'object' || !file.state) {
       return { state: null, error: 'That save file is unreadable.' };
     }
-    if (typeof file.version !== 'number' || file.version > GAME_STATE_VERSION) {
+    if (typeof file.version !== 'number') {
+      return { state: null, error: 'That save file does not say which version of the game wrote it.' };
+    }
+    if (file.version > GAME_STATE_VERSION) {
       return {
         state: null,
         error: `That save was made with a newer version of the game (save v${file.version}, game v${GAME_STATE_VERSION}).`,

@@ -289,6 +289,26 @@ export interface GameStore {
   selectedClubId: ClubId | null;
   notice: string | null;
   error: string | null;
+  /**
+   * The last thing that went wrong with the browser's storage, or null.
+   *
+   * `error` is the game raising its voice about something the manager just did
+   * and can dismiss; this is the quieter, longer-lived fact behind it, and the
+   * two are kept apart because a dismissed banner is not a fixed problem. It is
+   * set when a write does not land and cleared when one does, so the save screen
+   * can say "your career is not reaching this browser's storage" while a
+   * manager is still playing, rather than only at the moment it first failed.
+   */
+  saveFailure: string | null;
+  /**
+   * What could not be read when the game opened, or null.
+   *
+   * The one case where the menu must not be trusted to speak for itself: a
+   * browser whose storage could not be read looks exactly like a browser with
+   * nothing saved, and the difference is a manager's whole season. It is
+   * reported on the menu rather than in a banner that can be dismissed.
+   */
+  bootError: string | null;
   /** The calendar screen: FM's "advance days" planner. */
   plannerOpen: boolean;
   /** A player or club profile pulled up over the current screen. */
@@ -307,6 +327,16 @@ export interface GameStore {
   focus: string | null;
   /** Which of the game's own dialogs is open, if any. */
   dialog: DialogId | null;
+  /**
+   * The back gesture arrived while a match was being played.
+   *
+   * The one piece of the Android back policy that cannot be decided by the
+   * store, because only the match screen knows what leaving it costs: the
+   * gesture sets this, the match asks its question, and nothing else reads it.
+   * A second back press while the question is up is answered by the same dialog
+   * layer every other dialog closes through, so it can never stack.
+   */
+  leaveMatchPrompt: boolean;
   /**
    * The game is playing out football the manager is not watching.
    *
@@ -342,6 +372,9 @@ export interface GameStore {
   closeReplay: () => void;
   openDialog: (dialog: DialogId) => void;
   closeDialog: () => void;
+  /** The back gesture asked to leave a match that has not finished. */
+  askToLeaveMatch: () => void;
+  dismissLeaveMatch: () => void;
   setPreferences: (patch: Partial<Preferences>) => void;
   resetPreferences: () => void;
   selectPlayer: (playerId: PersonId | null) => void;
@@ -392,9 +425,24 @@ export interface GameStore {
   chooseClub: (clubId: ClubId) => void;
   createCustomClub: (design: ClubDesign) => void;
   abandonDraft: () => void;
-  saveGame: (slot: string) => Promise<void>;
+  /**
+   * Save the career being played into a slot.
+   *
+   * Resolves true only when the slot actually holds it. A save that did not land
+   * says so twice: as its answer, for the screen that asked, and as `error`, for
+   * the manager.
+   */
+  saveGame: (slot: string) => Promise<boolean>;
   loadGame: (slot: string) => Promise<void>;
   listSaves: () => Promise<persistence.SaveSlotInfo[]>;
+  /**
+   * Take over a career read from a file the manager chose.
+   *
+   * Resolves true only if the imported career was stored *and* opened: a career
+   * that could not be written is not shown, so the manager is never looking at
+   * a season that will not be there when he reloads.
+   */
+  importCareer: (state: GameState, fileName: string) => Promise<boolean>;
   quitToMenu: () => Promise<void>;
 
   // Matchday and the season.
@@ -551,8 +599,69 @@ export function scheduleAutosave(state: GameState): void {
   if (autosaveTimer !== null) clearTimeout(autosaveTimer);
   autosaveTimer = setTimeout(() => {
     autosaveTimer = null;
-    void persistence.autosave(state);
+    void startAutosaveWrite(state);
   }, AUTOSAVE_DELAY_MS);
+}
+
+/**
+ * The write that is in the air, if one is.
+ *
+ * Kept so that `flushAutosaveAndWait` has something to await. The debounce above
+ * deliberately does not wait for its own write — a page on its way out has no
+ * time to — but a desktop window does, and a write that has been *handed over* is
+ * not the same thing as a write that has *landed*.
+ */
+let autosaveWrite: Promise<void> | null = null;
+
+/** Start a write and remember it, so that closing the game can wait for it. */
+function startAutosaveWrite(state: GameState): Promise<void> {
+  const write = writeAutosave(state).finally(() => {
+    // Only if this is still the current write: a slow one that finishes after a
+    // faster one must not clear the newer promise out from under the flush.
+    if (autosaveWrite === write) autosaveWrite = null;
+  });
+  autosaveWrite = write;
+  return write;
+}
+
+/** The last thing the game told the manager about a failed write. */
+let reportedSaveFailure: string | null = null;
+
+/**
+ * Write the career out, and say what came of it.
+ *
+ * The autosave runs after everything the manager does, so a browser whose
+ * storage has gone away fails it again and again. `saveFailure` is the lasting
+ * fact and is set every time; the banner is raised once, on the first failure of
+ * a run, and not repeated while the same thing keeps being true — a manager
+ * cannot dismiss his way out of a broken disk, and a message that reappears
+ * every eight hundred milliseconds is a message that gets ignored.
+ */
+async function writeAutosave(state: GameState): Promise<void> {
+  const result = await persistence.autosave(state);
+  if (result.info) {
+    reportSaveSuccess();
+    return;
+  }
+  reportSaveFailure(result.error ?? 'The browser would not store this career.');
+}
+
+/** Storage is working again: the durable worry goes, and the next failure speaks afresh. */
+function reportSaveSuccess(): void {
+  reportedSaveFailure = null;
+  if (useGameStore.getState().saveFailure !== null) useGameStore.setState({ saveFailure: null });
+}
+
+function reportSaveFailure(error: string): void {
+  useGameStore.setState({ saveFailure: error });
+  if (reportedSaveFailure === error) return;
+  reportedSaveFailure = error;
+  useGameStore.setState({ error });
+}
+
+/** Only for tests: forget the last failure that was announced. */
+export function resetSaveReportingForTests(): void {
+  reportedSaveFailure = null;
 }
 
 /**
@@ -571,11 +680,37 @@ export function scheduleAutosave(state: GameState): void {
  * `beforeunload` is not reliably given any.
  */
 export function flushAutosave(): void {
-  if (autosaveTimer === null) return;
+  void handOverAutosave();
+}
+
+/**
+ * Hand a pending write over and *wait* for it to land.
+ *
+ * This is `flushAutosave` for a shell that can hold the door open. A browser
+ * cannot: the page is being torn down and nothing will wait for a database
+ * write, which is why the mobile shell hands the write over and hopes. A desktop
+ * window can — Electron will hold the close until it is told the write is done
+ * (`platform/desktop.ts`) — and waiting changes what the game can promise from
+ * "the write was started" to "the career is on the disk".
+ *
+ * A write already in the air is waited for as well, not just one still in the
+ * debounce: the manager who closes the window half a second after moving a
+ * player is exactly the manager this exists for.
+ */
+export async function flushAutosaveAndWait(): Promise<void> {
+  await (handOverAutosave() ?? autosaveWrite);
+}
+
+/** Take the pending debounce off the timer and start its write. */
+function handOverAutosave(): Promise<void> | null {
+  if (autosaveTimer === null) return autosaveWrite;
   clearTimeout(autosaveTimer);
   autosaveTimer = null;
   const game = useGameStore.getState().game;
-  if (game) void persistence.autosave(game);
+  // The write cannot be awaited by the *caller* of `flushAutosave`, which is why
+  // it is only watched there — but it is watched, so a write that fails as the
+  // game closes is at least recorded for whatever is left of the session.
+  return game ? startAutosaveWrite(game) : autosaveWrite;
 }
 
 /**
@@ -797,12 +932,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
   selectedClubId: null,
   notice: null,
   error: null,
+  saveFailure: null,
+  bootError: null,
   plannerOpen: false,
   profile: null,
   negotiationId: null,
   openConversationId: null,
   focus: null,
   dialog: null,
+  leaveMatchPrompt: false,
   processing: null,
   advancing: false,
   preferences: loadPreferences(),
@@ -819,6 +957,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
       ...(view === 'inbox' ? {} : { openConversationId: null }),
       plannerOpen: false,
       dialog: null,
+      // Anywhere the manager goes next, the question about the match he was
+      // leaving has been answered by going there.
+      leaveMatchPrompt: false,
     }),
 
   openReplay: (matchId, from) => {
@@ -842,6 +983,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
   openDialog: (dialog) => set({ dialog, profile: null, negotiationId: null, plannerOpen: false }),
   closeDialog: () => set({ dialog: null }),
+  askToLeaveMatch: () => set({ leaveMatchPrompt: true }),
+  dismissLeaveMatch: () => set({ leaveMatchPrompt: false }),
 
   /**
    * A setting is written down and put into effect in the same breath, because a
@@ -1175,13 +1318,58 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   saveGame: async (slot) => {
     const game = get().game;
-    if (!game) return;
-    const info = await persistence.saveGame(game, slot);
-    if (!info) {
-      set({ error: 'The browser would not store that save — its storage is full or blocked.' });
-      return;
+    if (!game) return false;
+    const result = await persistence.saveGame(game, slot);
+    if (!result.info) {
+      // Both answers, from one fact: the caller is told the write did not land,
+      // and the manager is told why.
+      const error = result.error ?? 'The browser would not store that save.';
+      set({ error, saveFailure: error });
+      return false;
     }
-    set({ notice: `Saved to slot "${slot}" (${info.clubName}).` });
+    set({ notice: `Saved to slot "${slot}" (${result.info.clubName}).`, saveFailure: null });
+    return true;
+  },
+
+  /**
+   * Take over a career read from a file.
+   *
+   * Two steps, in this order, and the order is the whole of it: the imported
+   * career is written to disk first, and only then does it become the career on
+   * screen. A manager shown a season that then evaporates on the next reload has
+   * been told something untrue, and the way not to tell him is to refuse to open
+   * what has not landed. Nothing else is touched — his own slots keep exactly
+   * what they held — and the career he was playing is still on disk in them, if
+   * he saved it, or still in the autosave until this write replaced it, which is
+   * what the confirmation before this is about.
+   */
+  importCareer: async (state, fileName) => {
+    const result = await persistence.autosave(state);
+    if (!result.info) {
+      const error = `${result.error ?? 'The browser would not store it.'} The imported career has not been opened, and the career you were playing is untouched.`;
+      set({ error, saveFailure: error });
+      return false;
+    }
+    reportSaveSuccess();
+    // A career from a file is a career the game is now playing: today's football
+    // is prepared for it, and whatever engine was running the last one is gone.
+    readyForManager(state);
+    forgetLiveEngine();
+    const clubName = state.clubs[state.userClubId]?.identity.name ?? 'the club in the file';
+    set({
+      game: state,
+      session: null,
+      leaveMatchPrompt: false,
+      replay: null,
+      view: 'dashboard',
+      profile: null,
+      negotiationId: null,
+      plannerOpen: false,
+      error: null,
+      saveFailure: null,
+      notice: `Imported ${clubName} from ${fileName}. The career continues from here.`,
+    });
+    return true;
   },
 
   loadGame: async (slot) => {
@@ -1202,12 +1390,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({
       game: result.state,
       session: null,
+      leaveMatchPrompt: false,
       replay: null,
       view: 'dashboard',
       profile: null,
       negotiationId: null,
       plannerOpen: false,
       error: null,
+      // Storage answered with a career, so whatever the game said about it at
+      // boot is out of date and no longer worth repeating on the menu.
+      bootError: null,
       notice: `Loaded ${result.state.saveName}.`,
     });
   },
@@ -1222,6 +1414,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({
       game: null,
       session: null,
+      leaveMatchPrompt: false,
       replay: null,
       setup: null,
       view: 'start',
@@ -1274,7 +1467,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       state.lastMatchId = match.id;
       state.pendingMatchId = null;
       readyForManager(state);
-      set({ game: state, session: null, notice: forfeit.note, error: null });
+      set({ game: state, session: null, leaveMatchPrompt: false, notice: forfeit.note, error: null });
       return;
     }
 
@@ -1308,6 +1501,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
         warmUp: 'normal',
       },
       view: 'match',
+      // Whatever he was asked on the way out of the last match has been
+      // answered by starting this one.
+      leaveMatchPrompt: false,
       error: null,
     });
   },
@@ -1464,7 +1660,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       state.lastMatchId = match.id;
       state.pendingMatchId = null;
       readyForManager(state);
-      set({ game: state, session: null, replay: null, view: 'dashboard', notice: forfeit.note });
+      set({ game: state, session: null, leaveMatchPrompt: false, replay: null, view: 'dashboard', notice: forfeit.note });
       return;
     }
 
@@ -1482,7 +1678,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     state.pendingMatchId = null;
     publishEvents(state, events);
     readyForManager(state);
-    set({ game: state, session: null, replay: null, view: 'dashboard' });
+    set({ game: state, session: null, leaveMatchPrompt: false, replay: null, view: 'dashboard' });
   },
 
   advanceSpatial: (deltaSeconds) => {
@@ -1602,7 +1798,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const session = get().session;
     const game = get().game;
     if (!session || !game) {
-      set({ session: null });
+      set({ session: null, leaveMatchPrompt: false });
       return;
     }
 
@@ -1625,6 +1821,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({
       game,
       session: null,
+      leaveMatchPrompt: false,
       view: 'dashboard',
       notice: session.fullTimeTalk ? fullTimeTalkVerdict(talk, deltas, outcome.result) : null,
     });
@@ -1689,6 +1886,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({
       game: state,
       session: null,
+      leaveMatchPrompt: false,
       view: 'dashboard',
       notice: `${state.season.label} pre-season begins.${kitLine}`,
     });
@@ -2012,9 +2210,17 @@ useGameStore.subscribe((state, previous) => {
 export async function bootStore(): Promise<void> {
   let resumed: GameState | null = null;
   let hasSaves = false;
+  let bootError: string | null = null;
   try {
     await persistence.initialise();
-    resumed = await persistence.resumeCareer();
+    const resume = await persistence.resumeCareer();
+    // A career that would not open is reported rather than passed over. The
+    // menu says "nothing saved yet" when it has nothing to show, and a manager
+    // whose season is on disk and unreadable must not be told that — so the
+    // sentence about what happened travels with the answer and is shown beside
+    // the list he can still see his career in.
+    bootError = resume.error;
+    resumed = resume.state;
     // The slot list, not the resume mark: quitting to the menu clears the mark
     // and leaves the career exactly where it was, so a menu that asked only the
     // mark would say "nothing saved" to a manager with a season on disk. Read
@@ -2023,11 +2229,15 @@ export async function bootStore(): Promise<void> {
     hasSaves = resumed !== null || (await persistence.listSaveSlots()).length > 0;
   } catch (error) {
     console.warn('Starting without a stored career.', error);
+    // The one thing that must not be mistaken for an empty browser.
+    bootError =
+      'The game could not read this browser’s storage, so the list below may be incomplete. Nothing has been deleted: saved careers are still on disk and are still there when the storage can be read again.';
   }
   useGameStore.setState({
     ready: true,
     game: resumed,
     hasSaves,
+    bootError,
     // The manager is put back on his own dashboard: a reload should not cost him
     // his place. No career — or a mark left pointing at one that has since gone
     // — leaves the menu in charge, which is where a new one starts.

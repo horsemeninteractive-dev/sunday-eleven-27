@@ -33,6 +33,25 @@ const CACHE = 'sunday-eleven-v1';
  */
 const SHELL = self.__PRECACHE__;
 
+/**
+ * How a cached file is looked up, and the option in it is load-bearing.
+ *
+ * `ignoreVary` was not written here on a hunch; it was found by *being offline*.
+ * Chromium's cache honours a stored response's `Vary` header when matching it
+ * against a request, so a host that answers with `Vary: Origin` — the preview
+ * server does, and an edge may — makes every request that carries an `Origin`
+ * header miss the cache. Module scripts and `modulepreload` links carry one,
+ * and they are how this game's own bundles are fetched, so the failure was a
+ * document served happily from the cache with its JavaScript failing behind it:
+ * the booting placeholder, for ever, with no network to explain it.
+ *
+ * Ignoring `Vary` cannot serve one visitor's response to another here, and that
+ * is a property of this worker rather than a hope: it answers same-origin GETs
+ * only, from a list of content-hashed files this build wrote down, so the entry
+ * under a URL is the same bytes for everybody.
+ */
+const CACHE_MATCH = { ignoreVary: true };
+
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches
@@ -82,7 +101,7 @@ self.addEventListener('fetch', (event) => {
   // without ever being stale.
   if (url.pathname.startsWith('/assets/')) {
     event.respondWith(
-      caches.match(request).then(
+      caches.match(request, CACHE_MATCH).then(
         (hit) =>
           hit ??
           fetch(request).then((response) => {
@@ -109,13 +128,15 @@ self.addEventListener('fetch', (event) => {
           }
           return response;
         })
-        .catch(() => caches.match('/index.html').then((hit) => hit ?? caches.match('/'))),
+        .catch(() =>
+          caches.match('/index.html', CACHE_MATCH).then((hit) => hit ?? caches.match('/', CACHE_MATCH)),
+        ),
     );
     return;
   }
 
   event.respondWith(
-    caches.match(request).then(
+    caches.match(request, CACHE_MATCH).then(
       (hit) =>
         hit ??
         fetch(request).then((response) => {

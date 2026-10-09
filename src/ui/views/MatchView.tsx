@@ -13,6 +13,8 @@ import { currentLiveEngine } from '@/state/liveEngine';
 import { resolveRenderer } from '@/presentation/matchRenderers';
 import { TeamSheet } from '../match/TeamSheet';
 import { MatchControls, type MatchDrawer } from '../match/MatchControls';
+import { LeaveMatchDialog } from '../match/LeaveMatchDialog';
+import { useDismissable } from '../components/useModal';
 import { MatchStatsStrip } from '../match/MatchStats';
 import { FullTimePanel, HalfTimePanel, PreMatchPanel } from '../match/MatchPhases';
 import { matchMinuteMs } from '../matchPace';
@@ -78,6 +80,18 @@ export function MatchView() {
     if (session?.phase === 'pre-match' || session?.phase === 'half-time' || session?.phase === 'full-time') setDrawer(null);
     setIntervalOpen(true);
   }, [session?.phase]);
+
+  // The drawer is a panel of this screen rather than a dialog over it, so it is
+  // registered as something the back gesture puts away before it asks anything
+  // more drastic — see `ui/layers.ts`.
+  useDismissable(drawer !== null, () => setDrawer(null));
+
+  // The back gesture asking to leave puts the drawer down first: one question on
+  // screen at a time, and the answer to it should not be hidden behind a panel.
+  const leavePrompt = useGameStore((state) => state.leaveMatchPrompt);
+  useEffect(() => {
+    if (leavePrompt) setDrawer(null);
+  }, [leavePrompt]);
 
   const match = session?.live;
   // The strips the two sides are actually in, which is not the same as the
@@ -234,6 +248,8 @@ export function MatchView() {
           onMakeChanges={() => setIntervalOpen(false)}
         />
       )}
+      <LeaveMatchDialog />
+
       {phase === 'full-time' && intervalOpen && (
         <FullTimePanel
           game={game}

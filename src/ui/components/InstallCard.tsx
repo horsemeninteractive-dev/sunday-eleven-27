@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useInstall } from '@/pwa';
+import { hasWebShell } from '@/platform/target';
 import { Button } from './primitives';
 
 /**
@@ -23,11 +24,17 @@ import { Button } from './primitives';
  * and the only way in is Share, then Add to Home Screen. So there the card
  * explains that instead of offering a button, because a button that cannot work
  * is worse than no button.
+ *
+ * There is no card at all in a packaged build, and that is not merely tidiness:
+ * the native WebView's user agent is a phone's, so the reasoning above would read
+ * an iPhone inside the installed application as an iOS browser and offer to
+ * install the game the manager is already playing.
  */
 export function InstallCard() {
   const { route, promptInstall } = useInstall();
   const [dismissed, setDismissed] = useState(false);
 
+  if (!hasWebShell()) return null;
   if (route === 'none' || dismissed) return null;
 
   if (route === 'manual') {

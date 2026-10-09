@@ -9,11 +9,14 @@ import {
   type KitPattern,
   type KitRole,
   type KitSet,
+  type KitSponsor,
 } from '@/domain/kit';
 import { balanceLines, fitSize } from '../badge';
 import { LIGHT_INK } from '../colour';
 import { KitMarkGlyph } from '../kitMarks';
+import { SPONSOR_CHEST } from '../sponsorMark';
 import { BadgeArt } from './Badge';
+import { SponsorPrintArt } from './SponsorMark';
 
 /**
  * A club's kit, drawn.
@@ -23,8 +26,8 @@ import { BadgeArt } from './Badge';
  * from the wrapper, exactly as they do for a badge.
  *
  * Everything on the shirt is on a real shirt: the club's crest and the kit
- * firm's mark on the chest, the sponsor's name across it, the pattern in the
- * club's second colour. The crest sits on the *right* of the picture because it
+ * firm's mark on the chest, the sponsor's own logo printed across it, the
+ * pattern in the club's second colour. The crest sits on the *right* of the picture because it
  * is worn over the heart: a shirt facing you wears its wearer's left on yours.
  */
 
@@ -96,10 +99,12 @@ function haloFor(ink: string): string {
 }
 
 /**
- * The sponsor's name across the chest.
+ * The name across the chest of a shirt whose sponsor is nobody in particular.
  *
- * Fitted to the shirt rather than set at one size, so a shirt carrying "The Old
- * White Hart" and one carrying "Colney Sport" both look like shirts. A long
+ * The game allows a sponsor with no business behind it, and that one has no logo
+ * to print — a name alone is what every shirt carried before there were marks at
+ * all. Fitted to the shirt rather than set at one size, so a shirt carrying "The
+ * Old White Hart" and one carrying "Colney Sport" both look like shirts. A long
  * name gets a second line before it gets unreadably small.
  */
 function SponsorText({ name, ink }: { name: string; ink: string }) {
@@ -123,6 +128,42 @@ function SponsorText({ name, ink }: { name: string; ink: string }) {
         </tspan>
       ))}
     </text>
+  );
+}
+
+/**
+ * Where the sponsor's patch sits on the shirt: on the middle of the body, and no
+ * wider than the chest it is printed on.
+ *
+ * A patch is a patch on a real shirt — a small board with the sponsor's name on
+ * it, not a hoarding across the whole front — and the room it takes is the
+ * room the crest and the kit firm's mark are not using.
+ */
+const CHEST_PRINT_Y = 46;
+
+/**
+ * The sponsor's patch across the chest.
+ *
+ * The business's own board in the business's own colours, printed where the
+ * shirt is. It is *filled*, not outlined, and that is the whole reason it is
+ * drawn this way: lettering laid straight onto cloth disappears the moment the
+ * shirt has a stripe or a second colour, which is exactly what a manager said
+ * when he could not read his own sponsor on his own kit.
+ *
+ * A sponsor with no business behind it, which the game allows, has no patch to
+ * print: it keeps the name alone, exactly as every shirt did before this
+ * existed.
+ */
+function SponsorChest({ sponsor, ink }: { sponsor: KitSponsor; ink: string }) {
+  if (sponsor.kind === null) return <SponsorText name={sponsor.name} ink={ink} />;
+
+  return (
+    <g transform={`translate(${60 - SPONSOR_CHEST.width / 2} ${CHEST_PRINT_Y})`}>
+      <SponsorPrintArt
+        business={{ id: sponsor.id, name: sponsor.name, kind: sponsor.kind }}
+        print={{ edge: ink }}
+      />
+    </g>
   );
 }
 
@@ -169,7 +210,7 @@ export function KitStrip({ club, kit, role }: { club: Club; kit: KitSet; role: K
         <BadgeArt club={club} />
       </g>
       {kit.sponsor ? (
-        <SponsorText name={kit.sponsor.name} ink={design.ink} />
+        <SponsorChest sponsor={kit.sponsor} ink={design.ink} />
       ) : (
         <rect x={46} y={52} width={28} height={2.2} rx={1.1} fill={design.ink} opacity={0.22} />
       )}

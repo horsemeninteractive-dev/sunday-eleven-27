@@ -136,6 +136,40 @@
      rail gives back without anything having to be told about it. */
   --sidebar-rail: 54px;
   --tabbar-height: 54px;
+
+  /* The phone's own furniture -------------------------------------------------
+     A modern phone draws the application *under* its system bars — the status
+     bar at the top, the gesture bar at the bottom, and whatever the camera is
+     set into — so the game has to reserve that room back for itself, or the
+     bottom navigation ends up behind the home indicator and the match controls
+     under the gesture bar.
+
+     There are two ways a shell reports the room, and there is one variable for
+     each. A Capacitor Android shell injects `--safe-area-inset-*` on the
+     document element (see `insetsHandling: 'css'` in `capacitor.config.ts`);
+     everything else, iOS and a notched browser included, reports it through
+     `env(safe-area-inset-*)`, which only has a value at all because
+     `index.html` declares `viewport-fit=cover`. Reading the injected variable
+     first and falling back to `env()` covers both.
+
+     In a browser with neither — a desktop, a phone with no notch — both are
+     zero, every rule below is a no-op, and the web layout is the layout it
+     already was. That is the property worth protecting: this is a native
+     concern that must cost the website nothing.
+
+     The four edges are reserved once each, at the frame of whatever is on
+     screen, rather than by every piece of furniture that happens to touch an
+     edge. Two frames need it: the shell, and the match. Anything fixed to the
+     *viewport* inside them (a bottom sheet, a dialog) is outside the shell's
+     padding and reserves its own.
+     ------------------------------------------------------------------------ */
+  --safe-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  --safe-right: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
+  --safe-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+  --safe-left: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
+  /* The window the game actually gets, between the two system bars. Only for
+     things that must not be taller than it — a dialog, a sheet. */
+  --safe-h: calc(100dvh - var(--safe-top) - var(--safe-bottom));
 }
 
 * {
@@ -481,6 +515,11 @@ a,
   height: 100vh;
   height: 100dvh;
   overflow: hidden;
+  /* The shell reserves the system bars for everything inside it, once, here:
+     the command bar starts below the status bar, the bottom navigation sits
+     above the gesture bar, and a landscape cutout does not eat the sidebar.
+     The room behind it is the page's own near-black. */
+  padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
 }
 .app__body {
   display: grid;
@@ -1179,7 +1218,9 @@ a,
   display: none;
   border-top: 1px solid var(--line);
   background: var(--bg-2);
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  /* No inset of its own: the tab bar is in the shell's own frame, which has
+     already reserved the gesture bar. Reserving it twice is how a phone ends up
+     with a hand's width of nothing under the navigation. */
 }
 .tabbar__item {
   flex: 1;
@@ -1230,7 +1271,7 @@ a,
   overflow-y: auto;
   background: var(--panel);
   border-top: 2px solid var(--club);
-  padding: var(--s2) var(--s3) calc(var(--s4) + env(safe-area-inset-bottom, 0px));
+  padding: var(--s2) var(--s3) calc(var(--s4) + var(--safe-bottom));
   animation: sheet-up 140ms ease-out;
 }
 @keyframes sheet-up {
@@ -4493,6 +4534,12 @@ html[data-motion='reduced'] .matchpitch[data-celebrating='true']::after {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* The match is a takeover, so it takes the shell's frame as well as its
+     place: the score and the clock clear the status bar, and the control strip
+     — pause, speed, the panels — clears the gesture bar. This is the strip a
+     thumb is asked to reach most often, and it is the one thing on the screen
+     that must never be half under the system UI. */
+  padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
 }
 
 /* The score, always in the same place, never more than a row tall. */
@@ -5637,7 +5684,12 @@ html[data-motion='reduced'] .incident {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: var(--s3);
+  /* The insets are reserved here as well as on the match behind it, because
+     `inset: 0` fills the padding box of the frame rather than its content box:
+     the dressing-room, half-time and full-time cards span the whole window, so
+     their own buttons would otherwise sit in the gesture bar. `Kick off` is the
+     one button in the game that must never be under a thumb's resting place. */
+  padding: calc(var(--safe-top) + var(--s3)) var(--s3) calc(var(--safe-bottom) + var(--s3));
   background: rgba(8, 9, 11, 0.72);
 }
 .interval__card {
@@ -5827,14 +5879,20 @@ html[data-motion='reduced'] .incident {
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding: var(--s4) var(--s3);
+  /* A dialog is fixed to the viewport, so it is outside the shell's frame and
+     reserves the bars itself: the scrim still covers the whole screen, but the
+     panel it centres never wanders under the status bar or the gesture bar. */
+  padding: calc(var(--safe-top) + var(--s4)) var(--s3) calc(var(--safe-bottom) + var(--s4));
   overflow-y: auto;
   background: rgba(0, 0, 0, 0.7);
 }
 .overlay__panel {
   width: 100%;
   max-width: 1040px;
-  max-height: calc(100dvh - 32px);
+  /* Never taller than the window the game actually has, so the footer of a
+     dialog — and the buttons that close it — stay on the screen even with the
+     keyboard up. */
+  max-height: calc(var(--safe-h) - 32px);
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -6885,14 +6943,20 @@ html[data-motion='reduced'] .incident {
   }
   /* Names, clubs and competitions are the primary way of getting around a
      grassroots game, so on a phone they are given a thumb's worth of height
-     even where they read as ordinary text on a desktop. */
+     even where they read as ordinary text on a desktop.
+
+     Forty-four, not thirty-four: these are the most-tapped controls in the
+     game — a squad list is thirty of them — and it costs nothing to make them
+     a full target, because the row they sit in is already two lines of
+     condition, fitness and form around them. Measured on a phone, a squad row
+     is 77 pixels tall and the name inside it was 34. */
   .link.clubcell,
   .link.playerlink,
   .clubcell,
   .playerlink {
     display: inline-flex;
     align-items: center;
-    min-height: 34px;
+    min-height: 44px;
     padding: var(--s1) 0;
   }
   .mobilebar__club {
@@ -8164,9 +8228,11 @@ html[data-motion='reduced'] *::after {
   padding: var(--s2) var(--s3);
   border-top: 1px solid var(--line);
   background: var(--panel);
-  /* On a phone this sits above the browser chrome and above the home gesture,
-     so it needs the safe area as well as the padding. */
-  padding-bottom: max(var(--s2), env(safe-area-inset-bottom));
+  /* No safe-area inset of its own: the composer sits inside the shell, whose
+     frame has already reserved the gesture bar. Reserving it here as well is
+     how a phone ends up with two hands' worth of nothing under the last line of
+     a conversation. */
+  padding-bottom: var(--s2);
 }
 
 .inbox__reply .btn {
@@ -8245,7 +8311,6 @@ html[data-motion='reduced'] *::after {
 
   .inbox__reply {
     padding: var(--s1) var(--s2);
-    padding-bottom: max(var(--s1), env(safe-area-inset-bottom));
   }
 
   .inbox__reply .btn {
@@ -8573,7 +8638,7 @@ button.chip { cursor: pointer; min-width: 36px; }
 .interval__body { padding: 18px; }
 .choice-help { color: var(--text-dim); font-size: var(--fs-sm); margin-top: 8px; }
 .matchbar__drawer:focus { outline: none; }
-.global-feedback { position: fixed; right: 16px; top: 16px; z-index: 90; max-width: min(560px, calc(100vw - 32px)); box-shadow: var(--shadow-float); }
+.global-feedback { position: fixed; right: calc(var(--safe-right) + 16px); top: calc(var(--safe-top) + 16px); z-index: 90; max-width: min(560px, calc(100vw - 32px)); box-shadow: var(--shadow-float); }
 .loading-screen { padding: 24px; color: var(--text-dim); }
 /* A person is drawn: his face, and the shirt of whoever he plays for.
 
@@ -8705,8 +8770,8 @@ button.chip { cursor: pointer; min-width: 36px; }
   .page-head__title { font-size: var(--fs-xl); }
   .btn, .btn--sm, .tab, .chip, .segmented__item, .choice, .inspector__tab, .input, select.input { min-height: 44px; }
   .input, select.input { font-size: 16px; }
-  .overlay { padding: 8px; align-items: center; }
-  .overlay__panel { max-height: calc(100dvh - 16px); min-height: 0; border-radius: 4px; }
+  .overlay { padding: calc(var(--safe-top) + 8px) 8px calc(var(--safe-bottom) + 8px); align-items: center; }
+  .overlay__panel { max-height: calc(var(--safe-h) - 16px); min-height: 0; border-radius: 4px; }
   .overlay__bar, .overlay__foot, .overlay__body { padding: 12px; }
   .overlay__close { width: 44px; height: 44px; }
   .tile-grid:has(> .metric-tile) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -8720,7 +8785,11 @@ button.chip { cursor: pointer; min-width: 36px; }
   .panel__body { padding: 12px; }
   .panel__body--flush { padding: 0; }
   .profilehead__name h2 { font-size: var(--fs-xl); }
-  .interval { padding: 8px; }
+  /* The card is on the match's frame, which is a takeover rather than a page:
+     `inset: 0` fills that frame's padding box, so the insets are reserved here
+     too and `Kick off` is never under the gesture bar. The 8px is the phone's
+     own breathing room, added to whatever the shell reports. */
+  .interval { padding: calc(var(--safe-top) + 8px) 8px calc(var(--safe-bottom) + 8px); }
   .interval__head, .interval__body, .interval__foot { padding: 12px; }
   .interval__foot .btn:last-child { flex: 1; }
   .updatebar { bottom: 128px; z-index: 50; }
@@ -10187,7 +10256,7 @@ html[data-motion='reduced'] { scroll-behavior: auto; }
     max-height: 66dvh;
     overflow-y: auto;
     overscroll-behavior: contain;
-    padding: 0 var(--s2) calc(var(--s3) + env(safe-area-inset-bottom, 0px));
+    padding: 0 var(--s2) calc(var(--s3) + var(--safe-bottom));
     border-top: 2px solid var(--club);
     border-radius: var(--radius) var(--radius) 0 0;
     background: var(--panel);
@@ -10684,4 +10753,45 @@ html[data-motion='reduced'] .team-selection__aside { transition: none; }
      read at a glance, it is a fact shouted at a small screen. */
   .focal-fact__value { font-size: var(--fs-2xl); }
   .focal-fact { padding: 12px 0 14px; }
+}
+
+/* --- I · Touch targets, on a phone -----------------------------------------
+
+   The phone shell already raises everything that is pressed with a thumb to
+   forty-four pixels — the buttons, the chips, the tabs, the fields. Two
+   controls were drawn for a cursor and sit outside that rule, and both of them
+   are in the two places a thumb is most likely to be:
+
+     - a sortable column heading. On a phone the whole cell is the target, and
+       the cell was 25 to 29 pixels tall — precisely the sort of control that
+       gets pressed twice because the first press did not land.
+
+     - the two tools on the formation board, which are the smallest things on a
+       screen whose whole purpose is to be looked at while a thumb is on it.
+
+   Both are raised here, at the foot of the sheet, rather than in the rules that
+   draw them: those rules are shared with the desktop, where a table heading is
+   not a control you hit but a label you read, and where the extra height would
+   cost a dense table the density it was drawn for. A `min-height` alone would
+   not have been enough — `.pitch__tool` is defined below where the shell's
+   phone rules live, so the base rule would simply have won. */
+
+@media (max-width: 860px) {
+  .table th.th--sort .th__sort { min-height: 44px; padding-block: 15px; }
+  .pitch__tool { min-height: 44px; padding: 0 12px; }
+
+  /* The speed chips, which are the same story once more: `.speed .chip` is two
+     classes and is written above the shell's phone rules, so the rule that
+     raises every chip to a thumb never reached the four controls a manager
+     presses most often in a match — they were measured at 32 by 32 pixels, on
+     the row beside forty-four-pixel transport buttons, which is also the
+     mismatched row the base rule was written to prevent. The match and the
+     replay both use `.speed`, so both are fixed here. */
+  .speed .chip { min-height: 44px; min-width: 44px; padding: 0 12px; }
+
+  /* And the one disclosure that is not a section header: the training screen's
+     help line is a `details`/`summary`, 29 pixels of a thumb's target. Padding
+     rather than a height so the text stays centred in whatever the row ends up
+     being, and the marker stays a marker. */
+  .instruction-help > summary { min-height: 44px; padding-block: 13px; }
 }

@@ -1,0 +1,140 @@
+apply plugin: 'com.android.application'
+
+/*
+ * The version the application reports, read from the repository's package.json.
+ *
+ * The game's version is written down once — in `package.json`, where
+ * `tools/release.ts` bumps it and `vite.config.ts` reads it — and the Android
+ * build reads the same file rather than keeping a second copy that would drift
+ * the first time a release forgot it. `versionName` is what a person sees (and
+ * what `npm run release` already ships to the website), and `versionCode` is the
+ * integer a store compares, so it is derived from the same three numbers in a
+ * way that only ever goes up: 0.10.1 becomes 10001.
+ */
+def packageJson = new groovy.json.JsonSlurper().parse(file('../../package.json'))
+def appVersionName = (packageJson.version ?: '0.0.0').toString()
+def versionParts = appVersionName.split('\\.')
+def versionPart = { String value -> (value =~ /^(\d+)/) ? (value =~ /^(\d+)/)[0][1].toInteger() : 0 }
+def appVersionCode =
+    versionPart(versionParts[0]) * 1_000_000 +
+    versionPart(versionParts.length > 1 ? versionParts[1] : '0') * 1_000 +
+    versionPart(versionParts.length > 2 ? versionParts[2] : '0')
+
+/*
+ * The upload key, and where it is kept.
+ *
+ * Google Play does not sign the release that reaches a phone: with Play App
+ * Signing, the key in this repository's hands is an *upload* key, Google holds
+ * the app signing key, and a bundle is signed here only so Play can check who
+ * sent it. That upload key must never be in the repository — a keystore in git
+ * is a keystore everybody has — so it is read from `android/keystore.properties`,
+ * which is ignored by git, and `keystore.properties.example` is the shape to
+ * copy into it.
+ *
+ * The file's absence is not an error. A debug build does not need it, a release
+ * build without it produces an *unsigned* bundle, and Play refuses an unsigned
+ * bundle with a message that names the problem — which is a far better outcome
+ * than a build that quietly signed with the debug key and shipped under it.
+ * `npm run android:preflight` reports the whole arrangement before a build
+ * spends ten minutes finding out.
+ */
+def keystorePropertiesFile = rootProject.file('keystore.properties')
+def keystoreProperties = new Properties()
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
+}
+
+android {
+    namespace = "com.sundayeleven.se27"
+    compileSdk = rootProject.ext.compileSdkVersion
+    /*
+     * The build tools are named rather than left to the plugin.
+     *
+     * Left out, `buildToolsVersion` is whatever the Android Gradle Plugin
+     * happens to default to — 35.0.0 for AGP 8.13 — which is not the version
+     * this project documents, not the version the SDK is set up with, and not
+     * the version `npm run android:preflight` checks for. A build that works
+     * only because a *different* build-tools revision happens to be installed
+     * is a build that fails on the next machine for no visible reason, so the
+     * one version the project means is stated here, beside `compileSdk`.
+     */
+    buildToolsVersion rootProject.ext.buildToolsVersion
+    defaultConfig {
+        applicationId "com.sundayeleven.se27"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode = appVersionCode
+        versionName = appVersionName
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    /*
+     * The release signing configuration exists only when there is a key to sign
+     * with, so that a checkout without one still configures, syncs and builds
+     * debug — which is what a contributor, a CI check and this repository's own
+     * preflight all do.
+     */
+    signingConfigs {
+        if (keystorePropertiesFile.exists()) {
+            release {
+                storeFile file(keystoreProperties['storeFile'] ?: 'upload-keystore.jks')
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+            }
+        }
+    }
+    buildTypes {
+        release {
+            /*
+             * Minification is deliberately off until it can be tested on a
+             * device. Capacitor finds its plugins by name at runtime, so R8
+             * removes them unless the keep rules are right, and the failure
+             * mode is a release build that opens to a blank screen while every
+             * debug build works — the worst kind of difference to discover in
+             * a store review. The bundle is a WebView and three plugins; what
+             * shrinking would save is not worth an untested release. Turning it
+             * on is a task with a phone attached, and the keep rules belong in
+             * `proguard-rules.pro` when it happens.
+             */
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (keystorePropertiesFile.exists()) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

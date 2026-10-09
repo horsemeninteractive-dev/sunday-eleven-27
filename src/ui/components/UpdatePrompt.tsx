@@ -1,4 +1,5 @@
 import { useUpdate } from '@/pwa';
+import { hasWebShell } from '@/platform/target';
 import { Button } from './primitives';
 
 /**
@@ -18,10 +19,14 @@ import { Button } from './primitives';
  * Applying it flushes the career on the way out. `location.reload()` raises
  * pagehide, which the game already listens for to write a pending save, so
  * whatever was in the debounce window is written before the old bundle goes.
+ *
+ * A packaged build has no bar at all: its only copy of the game is the one it
+ * was built with, and a new version arrives through the store rather than
+ * underneath the manager's feet.
  */
 export function UpdatePrompt() {
   const { ready, running, applyUpdate, dismiss } = useUpdate();
-  if (!ready) return null;
+  if (!hasWebShell() || !ready) return null;
 
   return (
     <aside className="updatebar" role="status" aria-label="A new version is available">

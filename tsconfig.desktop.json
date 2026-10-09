@@ -1,0 +1,40 @@
+{
+  "//": [
+    "The Electron shell's own TypeScript project, kept apart from the game's.",
+    "",
+    "It is separate for two reasons rather than for tidiness. The shell runs in",
+    "Node and in Electron's preload context rather than in a browser, so it needs",
+    "Node's globals and Electron's types and does not want `vite/client`'s or",
+    "`vitest/globals`; and it *emits* JavaScript, where the game's own tsconfig is",
+    "`noEmit` because Vite does the emitting. The output is CommonJS — the module",
+    "system a sandboxed Electron preload script is required to be, and the one",
+    "`desktop/package.json` marks this directory as."
+  ],
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "outDir": "desktop/build",
+    "rootDir": "desktop",
+    "types": ["node"],
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "declaration": false,
+    "sourceMap": false
+  },
+  "include": [
+    "desktop/main.ts",
+    "desktop/preload.ts",
+    "desktop/rules.ts",
+    "desktop/contract.ts",
+    "desktop/steam.ts",
+    "desktop/steamRules.ts"
+  ]
+}

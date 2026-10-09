@@ -52,6 +52,7 @@ import { readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { productionBuildEnv } from './buildEnv';
 import { parseChangelog } from '@/ui/changelog';
 
 /**
@@ -161,9 +162,9 @@ function parseArgs(argv: readonly string[]): Options {
 
 // --- Shell -----------------------------------------------------------------
 
-function run(command: string): void {
+function run(command: string, env: NodeJS.ProcessEnv = process.env): void {
   process.stdout.write(`   $ ${command}\n`);
-  const result = spawnSync(command, { shell: true, stdio: 'inherit', cwd: ROOT });
+  const result = spawnSync(command, { shell: true, stdio: 'inherit', cwd: ROOT, env });
   if (result.status !== 0) throw new Error(`\`${command}\` failed (exit ${result.status ?? 'signal'})`);
 }
 
@@ -393,7 +394,14 @@ function main(): void {
     say([`the changelog reads back with ${version} first, and its heading carries a title`]);
 
     run('npx vitest run src/ui/changelog.test.ts');
-    run('npm run build');
+    /*
+     * In production mode, explicitly. This tool is started with `vite-node`,
+     * which sets `NODE_ENV=development` and hands it to every child — so the
+     * bundle `npm run release` built and deployed was the development one:
+     * unminified, and carrying React's development build. Typing the same
+     * command by hand produced the production bundle. See `tools/buildEnv.ts`.
+     */
+    run('npm run build', productionBuildEnv());
 
     // --- 4. The build actually carries the number ---------------------------
     process.stdout.write(heading('the build'));

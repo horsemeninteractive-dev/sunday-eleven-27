@@ -2,7 +2,13 @@
 <html lang="en-GB">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- `viewport-fit=cover` is what makes the game's own safe-area handling
+         possible at all: without it the browser and the native shells report
+         `env(safe-area-inset-*)` as zero and quietly lay the page inside the
+         system bars. Capacitor's Android side reads this same attribute to
+         decide whether to hand the insets to CSS or to pad the WebView itself,
+         so it is a contract with the shell as much as a hint to a browser. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Sunday Eleven 27 — Sunday League Football Management</title>
     <meta name="description" content="A grassroots English Sunday League football management simulation." />
     <meta name="theme-color" content="#08090b" />

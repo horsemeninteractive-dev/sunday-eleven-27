@@ -4,6 +4,9 @@ import { App } from './ui/App';
 import { bootStore, flushAutosave, useGameStore } from './state/gameStore';
 import { applyMotion, loadPreferences } from './state/preferences';
 import { initialise, resumeSlot } from './state/persistence';
+import { onSuspend } from './platform/lifecycle';
+import { startNativeShell } from './platform/native';
+import { startDesktopShell } from './platform/desktop';
 import { captureInstallPrompt, startServiceWorker } from './pwa';
 import './ui/styles.css';
 
@@ -27,11 +30,23 @@ if (import.meta.env.DEV) {
 
 // The career is written out as it is played, but a tab can be reloaded, closed
 // or pushed into the background inside the debounce window. The page is the
-// only thing that knows it is going away, so it flushes a pending save itself.
-window.addEventListener('pagehide', flushAutosave);
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') flushAutosave();
-});
+// only thing that knows it is going away, so it flushes a pending save itself —
+// and it asks the platform to tell it, rather than the browser, because a
+// packaged build says the same thing in its own words and this is the line that
+// will not have to change when it does.
+onSuspend(flushAutosave);
+
+// A phone says the same two things in its own words — a back gesture, and the
+// application being put away and picked up again — and neither arrives as a
+// browser event. That vocabulary is in `platform/native.ts`, and it does
+// nothing at all unless there is a native shell around the game.
+startNativeShell();
+
+// And a desktop window says one thing of its own: it is about to close, and it
+// will wait to be told that the last save landed. That, and the host a career
+// file is written through, are in `platform/desktop.ts` — likewise inert in any
+// build that is not the desktop one.
+startDesktopShell();
 
 // The install offer and the worker are both one-shot things that fire on the
 // browser's schedule rather than the game's, and both have to be caught before
@@ -57,14 +72,31 @@ async function openApplication() {
   if (slot && note) note.textContent = 'Opening your career…';
   await bootStore();
 }
-void openApplication().finally(() => {
-  // The placeholder in the document is only ever a placeholder: it is taken off
-  // as the real screen arrives, so there is never a moment where both are shown
-  // or neither is.
-  document.getElementById('booting')?.remove();
-  createRoot(container).render(
-    <StrictMode>
-      <App />
-    </StrictMode>,
-  );
-});
+void openApplication()
+  // Opening cannot be allowed to fail silently. Everything this touches already
+  // handles its own troubles — a browser with no storage opens the game and says
+  // so — but if anything unforeseen comes out of the sequence above, the manager
+  // is owed a screen that says what happened rather than one that waits forever
+  // behind a placeholder. The game is still playable from here; what is lost is
+  // the ability to remember, which is announced rather than hidden.
+  .catch((error: unknown) => {
+    console.error('The game could not finish opening.', error);
+    useGameStore.setState({
+      ready: true,
+      game: null,
+      view: 'start',
+      bootError:
+        'The game could not finish opening. Nothing has been deleted — saved careers are still on disk — and you can play on, but this session may not be able to save.',
+    });
+  })
+  .finally(() => {
+    // The placeholder in the document is only ever a placeholder: it is taken off
+    // as the real screen arrives, so there is never a moment where both are shown
+    // or neither is.
+    document.getElementById('booting')?.remove();
+    createRoot(container).render(
+      <StrictMode>
+        <App />
+      </StrictMode>,
+    );
+  });

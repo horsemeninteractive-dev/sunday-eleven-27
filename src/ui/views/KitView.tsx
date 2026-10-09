@@ -2,6 +2,8 @@ import { KIT_COLLAR_LABEL, KIT_PATTERN_LABEL, type KitDesign } from '@/domain/ki
 import { weeklySponsorshipIncome } from '@/simulation/sponsorship';
 import { clubKit, clubKitOptions, chosenKitOption, KIT_OPTION_COUNT, sponsorFor } from '../kit';
 import { KitSetRow } from '../components/Kit';
+import { SponsorMark } from '../components/SponsorMark';
+import { sponsorBrand } from '../sponsorMark';
 import { Button, PageHeader, Pill } from '../components/primitives';
 import { gameActions, useGame, useUserClub } from '../hooks';
 import { MetricTile, Section, StatusTile, TileGrid } from '../components/hierarchy';
@@ -35,6 +37,8 @@ export function KitView() {
 
   const chosen = chosenKitOption(club);
   const sponsor = sponsorFor(game, club);
+  // The sponsor as a mark, where it is a business with a trade to draw.
+  const sponsorMark = sponsor ? sponsorBrand(sponsor) : null;
 
   return (
     <div className="stack">
@@ -46,7 +50,12 @@ export function KitView() {
           </Button>
         }
         title="The kit"
-        subtitle={`${kit.season} · ${kit.maker.name}${sponsor ? ` · ${sponsor.name}` : ' · no shirt sponsor'}`}
+        subtitle={
+          <span className="row row--tight">
+            {sponsorMark && <SponsorMark business={sponsorMark} height={20} />}
+            <span>{`${kit.season} · ${kit.maker.name}${sponsor ? ` · ${sponsor.name}` : ' · no shirt sponsor'}`}</span>
+          </span>
+        }
         meta={
           <>
             <span className="small muted">
@@ -81,6 +90,14 @@ export function KitView() {
               descriptions, which say in pixels what the captions under the shirts
               above already say in words. Those stay behind their door. */}
           <Section title="The kit deal">
+            {/* The sponsor's own board, where there is a sponsor to draw one
+                for: on a screen about what the club wears, the mark is the
+                thing the manager recognises on his own shirt. */}
+            {sponsorMark && (
+              <div className="row row--wrap">
+                <SponsorMark business={sponsorMark} height={56} />
+              </div>
+            )}
             <TileGrid min={150}>
               <StatusTile
                 label="Shirt sponsor"

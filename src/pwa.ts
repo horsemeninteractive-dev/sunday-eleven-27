@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { VERSION } from './version';
+import { hasWebShell } from './platform/target';
 
 /**
  * The game as an installed thing, and the moment a new one arrives.
@@ -17,6 +18,13 @@ import { VERSION } from './version';
  * installing, and hands the UI two small pieces of state. The decisions about
  * *what* to show are pure functions at the top, separated from this plumbing so
  * they can be tested without a browser.
+ *
+ * All of it is browser-only, and all of it asks `hasWebShell()` before it does
+ * anything. A packaged build (Android, iOS, a future desktop application) is
+ * already installed, already has its assets on the device, and is updated by its
+ * store — so there is nothing to register, nothing to offer and nothing to swap
+ * in. Nothing here is deleted for those builds; it simply never runs, and the
+ * two entry points below are the only places that have to know it.
  */
 
 /* ------------------------------------------------------------------ *
@@ -171,7 +179,7 @@ function subscribeUpdate(listener: Listener): () => void {
  * game's own words, at a moment the manager chooses.
  */
 export function captureInstallPrompt(): void {
-  if (!hasWindow) return;
+  if (!hasWebShell() || !hasWindow) return;
   window.addEventListener('beforeinstallprompt', (event) => {
     event.preventDefault();
     deferredPrompt = event as InstallPromptEvent;
@@ -273,6 +281,7 @@ export function dismissUpdate(): void {
  * way to lose an afternoon.
  */
 export function startServiceWorker(): void {
+  if (!hasWebShell()) return;
   if (!import.meta.env.PROD || !hasNavigator || !('serviceWorker' in navigator)) return;
 
   // The registration is deliberately not awaited. The game must not wait on it,

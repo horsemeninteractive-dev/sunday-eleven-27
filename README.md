@@ -47,7 +47,13 @@ npm run dev        # http://localhost:5273
 | --- | --- |
 | `npm run dev` | development server |
 | `npm run build` | typecheck, then build to `dist/` |
+| `npm run build:native` | typecheck, then build the packaged (Android/iOS) bundle to `dist/` |
+| `npm run android:sync` | copy `dist/` into the Android project |
 | `npm run preview` | serve the built game |
+| `npm run desktop:build` | typecheck, then build the desktop shell and its bundled game into `desktop/` |
+| `npm run desktop:dev` | the desktop build, then run it in an Electron window |
+| `npm run desktop:pack` | the desktop build, then an installable Windows `.exe` into `desktop-release/` |
+| `npm run desktop:smoke` | drive the installed desktop application through a career, end to end |
 | `npm test` | the test suite |
 | `npm run soak` | play out long runs and report on them |
 | `npm run benchmark` | time the two match simulation modes, and compare their fingerprints |
@@ -107,9 +113,50 @@ moving anybody or drawing anything. A whole division's Sunday costs a few tens o
 milliseconds that way rather than a minute. Both modes are documented in
 [`MATCH_ENGINE.md`](MATCH_ENGINE.md#0-the-two-modes--read-this-first).
 
+## On a phone
+
+The game is one application with two packagings. `npm run build` produces the
+website; `npm run build:native` produces the same game for a Capacitor shell,
+with the browser-only parts switched off — no service worker, no install offer,
+no update bar — because a packaged build is already installed and its assets are
+already on the device. Nothing about the football, the rules or the saves
+differs between them.
+
+```bash
+npm run build:native
+npx cap sync android
+cd android && ./gradlew assembleDebug    # Windows: gradlew.bat
+```
+
+An Android project lives in [`android/`](android/), and
+[`ANDROID.md`](ANDROID.md) has the toolchain, the exact commands to build and
+launch it, and an honest account of what has and has not been verified on a
+device.
+
+## On a desktop
+
+The third packaging is an Electron application, and it is the same game again:
+`npm run desktop:renderer` bundles the *same* renderer the website ships into the
+application, which loads it from its own `app://` origin — never from the
+website and never from a dev server — with Node switched off in the page and
+three validated messages the only way out of it. `npm run desktop:pack` produces
+an installer; `desktop-release/` is kept apart from `dist/`, which is what
+Cloudflare Pages deploys.
+
+```bash
+npm run desktop:dev      # build and run it in a window
+npm run desktop:pack     # build the installer → desktop-release/
+```
+
+[`DESKTOP.md`](DESKTOP.md) has the architecture, the commands, where a career
+lives on a desktop, and what has and has not been verified there.
+
 ## Further reading
 
 - [`CHANGELOG.md`](CHANGELOG.md) — what has changed, and what this build is
+- [`ANDROID.md`](ANDROID.md) — the native build: toolchain, build, launch, and what is verified
+- [`DESKTOP.md`](DESKTOP.md) — the desktop build: architecture, packaging, saves, and what is verified
+- [`STEAM.md`](STEAM.md) — Steam: the integration approach, the proposed achievements, the cloud-save design, and what is verified
 - [`TOUCHLINE_ARCHITECTURE.md`](TOUCHLINE_ARCHITECTURE.md) — the football simulation: what owns what
 - [`MATCH_ENGINE.md`](MATCH_ENGINE.md) — where the match actually happens
 - [`SE27_Design_Document.md`](SE27_Design_Document.md) — the design, in full

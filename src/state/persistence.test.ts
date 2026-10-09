@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory } from 'fake-indexeddb';
 import { generateDraft, startGameFromDraft } from '@/simulation/gameSetup';
 import { addDays } from '@/simulation/calendar';
@@ -8,6 +8,7 @@ import { bootStore, flushAutosave, useGameStore } from './gameStore';
 import * as idb from './indexedDb';
 import {
   AUTOSAVE_SLOT,
+  askToKeepStorage,
   autosave,
   deleteSave,
   deserialiseGame,
@@ -15,11 +16,16 @@ import {
   loadGame,
   migrateLegacySaves,
   orderSaves,
+  resetStoragePersistenceForTests,
   resumeCareer,
   resumeSlot,
   saveGame,
   serialiseGame,
   setResumeSlot,
+  storageFailureReason,
+  storagePersistenceNote,
+  storagePersistenceStatus,
+  type IndexedSaveRecord,
   type SaveSlotInfo,
 } from './persistence';
 
@@ -112,12 +118,13 @@ afterEach(async () => {
 describe('saving and loading a career', () => {
   it('saves, lists, and reads back the same career', async () => {
     const state = career('save-load');
-    const info = await saveGame(state, 'slot-1');
+    const saved = await saveGame(state, 'slot-1');
 
-    expect(info).not.toBeNull();
-    expect(info!.slot).toBe('slot-1');
-    expect(info!.clubName).toBe(state.clubs[state.userClubId]!.identity.name);
-    expect(info!.seed).toBe(state.seed);
+    expect(saved.error).toBeNull();
+    expect(saved.info).not.toBeNull();
+    expect(saved.info!.slot).toBe('slot-1');
+    expect(saved.info!.clubName).toBe(state.clubs[state.userClubId]!.identity.name);
+    expect(saved.info!.seed).toBe(state.seed);
 
     const slots = await listSaveSlots();
     expect(slots.map((entry) => entry.slot)).toEqual(['slot-1']);
@@ -170,7 +177,10 @@ describe('saving and loading a career', () => {
 describe('the autosave', () => {
   it('keeps a copy of the career that can be read back', async () => {
     const state = career('autosave-writes');
-    expect(await autosave(state)).toBe(true);
+    const written = await autosave(state);
+    expect(written.error).toBeNull();
+    expect(written.info?.slot).toBe(AUTOSAVE_SLOT);
+    expect(written.info?.auto).toBe(true);
 
     const slots = await listSaveSlots();
     expect(slots).toHaveLength(1);
@@ -185,10 +195,12 @@ describe('the autosave', () => {
     await autosave(state);
 
     const resumed = await resumeCareer();
-    expect(resumed).not.toBeNull();
-    expect(resumed!.date).toBe(state.date);
-    expect(resumed!.userClubId).toBe(state.userClubId);
-    expect(resumed!.seed).toBe(state.seed);
+    expect(resumed.error).toBeNull();
+    expect(resumed.slot).toBe(AUTOSAVE_SLOT);
+    expect(resumed.state).not.toBeNull();
+    expect(resumed.state!.date).toBe(state.date);
+    expect(resumed.state!.userClubId).toBe(state.userClubId);
+    expect(resumed.state!.seed).toBe(state.seed);
   });
 
   it('forgets where to resume on quit, without losing the save', async () => {
@@ -197,13 +209,13 @@ describe('the autosave', () => {
     await useGameStore.getState().quitToMenu();
 
     expect(await resumeSlot()).toBeNull();
-    expect(await resumeCareer()).toBeNull();
+    expect((await resumeCareer()).state).toBeNull();
     expect((await listSaveSlots()).map((entry) => entry.slot)).toEqual([AUTOSAVE_SLOT]);
   });
 
   it('does not lock the game out when the mark points at a save that has gone', async () => {
     await setResumeSlot('slot-3');
-    expect(await resumeCareer()).toBeNull();
+    expect((await resumeCareer()).state).toBeNull();
     expect(await resumeSlot()).toBeNull();
   });
 
@@ -220,7 +232,10 @@ describe('the autosave', () => {
     const state = career('autosave-not-blocking');
     const pending = autosave(state);
     expect(pending).toBeInstanceOf(Promise);
-    await expect(pending).resolves.toBe(true);
+    const result = await pending;
+    expect(result.error).toBeNull();
+    expect(result.info?.slot).toBe(AUTOSAVE_SLOT);
+    expect(result.info?.auto).toBe(true);
   });
 });
 
@@ -258,7 +273,9 @@ describe('rapid writes', () => {
     // A save of something the database cannot hold is rejected; the next one
     // must still go through, or one bad career ends the autosave for good.
     const unholdable = { ...playedOn(state, 2), nonsense: () => 'not structured-cloneable' } as unknown as GameState;
-    await expect(saveGame(unholdable, 'slot-bad')).resolves.toBeNull();
+    const rejected = await saveGame(unholdable, 'slot-bad');
+    expect(rejected.info).toBeNull();
+    expect(rejected.error).not.toBeNull();
 
     await autosave(playedOn(state, 3));
     expect((await loadGame(AUTOSAVE_SLOT)).state!.date).toBe(addDays(state.date, 3));
@@ -293,7 +310,7 @@ describe('the store’s autosave', () => {
     await store.advanceDays(3);
     await new Promise((resolve) => setTimeout(resolve, 1000));
 
-    const onDisk = await resumeCareer();
+    const onDisk = (await resumeCareer()).state;
     expect(onDisk).not.toBeNull();
     expect(onDisk!.date).toBe(useGameStore.getState().game!.date);
     expect(onDisk!.date).toBe(addDays(before.date, 3));
@@ -377,8 +394,12 @@ describe('when the storage itself fails', () => {
     globalThis.indexedDB = undefined as unknown as IDBFactory;
     idb.resetForTests();
 
-    expect(await saveGame(state, 'slot-1')).toBeNull();
-    expect(await autosave(state)).toBe(false);
+    const refused = await saveGame(state, 'slot-1');
+    expect(refused.info).toBeNull();
+    expect(refused.error).toMatch(/database|storage/i);
+    const notWritten = await autosave(state);
+    expect(notWritten.info).toBeNull();
+    expect(notWritten.error).not.toBeNull();
     expect(await listSaveSlots()).toEqual([]);
     expect(await resumeSlot()).toBeNull();
     // And a load says the storage failed rather than pretending the slot is
@@ -779,6 +800,183 @@ describe('the order careers are listed in', () => {
     orderSaves(given);
     expect(given.map((entry) => entry.slot)).toEqual(['slot-1', 'slot-2']);
     expect(orderSaves([])).toEqual([]);
+  });
+});
+
+describe('writes that overlap', () => {
+  it('stores the newest career when a burst of snapshots arrives, and writes fewer times than it was asked to', async () => {
+    const state = career('coalesced-burst');
+    // A watched match, a day advancing, a team sheet being dragged: six
+    // snapshots of one career, every one of them asked for in the same turn.
+    const results = await Promise.all([1, 2, 3, 4, 5, 6].map((days) => autosave(playedOn(state, days))));
+
+    expect(results.every((result) => result.error === null)).toBe(true);
+    expect((await loadGame(AUTOSAVE_SLOT)).state!.date).toBe(addDays(state.date, 6));
+
+    // A superseded snapshot settles with the answer of the write that replaced
+    // it — the same record object — so fewer distinct answers than questions is
+    // the evidence that they were dropped rather than each written out.
+    const answers = new Set(results.map((result) => result.info));
+    expect(answers.size).toBeGreaterThanOrEqual(1);
+    expect(answers.size).toBeLessThan(results.length);
+  });
+
+  it('never drops a manual save: an instruction is carried out, not coalesced away', async () => {
+    const state = career('coalesced-manual');
+    const [manual] = await Promise.all([
+      saveGame(playedOn(state, 1), 'slot-1'),
+      autosave(playedOn(state, 2)),
+      autosave(playedOn(state, 3)),
+    ]);
+
+    expect(manual.info?.slot).toBe('slot-1');
+    expect((await loadGame('slot-1')).state!.date).toBe(addDays(state.date, 1));
+    expect((await loadGame(AUTOSAVE_SLOT)).state!.date).toBe(addDays(state.date, 3));
+  });
+});
+
+describe('a browser that will not store', () => {
+  it('reports the failure rather than a save that did not happen', async () => {
+    const state = career('no-storage');
+    idb.resetForTests();
+    globalThis.indexedDB = undefined as unknown as IDBFactory;
+
+    const result = await saveGame(state, 'slot-1');
+
+    expect(result.info).toBeNull();
+    expect(result.error).toMatch(/database|storage|blocked/i);
+  });
+
+  it('names each kind of storage trouble for what it is', async () => {
+    const held = await storageFailureReason(
+      new idb.StorageUnavailableError('Another tab is holding this game’s storage open.'),
+    );
+    expect(held).toMatch(/another tab/i);
+
+    const full = await storageFailureReason(new DOMException('no room', 'QuotaExceededError'));
+    expect(full).toMatch(/no room left/i);
+
+    // A value the browser refuses to clone is this game's fault and is named as
+    // such: dressed up as a storage problem, it would send whoever has to fix it
+    // looking at the manager's disk.
+    const uncloneable = await storageFailureReason(new DOMException('no', 'DataCloneError'));
+    expect(uncloneable).toMatch(/fault in this game/i);
+
+    const other = await storageFailureReason(new Error('who knows'));
+    expect(other).toMatch(/would not store that save/i);
+  });
+
+  it('leaves the failed value reported as a failure, not as a silently skipped write', async () => {
+    const state = career('unholdable');
+    const unholdable = { ...state, nonsense: () => 'not structured-cloneable' } as unknown as GameState;
+
+    const result = await saveGame(unholdable, 'slot-bad');
+
+    expect(result.info).toBeNull();
+    expect(result.error).not.toBeNull();
+  });
+});
+
+describe('asking the browser to keep the careers', () => {
+  function installStorageManager(answer: boolean): { persist: ReturnType<typeof vi.fn> } {
+    const manager = { persisted: vi.fn(async () => false), persist: vi.fn(async () => answer) };
+    vi.stubGlobal('navigator', { storage: manager });
+    return manager;
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    resetStoragePersistenceForTests();
+  });
+
+  it('asks when a career first lands, and not before it', async () => {
+    const manager = installStorageManager(true);
+    resetStoragePersistenceForTests();
+    expect(manager.persist).not.toHaveBeenCalled();
+
+    await saveGame(career('ask-after-write'), 'slot-1');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(manager.persist).toHaveBeenCalledTimes(1);
+    expect(storagePersistenceStatus()).toEqual({ asked: true, status: 'granted' });
+  });
+
+  it('asks once however many careers are written, and a refusal is not a failure', async () => {
+    const manager = installStorageManager(false);
+    resetStoragePersistenceForTests();
+
+    expect(await askToKeepStorage()).toEqual({ asked: true, status: 'denied' });
+    await saveGame(career('ask-once'), 'slot-1');
+    await saveGame(career('ask-once-too'), 'slot-2');
+    await askToKeepStorage();
+
+    // A question repeated on every write is noise, and noise gets refused.
+    expect(manager.persist).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not ask a browser that has no storage manager at all', async () => {
+    vi.stubGlobal('navigator', {});
+    resetStoragePersistenceForTests();
+
+    expect(await askToKeepStorage()).toEqual({ asked: true, status: 'unsupported' });
+  });
+
+  it('says plainly that a browser keeping the storage is still not a promise', () => {
+    const granted = storagePersistenceNote('granted');
+    expect(granted).toMatch(/export/i);
+    expect(granted).not.toMatch(/never be lost|permanent(ly)? safe/i);
+    expect(storagePersistenceNote('denied')).toMatch(/best-effort/i);
+    expect(storagePersistenceNote('unsupported')).toMatch(/export/i);
+  });
+});
+
+describe('a career that will not open', () => {
+  it('is reported rather than quietly dropped back to the menu', async () => {
+    const state = career('corrupt-resume');
+    await autosave(state);
+
+    // Damage the stored record the way a half-written one would be. The career
+    // stays in the database: what is being tested is what the game says about
+    // it, not whether it is thrown away — nothing here deletes anything.
+    const record = await idb.get<IndexedSaveRecord>(idb.SAVES, AUTOSAVE_SLOT);
+    await idb.put(idb.SAVES, {
+      ...record!,
+      file: { ...record!.file, state: { ...record!.file.state, people: null } },
+    });
+
+    const resumed = await resumeCareer();
+
+    expect(resumed.state).toBeNull();
+    expect(resumed.slot).toBe(AUTOSAVE_SLOT);
+    expect(resumed.error).toMatch(/could not be reopened/i);
+    // Still there, still listed, and the mark is cleared so the menu is reachable.
+    expect((await listSaveSlots()).map((entry) => entry.slot)).toEqual([AUTOSAVE_SLOT]);
+    expect(await resumeSlot()).toBeNull();
+  });
+});
+
+describe('the store reporting a stalled autosave', () => {
+  it('tells the manager when the career stops reaching storage, and stops saying so when it can be written again', async () => {
+    const store = useGameStore.getState();
+    await store.quitToMenu();
+    store.createDraft('autosave-lost-storage');
+    store.chooseClub(useGameStore.getState().draft!.divisionClubIds[0]!);
+    await waitFor(async () => (await resumeSlot()) === AUTOSAVE_SLOT, 'the first autosave to land');
+
+    // The browser's storage goes away mid-session.
+    idb.resetForTests();
+    globalThis.indexedDB = undefined as unknown as IDBFactory;
+    useGameStore.setState({ game: playedOn(useGameStore.getState().game!, 1) });
+
+    await waitFor(async () => useGameStore.getState().saveFailure !== null, 'the failure to be reported');
+    expect(useGameStore.getState().saveFailure).toMatch(/database|storage/i);
+    expect(useGameStore.getState().error).not.toBeNull();
+
+    // Storage comes back: the next write lands and the worry is dropped.
+    freshDatabase();
+    useGameStore.setState({ game: playedOn(useGameStore.getState().game!, 1) });
+
+    await waitFor(async () => useGameStore.getState().saveFailure === null, 'the failure to be cleared');
   });
 });
 

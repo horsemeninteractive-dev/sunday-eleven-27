@@ -27,6 +27,8 @@ import { RELATIONSHIP_PROVENANCE_LABEL } from '@/domain/relationship';
 import { socialProfileOf, visibleRelationshipViewsFor } from '@/simulation/relationships';
 import { developmentSummary } from '@/simulation/training/development';
 import { sponsorNameFor, weeklySponsorshipIncome } from '@/simulation/sponsorship';
+import { sponsorBrand } from '../sponsorMark';
+import { SponsorMark } from './SponsorMark';
 import type { ProfileTarget } from '@/state/gameStore';
 import { moneyShort } from '../format';
 import { gameActions, useGame } from '../hooks';
@@ -558,6 +560,8 @@ function ClubProfile({ clubId }: { clubId: string }) {
   const squad = squadOf(game, club.id);
   const position = leaguePosition(game, club.id);
   const kit = clubKit(game, club.id);
+  // The club's shirt sponsor as a mark, where it is a business with a trade.
+  const sponsorMark = kit?.sponsor ? sponsorBrand(kit.sponsor) : null;
   const season = club.history.seasons.find((entry) => entry.seasonId === game.season.id);
   const played = clubMatches(game, club.id)
     .filter((match) => match.played)
@@ -604,11 +608,14 @@ function ClubProfile({ clubId }: { clubId: string }) {
             {kit && (
               <details className="more"><summary>The kit · {kit.maker.name}</summary><Panel>
                 <KitSetRow club={club} kit={kit} size={84} />
-                <p className="muted small">
-                  {kit.sponsor
-                    ? `${kit.sponsor.name} across the chest, the club's crest over the heart.`
-                    : 'No shirt sponsor this season — a blank chest on all three strips.'}
-                </p>
+                <div className="row row--wrap">
+                  {sponsorMark && <SponsorMark business={sponsorMark} height={22} />}
+                  <p className="muted small">
+                    {kit.sponsor
+                      ? `${kit.sponsor.name} across the chest, the club's crest over the heart.`
+                      : 'No shirt sponsor this season — a blank chest on all three strips.'}
+                  </p>
+                </div>
               </Panel></details>
             )}
 

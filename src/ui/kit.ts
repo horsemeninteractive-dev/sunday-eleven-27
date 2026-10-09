@@ -263,7 +263,7 @@ export interface KitRequest {
  */
 export function sponsorFromBusiness(business: Business | null | undefined): KitSponsor | null {
   if (!business) return null;
-  return { id: business.id, name: business.name, businessId: business.id };
+  return { id: business.id, name: business.name, businessId: business.id, kind: business.kind };
 }
 
 /** Just the maker for a season — the kit deal does not change with the design. */

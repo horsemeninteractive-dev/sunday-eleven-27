@@ -41,4 +41,7 @@ export const SLOW_TEST_PATTERNS = [
   'src/state/gameStore.test.ts',
   'src/state/persistence.test.ts',
   'src/ui/inboxState.test.ts',
+  // Reading careers out of files and back into a real store: several whole
+  // worlds, because the flow only means anything against the real database.
+  'src/ui/saveTransfer.test.ts',
 ];

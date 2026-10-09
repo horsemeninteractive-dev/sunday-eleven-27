@@ -10,6 +10,180 @@ move (any save from an older build is migrated forward on load). `1.0.0` means
 it is finished. This file is also the changelog inside the game, reachable from
 the main menu.
 
+## [0.10.2] - 2026-10-09 — a sign for every pub
+
+### Steam
+
+**There is a Steam seam, and it deliberately unlocks nothing yet.** The desktop shell now knows whether it was
+launched by Steam, starts Steamworks if it was, and carries on exactly as before if it was not — no client, no
+addon and no `steam_appid.txt` are all the same answer, a line in the shell's own log rather than anything a
+manager sees. The half that is a set of *decisions* is pure and tested: the launch detection, a proposed
+six-achievement catalogue, the Steam Cloud conflict policy, and the fact that the game's smallest window fits
+inside a Steam Deck's screen.
+
+**Nothing about Steam reaches the game.** `steamworks.js` is not a dependency, no app record exists, no
+achievement is configured and no save is synchronised — the renderer's bridge is still the same three members
+it was, and no file under `src/` imports the adapter. [`STEAM.md`](STEAM.md) says what has been verified, what
+is only designed, and what is an owner action, and it does not claim a Steam release.
+
+### Added
+
+**The game has a second packaging, and it is on a phone.** Capacitor wraps the *same* web build — the `dist/`
+the website ships, not a copy of the game — in a native shell that loads it from the device, with no
+`server.url` anywhere: an installed application pointed at the live site is a bookmark that needs a signal to
+start, shows whatever was deployed rather than what was tested, and has no answer at all on a touchline with one
+bar of signal. `npm run build:native` builds it, `npx cap sync android` puts it in the Android project, and
+everything the football is made of — the simulation, the rules, the balance, the save format — is untouched and
+shared, because there is still only one of it.
+
+**A build now knows which shape of itself it is, and a packaged one stops offering to install itself.** `web`,
+`mobile` and `desktop` are declared once, in `.env.native` for the packaged builds, and read in one place: the
+native bundle registers no service worker, catches no `beforeinstallprompt`, shows no install card and shows no
+"a new version is ready" bar — a WebView's user agent reads as iOS, so the old logic would have offered Share →
+Add to Home Screen from *inside* the installed application. Nothing was deleted to achieve any of that; the
+browser features simply never run. A build that declares nothing is still the browser build, so no packaging
+step can change how the game behaves by forgetting to say something.
+
+**The native bundle carries only what it can use.** Three files are left out of it by name — `sw.js`, because it
+is never registered; `_headers`, which configures Cloudflare's edge; and `og.png`, the link-preview card no
+running game asks for. The web build keeps all three, the precache plugin still runs for both targets, and it
+still fails the build if the `self.__PRECACHE__` contract leaves `public/sw.js`.
+
+**The phone's own three questions now have answers, and the third one is honest.** Android's back gesture closes
+the last thing you opened — a dialog, the navigation sheet, a match drawer — then steps back a screen, then asks
+before it lets go of an afternoon, and only from the dashboard with nothing open does it put the task aside so
+the career is where you left it. The decision is one function of what is stacked over the screen, which screen it
+is and whether a match is playing, so Escape, the scrim and the gesture can never disagree about what is on top,
+and a close already in flight is refused rather than run twice. Putting the phone down pauses a running match;
+picking it up restarts it only if that suspension is what stopped it, and never overrules a pause you made
+yourself. **And leaving a match does not pretend to have saved it**: the football is held in memory, so closing
+the application before the final whistle means the fixture is played again from the start — the game says so, in
+the question it asks, rather than telling you your afternoon is safe.
+
+**The game fits under the system bars on a modern Android phone.** Android 16 draws every application under its
+status bar, its gesture bar and any camera cutout, and no longer lets one opt out, so the room is reserved back
+once at the frame of the shell and once at the frame of the match — and again by anything fixed to the screen
+inside them, like a dialog or the dressing room's card. The web build reads the same four values, which are zero
+in a browser with no notch, so the website's layout is exactly what it was.
+
+**There is a third packaging, and this one installs on a desktop.** Electron wraps the *same* renderer the
+website ships — bundled inside the application by `npm run desktop:renderer`, never fetched from the live site,
+so there is no `server.url` anywhere in it and no way for an installed copy of the game to become a bookmark
+that shows whatever was deployed last — and puts it in a window with Node switched off: `contextIsolation`,
+`sandbox` and `nodeIntegration: false`, behind a preload that exposes three frozen members and nothing else.
+The game loads from its own `app://se27` origin rather than `file://`, because a career lives in IndexedDB and
+Chromium keys that by origin — a `file://` document's origin is opaque, which is a game that cannot reliably
+find the careers it saved yesterday. `npm run desktop:pack` produces a Windows installer in `desktop-release/`,
+which is deliberately nowhere near `dist/`: that directory is the website Cloudflare Pages deploys, and nothing
+in either build writes to the other.
+
+**Everything crossing the bridge is validated, and the bridge is the whole of what the shell can do.** One
+message writes a career file (the name is sanitised into a file name, a payload that is not exactly the game's
+is refused with a reason, a write that does not come from the game's own frame is refused), and two carry the
+closing handshake. There is no file system, no shell, no arbitrary IPC and no `require` on the other side of it,
+so the answer to "what can a compromised page reach?" is eight lines of interface. The window refuses to open
+new windows, refuses to navigate anywhere but its own origin, refuses a webview, refuses a download (a career
+goes through the bridge, which can say where it went), grants two permissions — full screen, and persistent
+storage, which the game asks for the first time it writes a career — and refuses the rest out loud, in the log.
+
+**Closing the window waits for the last save.** The game writes the career it is playing on a debounce, and a
+debounce still running when the window closes is a month of a season that never reached the disk. A browser has
+no way to wait for that; a desktop window does. The close is held, the game is asked to finish, and the shell
+waits for the answer — or five seconds — before it goes. The careers themselves are in IndexedDB inside
+`%APPDATA%\Sunday Eleven 27`, the exported copies are in `Documents\Sunday Eleven 27\careers`, and the window
+remembers where it was put. `deleteAppDataOnUninstall: false` is written out rather than left to the default,
+because the promise that unloading the game does not take a manager's careers with it is worth stating.
+
+**The packaged application is driven by a script rather than by hope.** `npm run desktop:smoke` opens the
+installed application through Chromium's DevTools protocol (no new dependency: Node speaks HTTP and WebSocket,
+Electron publishes the port) and plays through a career with the game's own controls — a world generated from a
+chosen seed, a club taken over, a career exported to a real file, that same file imported back through the
+game's own restore screen, the window closed with a real WM_CLOSE and the last save confirmed, and the career
+found again after the application is started a second time. An installer that builds is not an application that
+works, and every mistake in this stage — a renderer that never loads, a bridge the preload got wrong, a career
+written nowhere — is invisible to `npm test` and to the packer alike.
+
+**Nothing about the football changed.** The desktop renderer is the website's own build with three browser
+files left out by name (`sw.js`, `_headers`, `og.png`), the simulation is untouched, and the export format is
+the format the browser already writes: a career exported on a desktop imports in the browser build and the
+other way round, because it is one file format read by one reader. **There is no Steamworks integration, no
+Steam Cloud and no assumption that IndexedDB is compatible with it** — a packaged application's storage is its
+own directory rather than a browser profile, which is why `persistent-storage` is now granted, and the export is
+what will move between machines until a store's own cloud is a real answer.
+
+**Every business in the county now has a logo of its own, and it is drawn rather than typed in.** A sponsor used
+to be a name beside a club: a string of words on the finances page and the same string across the chest of the
+shirt. It is now a mark — a board in the business's own colours, carrying the trade it does and the whole of its
+name, on the finances page, in the world's list of businesses, on the club's kit page, in a player's profile and
+printed on the shirt itself. The trade is the device, and the first thing that had to be true was that there is
+more than one drawing of each: a county where every pub wears the identical pint is forty copies of one logo, so a
+pub's sign is a glass, a bottle or a barrel, a builder's is a box van, a tipper or a wheelbarrow, a butcher's is a
+cleaver, two crossed knives or the block, and so on for all eight trades. **Around the device there are five
+arrangements**, five letterings (the sign-writer's heavy sans, a serif, a narrow face, a stencilled monospace and
+one that keeps the name as it is written), seven board silhouettes and five colourways a trade — and each of those
+is a *separate* draw off the business's own id, so they vary independently rather than moving together. Forty pubs
+in a row produce more than thirty different logos, which is checked by a test rather than claimed here.
+
+**Nothing is stored.** The business already exists in the world, so its mark is derived from it: no field was
+added to a save, and a career written before any of this existed draws exactly the marks it always did. A long name
+is handled where a sign-writer would handle it — a name that will not fit the column beside a device at a
+readable size takes the stacked arrangement, which gives it the whole board, rather than being squeezed into a
+smear.
+
+**And the shirt carries the sponsor's own board rather than its name in the club's ink.** The first cut of this
+drew the club's sponsor as an outline: the name sat on bare cloth, and on a shirt with stripes, hoops or a second
+colour it disappeared into the pattern — the one thing a manager complained he could not read on his own kit.
+The patch is now *filled*, in the business's own colours, keylined and trimmed with a hairline of the shirt's own
+ink; it is smaller than it was, about a third of the shirt's width rather than half; and the name on it is fitted
+for a chest rather than reduced from a shopfront, so it is set as large as the patch allows — a three-line name
+where the patch can hold one, and the device dropped where the name needs the whole patch to itself. Contrast
+between the name and the board it is printed on is 7:1 or better on every mark in a generated world, which is
+well past the 4.5:1 a readable sign needs.
+
+**A store release is now checked before it is built, and built in the environment it is meant for.** A Google
+Play submission is a sequence of things that each fail late if they fail at all — a JDK in the wrong major
+version, an SDK without the platform the project compiles against, a keystore that is missing, and worst of all a
+bundle built from a stale `dist/` so that the game inside it is a version behind what the store is told.
+`npm run android:preflight` reports what the machine can and cannot do and prints nothing secret;
+`npm run android:bundle` then builds the signed `.aab` for Play and `npm run android:apk` the signed `.apk` to
+sideload. The facts it checks are functions of text in `src/platform/release.ts`, so they are tested on a machine
+with no SDK at all, and a keystore that git has *ever* seen fails unconditionally, because a keystore in a
+repository is a keystore in every clone and every fork for ever. The store's own images live in `store/`, and
+[`RELEASE_READINESS.md`](RELEASE_READINESS.md) records what passed, what failed, what has not been tried and what
+only the account owner can do — it does not claim a submission, and nothing has been uploaded or bought.
+
+### Changed
+
+**`npm run icons` now also draws the Android launcher icon**, from the same favicon and by the same rule as the
+home-screen icon, so a phone's launcher and a browser's tab show one mark rather than two that slowly stop
+matching. The adaptive icon's background is the game's near-black rather than the template's white.
+
+The Android application's version is read from `package.json` rather than written down a second time, and
+`versionCode` is derived from it in a way that only ever increases, so a release cannot ship a store build that
+claims to be older than the one before it.
+
+**Three controls a thumb could miss on a phone are the size a thumb is.** Measuring every button, chip, field and
+disclosure on every screen at a phone's width found the match's four speed buttons at 32 pixels square — the
+smallest things on the screen a manager's thumb finds most often, beside forty-four-pixel transport buttons they
+were supposed to match — and the training screen's help line at 29 pixels tall. Both are raised to 44 on a phone
+and left alone on a desktop, where a match speed is read with a cursor rather than pressed.
+
+
+**A club's crest is no longer cut in the same typeface as every other club's.** Five letterings are drawn off a
+new stream of the club's own id, so a county of clubs wears its names in different faces the same way its sponsors
+do. The fit accounts for capitals and letter-spacing — both widen a run of lettering — so a long name cannot
+overrun the chief band it sits in or the arc it is set on, and a manager who designed his own badge still gets
+the generator's lettering rather than a second thing to choose.
+
+### Fixed
+
+**A build run by one of this repository's own tools was a different build from the same command typed by hand.**
+Every tool here is started with `vite-node`, which sets `NODE_ENV=development` in its own process and hands that
+to every child it spawns — so `npm run android:bundle`, and `npm run release` itself, were building and in the
+release's case *deploying* the development bundle: 956,770 bytes with React's development build inside it,
+against 771,327 for the production one. The environment a build must run in is now stated once, in
+`tools/buildEnv.ts`, and handed to each child that builds something.
+
 ## [0.10.1] - 2026-10-09 — the ladder reaches the top
 
 ### Fixed

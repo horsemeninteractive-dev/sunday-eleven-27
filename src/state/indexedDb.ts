@@ -284,6 +284,64 @@ export function has(storeName: typeof SAVES | typeof METADATA, key: IDBValidKey)
   return withStore(storeName, 'readonly', (store) => store.getKey(key)).then((key) => key !== undefined);
 }
 
+/**
+ * The browser's storage manager, if it has one.
+ *
+ * Every call is guarded: some privacy modes throw on the mention of
+ * `navigator.storage`, and a browser without it is not a problem to report —
+ * the game simply cannot ask about keeping its data.
+ */
+function manager(): StorageManager | null {
+  try {
+    if (typeof navigator === 'undefined') return null;
+    return navigator.storage ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * What the browser will say about making this game's storage persistent.
+ *
+ * `unsupported` and `unknown` are kept apart from `denied` on purpose: a
+ * browser that never had the API has not refused anything, and the difference is
+ * the difference between "this can be improved" and "this is as good as it
+ * gets". Neither is a guarantee, and neither is treated as one.
+ */
+export type PersistenceStatus = 'granted' | 'denied' | 'unsupported' | 'unknown';
+
+/** Whether the game's storage is already persistent. */
+export async function persisted(): Promise<boolean> {
+  const storage = manager();
+  if (!storage?.persisted) return false;
+  try {
+    return await storage.persisted();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Ask the browser to keep this game's storage rather than evict it under
+ * pressure.
+ *
+ * The answer is reported rather than assumed, and a refusal is a normal outcome
+ * rather than an error: browsers grant this on their own criteria — how much the
+ * site is used, whether it is installed, whether it has been visited often
+ * enough — and a game that treated a refusal as a failure would be wrong about
+ * every manager whose browser said no and who then kept his career for years.
+ */
+export async function requestPersistence(): Promise<PersistenceStatus> {
+  const storage = manager();
+  if (!storage?.persist) return 'unsupported';
+  try {
+    if (storage.persisted && (await storage.persisted())) return 'granted';
+    return (await storage.persist()) ? 'granted' : 'denied';
+  } catch {
+    return 'unknown';
+  }
+}
+
 /** How much room the browser says it has, for diagnostics. Never required. */
 export async function estimate(): Promise<{ usage: number; quota: number } | null> {
   if (typeof navigator === 'undefined' || !navigator.storage?.estimate) return null;

@@ -12,6 +12,7 @@ import { PersonLine } from '../components/PersonIdentity';
 import { useRememberedSort } from '../rememberedSort';
 import { applySort, type SortAccessors } from '../tableSort';
 import { ClubBadge } from '../components/Badge';
+import { SponsorMark } from '../components/SponsorMark';
 
 type ClubSortKey =
   | 'club'
@@ -276,13 +277,19 @@ export function WorldView() {
         <ul className="tight-list">
           {businesses.slice(0, 24).map((business) => (
             <li key={business.id}>
-              <strong>{business.name}</strong>{' '}
-              <span className="muted small">
-                {business.kind} · {game.world.towns[business.townId]?.name} · wealth {business.wealth}/20
-                {business.sponsoredClubIds.length > 0
-                  ? ` · backs ${business.sponsoredClubIds.map((id) => game.clubs[id]?.identity.shortName).join(', ')}`
-                  : ' · no club attached'}
-              </span>
+              <div className="row row--wrap">
+                {/* Every business in the world wears its own mark, whether or
+                    not it has ever backed a club: the board is the business's,
+                    not the deal's. */}
+                <SponsorMark business={business} height={22} />
+                <strong>{business.name}</strong>{' '}
+                <span className="muted small">
+                  {business.kind} · {game.world.towns[business.townId]?.name} · wealth {business.wealth}/20
+                  {business.sponsoredClubIds.length > 0
+                    ? ` · backs ${business.sponsoredClubIds.map((id) => game.clubs[id]?.identity.shortName).join(', ')}`
+                    : ' · no club attached'}
+                </span>
+              </div>
             </li>
           ))}
         </ul>

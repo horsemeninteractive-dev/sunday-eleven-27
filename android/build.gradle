@@ -1,0 +1,48 @@
+// Top-level build file where you can add configuration options common to all sub-projects/modules.
+
+buildscript {
+    
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.13.0'
+        classpath 'com.google.gms:google-services:4.4.4'
+
+        // NOTE: Do not place your application dependencies here; they belong
+        // in the individual module build.gradle files
+    }
+}
+
+apply from: "variables.gradle"
+
+/*
+ * One build-tools revision for the whole build.
+ *
+ * `android/app/build.gradle` names the version it compiles with, the way it
+ * names `compileSdk` and `minSdk`. The Capacitor library projects cannot: those
+ * files are generated into `node_modules` by `npx cap sync`, and npm regenerates
+ * them, so nothing in this repository should be editing them. Left to itself
+ * each of them takes whatever revision the Android Gradle Plugin happens to
+ * default to — 35.0.0 for AGP 8.13 — which would leave the build depending on
+ * two revisions of the tools being installed, only one of which is written down
+ * anywhere. So the version `variables.gradle` states is set on every Android
+ * module here, once: the whole build uses the revision the project documents,
+ * and `npm run android:preflight` checks for exactly it.
+ */
+subprojects {
+    plugins.withId('com.android.application') { android.buildToolsVersion rootProject.ext.buildToolsVersion }
+    plugins.withId('com.android.library') { android.buildToolsVersion rootProject.ext.buildToolsVersion }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+task clean(type: Delete) {
+    delete rootProject.buildDir
+}

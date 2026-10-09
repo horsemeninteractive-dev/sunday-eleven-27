@@ -34,6 +34,7 @@
     "android:preflight": "vite-node tools/androidRelease.ts",
     "android:bundle": "vite-node tools/androidRelease.ts --bundle",
     "android:apk": "vite-node tools/androidRelease.ts --apk",
+    "desktop:art": "vite-node tools/installerArt.ts",
     "desktop:shell": "tsc -p tsconfig.desktop.json",
     "desktop:renderer": "vite build --mode desktop --outDir desktop/renderer",
     "desktop:build": "npm run typecheck && npm run desktop:shell && npm run desktop:renderer",

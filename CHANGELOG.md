@@ -10,6 +10,32 @@ move (any save from an older build is migrated forward on load). `1.0.0` means
 it is finished. This file is also the changelog inside the game, reachable from
 the main menu.
 
+## [Unreleased]
+
+### Added
+
+**The Windows installer introduces the game rather than asking a routing question.** electron-builder's
+assisted installer has no welcome page: the first thing a manager sees of Sunday Eleven 27 is a page asking
+whether to install it for everyone or just himself. It opens with the game's own page now — what the game is,
+what Setup is about to do, and the fact that it runs offline and keeps his careers where they are — and the
+last page is the game's too: what has been installed, that his careers live on this machine, and a link to
+the website. Cancelling asks before it throws the installation away; the framework supports that and never
+switches it on.
+
+**And it wears the mark.** Two bitmaps are drawn from the same `public/favicon.svg` every other icon comes
+from, on the game's own near-black with the accent green: the 150×57 plate that sits at the right of the
+header bar on the folder and progress pages, and the 164×314 panel down the left of the welcome and finish
+pages. `npm run desktop:art` draws them and checks what it drew — the sizes MUI asks for, and a line of text
+rasterised in every band — and the uninstaller reads the same panel, so removing the game looks like the game
+too. It now says the thing a manager actually wants to know at that moment: his careers are not going with it.
+
+**The chrome itself is deliberately left alone.** MUI can paint its header bar and its two hero pages any
+colour, and the game is dark everywhere, so a near-black wizard was the tempting version of this. MUI's own
+bug #443 stops it — a themed check box ignores the text colour it is given, and the workaround only runs in
+high-contrast mode, which would have left "Open Sunday Eleven 27" as black text on a near-black page. A dark
+finish page without it means hand-writing the page the framework provides. The pages stay white and the
+identity is carried by the pictures and the words.
+
 ## [0.10.2] - 2026-10-09 — a sign for every pub
 
 ### Steam

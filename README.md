@@ -52,6 +52,7 @@ npm run dev        # http://localhost:5273
 | `npm run preview` | serve the built game |
 | `npm run desktop:build` | typecheck, then build the desktop shell and its bundled game into `desktop/` |
 | `npm run desktop:dev` | the desktop build, then run it in an Electron window |
+| `npm run desktop:art` | draw the installer's own artwork from the favicon → `desktop/resources/*.bmp` |
 | `npm run desktop:pack` | the desktop build, then an installable Windows `.exe` into `desktop-release/` |
 | `npm run desktop:smoke` | drive the installed desktop application through a career, end to end |
 | `npm test` | the test suite |

@@ -19,6 +19,7 @@ changes anything in this document.
 
 | command | what it does |
 | --- | --- |
+| `npm run desktop:art` | draw the installer's own artwork from the favicon → `desktop/resources/installerHeader.bmp` and `installerSidebar.bmp` |
 | `npm run desktop:shell` | compile the main process and the preload (`tsc -p tsconfig.desktop.json`) → `desktop/build` |
 | `npm run desktop:renderer` | bundle the game for the shell (`vite build --mode desktop --outDir desktop/renderer`) |
 | `npm run desktop:build` | typecheck, then both of the above |
@@ -29,7 +30,7 @@ changes anything in this document.
 
 ```bash
 npm run desktop:dev                 # see the game in the shell
-npm run desktop:pack                # → desktop-release/Sunday-Eleven-27-Setup-0.10.1.exe
+npm run desktop:pack                # → desktop-release/Sunday-Eleven-27-Setup-0.10.2.exe
 npm run desktop:smoke               # the installed app, checked from the outside
 npm run desktop:smoke -- --exe="desktop-release\win-unpacked\Sunday Eleven 27.exe"
 ```
@@ -97,6 +98,43 @@ answer (or five seconds) before the window goes. The log says which happened:
 [se27] closing: the game confirmed its last save
 ```
 
+## The installer's own face
+
+The wizard is the game's rather than the framework's, in three pieces:
+
+- **`desktop/resources/installerHeader.bmp`**, 150×57, drawn at the right of the
+  header bar on every page that has one — the app's own tile, the name, what game
+  it is, and a green rule along its bottom edge;
+- **`desktop/resources/installerSidebar.bmp`**, 164×314, the panel MUI paints
+  down the left of the welcome and finish pages (and of the uninstaller's
+  welcome page, which reads the same file);
+- **`desktop/resources/installer.nsh`**, which is included at the top of the
+  generated NSIS script and is what says *what* the installer says: a welcome
+  page, the finish page's wording and its link to the website, and a question
+  before it throws an installation away.
+
+Both bitmaps are generated from `public/favicon.svg` and the game's palette by
+`npm run desktop:art` (`tools/installerArt.ts`, which needs `sharp` — a
+development dependency; the bitmaps themselves are committed). They are the sizes
+MUI asks for and they are **BMP** because that is the only format `makensis`
+reads: `electron-builder.yml` hands those two paths straight to it. The tool
+reads its own output back and counts pixels per band, so a mark that failed to
+rasterise or a wordmark too wide for its strip fails there rather than in an
+installer somebody is halfway through running.
+
+The chrome is deliberately left as the framework's. MUI's `MUI_BGCOLOR` paints
+the header bar and both hero pages, and the game is dark, so a near-black wizard
+is the obvious next step — and MUI's own bug #443 refuses it: a **themed check
+box ignores the text colour it is given**, and MUI only works around that in
+high-contrast mode, so the finish page's "Open Sunday Eleven 27" would be black
+on near-black. A dark finish page without the bug means a hand-written page
+replacing the framework's, which is a lot of NSIS to own for one screen. So the
+pages stay white and the identity is carried by the two pictures and the words.
+
+The icons are already the game's: electron-builder defaults both the installer's
+and the uninstaller's to the application icon, which is the same mark. Nothing in
+this file code-signs anything — see the note below about SmartScreen.
+
 ## Where everything lives
 
 | what | where | notes |
@@ -160,6 +198,9 @@ electron-builder 26.15.3), against the **installed** application:
 | are the keyboard and Escape handled? | Escape dismisses the dialog stack in the smoke run | yes |
 | is the *real* exported file readable by the browser build? | the file the installed app wrote, put through the game's own `parseCareerFile` outside Electron | parses with no error: `Uphcott Veterans`, seed and season intact, `writtenBy 0.10.1`, save version 16, 1 062 people, 36 clubs, 403 fixtures in a 3.3 MB file — so the desktop's export is the browser's import, and the migrations the reader runs are the same ones |
 | do multiple careers and the migrations still work? | `npx vitest run --config vitest.slow.config.ts src/state/persistence.test.ts` | 54 passed — slots, the autosave, the resume slot and every stored save version |
+| does the installer carry the game's own artwork? | `npm run desktop:art`, then the two bitmaps decoded by a browser | `installerHeader.bmp` reads back as 150×57 and `installerSidebar.bmp` as 164×314 — the sizes MUI draws — and the tool's own checks pass: the accent green where the design puts it, and a line of text rasterised in every band |
+| does the wizard actually say the game's words? | the packed setup run on this machine, with the page's own controls read back through Win32 | the window is `Sunday Eleven 27 Setup`, the first page's controls read `Welcome to Sunday Eleven 27` and the two paragraphs written in `installer.nsh`, and the run installs the application and launches it from the finish page |
+| is that artwork on the screen? | the welcome page photographed at 1280×800 and counted | 1 606 pixels of exactly the accent green and 8 743 of exactly the artwork's near-black: the sidebar panel, on the real page, at 1:1 |
 | has the football changed? | `npm test` (900 tests, 75 files) and `npm run typecheck` | unchanged and green; the desktop shell adds no game code |
 | does the web build still work? | `npm run build` | `dist/` is built by the same command as before, with `sw.js`, `_headers` and `og.png` present; the desktop build leaves those three out of *its* output only |
 
@@ -185,6 +226,20 @@ against the installed application (the default) or against a build in
   fixture, watch ninety minutes and stop at full time. The engine's timing is
   measured by `npm run benchmark` on this machine rather than in the shipped
   window.
+- **The finish page's own wording, read back from a real run.** The welcome
+  page was verified that way and the finish page's copy is set through the same
+  kind of define, but the run that would have read it was stopped part-way (the
+  wizard had to be answered past an elevation prompt first, and this machine
+  already had a per-machine installation). What is verified is that the
+  installer builds with those defines in place — `warningsAsErrors` is on, so a
+  name MUI did not recognise would have failed the build — and that the run's
+  last page works, because it launched the game. The abort warning is in the
+  same position: written, compiled, and not yet seen on screen.
+- **How the new chrome looks, judged rather than measured.** The welcome page's
+  artwork was counted on screen and its text read back; whether the header plate
+  sits well on the white header bar of the folder and progress pages is a
+  judgement nobody has made yet. `screens/installer-art.html` shows the two
+  bitmaps in the mock contexts they are drawn in, which is where to look.
 - **Code signing.** The installer is unsigned (electron-builder signs with
   `signtool.exe` only if a certificate is configured), so Windows SmartScreen
   warns on first run. A store release needs a certificate.

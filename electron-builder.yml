@@ -24,6 +24,14 @@
 #     there are none in the repository to bundle, and nothing in this
 #     configuration reads an environment variable.
 #
+#   - **what it looks like.** The wizard is the game's, not the framework's:
+#     two bitmaps generated from the favicon (`npm run desktop:art`) are the
+#     header plate every inner page wears and the panel down the side of the
+#     welcome and finish pages, and `desktop/resources/installer.nsh` gives it a
+#     welcome page, the game's own wording, and a question before it throws an
+#     installation away. The icons are the application's own, which
+#     electron-builder defaults both of them to.
+#
 #   - **careers.** Exported career files go to the manager's Documents folder,
 #     and the careers he is playing live in IndexedDB inside `userData`
 #     (`%APPDATA%\Sunday Eleven 27`). Neither is inside the installation
@@ -86,6 +94,18 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: Sunday Eleven 27
+  # The wizard's own artwork, and the script that says what it says. Both paths
+  # are the ones MUI needs to be given: a 150×57 header image for the header bar
+  # and a 164×314 welcome/finish image, drawn as BMP because that is the only
+  # format `makensis` reads and the path is passed through to it untouched. The
+  # uninstaller's panel is the same file — the packer only looks for a separate
+  # `uninstallerSidebar` if one is asked for.
+  installerHeader: desktop/resources/installerHeader.bmp
+  installerSidebar: desktop/resources/installerSidebar.bmp
+  # Prepended to the generated NSIS script, which is where a `!define` can still
+  # reach the pages. Read it with the artwork: `npm run desktop:art` draws both
+  # files, and this file explains what the installer is allowed to say.
+  include: desktop/resources/installer.nsh
   # The artifact's name is derived from the product and the version, so two
   # builds are told apart by their filenames rather than by their dates.
   artifactName: Sunday-Eleven-27-Setup-${version}.${ext}

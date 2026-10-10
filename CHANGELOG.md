@@ -10,6 +10,12 @@ move (any save from an older build is migrated forward on load). `1.0.0` means
 it is finished. This file is also the changelog inside the game, reachable from
 the main menu.
 
+## [0.11.1] - 2026-10-10 — the badge sits against the score
+
+### Fixed
+
+**The home badge sits against the score.** On a fixture card the home side's badge was packed to the far edge, leaving a wide gap before the `v`. It now sits against the score, the same distance as the away side.
+
 ## [0.11.0] - 2026-10-10 — the week on the wall, and a face worth keeping
 
 ### Added

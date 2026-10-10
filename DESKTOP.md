@@ -115,7 +115,10 @@ The wizard is the game's rather than the framework's, in three pieces:
 
 Both bitmaps are generated from `public/favicon.svg` and the game's palette by
 `npm run desktop:art` (`tools/installerArt.ts`, which needs `sharp` — a
-development dependency; the bitmaps themselves are committed). They are the sizes
+development dependency; the bitmaps themselves are committed), and the words on
+them are set from `assets/fonts` — four subsets of the game's own Archivo, read
+by `tools/typeOutline.ts` — so the plate is drawn in the face the installer's
+wizard is a notice about rather than in whatever the machine offers. They are the sizes
 MUI asks for and they are **BMP** because that is the only format `makensis`
 reads: `electron-builder.yml` hands those two paths straight to it. The tool
 reads its own output back and counts pixels per band, so a mark that failed to

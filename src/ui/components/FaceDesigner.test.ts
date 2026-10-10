@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { MANAGER_PERSON_ID } from '@/domain/communication';
 import type { FaceChoices } from '@/domain/face';
 import { FACE_CHOICE_ROWS, facePlan, rolledFaceChoices, type FaceSubject } from '../face';
-import { FaceDesigner, type FaceDesignerProps } from './FaceDesigner';
+import { FACE_GROUPS, FaceDesigner, type FaceDesignerProps, type FaceGroupId } from './FaceDesigner';
 import { PortraitArt, officialOutfit } from './Portrait';
 
 /**
@@ -29,6 +29,11 @@ function draw(patch: Partial<FaceDesignerProps> = {}): string {
   );
 }
 
+/** The rows a tab holds, in the order they are drawn. */
+function rowsOf(group: FaceGroupId) {
+  return FACE_CHOICE_ROWS.filter((row) => FACE_GROUPS.find((entry) => entry.id === group)!.keys.includes(row.key));
+}
+
 /** One man, drawn as the designer draws him. */
 function drawn(choices: FaceChoices): string {
   return renderToStaticMarkup(
@@ -46,34 +51,52 @@ describe('the manager chooses his face', () => {
     expect(html).toContain(drawn(rolledFaceChoices(SUBJECT)));
   });
 
-  it('offers every feature a face is built out of, one row each', () => {
-    const html = draw();
+  it('sorts every feature a face is built out of into three tabs, one row each', () => {
+    // Every row is in exactly one tab: a row in none would be a feature he cannot
+    // reach, and a row in two would be drawn twice.
     expect(FACE_CHOICE_ROWS).toHaveLength(12);
-    expect(html.match(/role="group"/g)).toHaveLength(12);
-    for (const which of FACE_CHOICE_ROWS) expect(html, which.label).toContain(`aria-label="${which.label}"`);
-    expect(html.match(/aria-pressed=/g)).toHaveLength(FACE_CHOICE_ROWS.reduce((total, which) => total + which.options.length, 0));
+    expect(FACE_GROUPS.flatMap((entry) => entry.keys).sort()).toEqual(FACE_CHOICE_ROWS.map((row) => row.key).sort());
+
+    const html = draw();
+    expect(html.match(/role="tab"/g)).toHaveLength(FACE_GROUPS.length);
+    for (const entry of FACE_GROUPS) expect(html, entry.label).toContain(`${entry.label}</span>`);
+    // Each tab draws its own rows, and only those, when it is the one open.
+    for (const entry of FACE_GROUPS) {
+      const open = draw({ initialGroup: entry.id });
+      expect(open.match(/role="group"/g), entry.label).toHaveLength(entry.keys.length);
+      for (const which of rowsOf(entry.id)) expect(open, which.label).toContain(`aria-label="${which.label}"`);
+    }
   });
 
   it('shows the face he has, rather than a set of defaults', () => {
-    // One pressed button per row, and exactly one: a row with two would be a face
-    // that is two faces, and a row with none would be a row that has forgotten him.
-    const html = draw();
-    expect(html.match(/aria-pressed="true"/g)).toHaveLength(12);
+    // One pressed button per row in the open tab, and exactly one: a row with two
+    // would be a face that is two faces, and a row with none would be a row that
+    // has forgotten him.
+    for (const entry of FACE_GROUPS) {
+      const open = draw({ initialGroup: entry.id });
+      expect(open.match(/aria-pressed="true"/g), entry.label).toHaveLength(entry.keys.length);
+    }
     // And the row that is pressed is the one the drawing is actually using.
     const face = rolledFaceChoices(SUBJECT);
-    expect(html).toContain(`>${FACE_CHOICE_ROWS.find((which) => which.key === 'shape')!.options.find((option) => option.value === face.shape)!.label}<`);
+    const shape = FACE_CHOICE_ROWS.find((which) => which.key === 'shape')!;
+    expect(draw()).toContain(`>${shape.options.find((option) => option.value === face.shape)!.label}<`);
   });
 
-  it('puts the paint on the two rows that are a colour', () => {
+  it('puts the paint on the rows that are a colour, in the tab they belong to', () => {
     // A row of colour names is a row decided by reading; the chip is what lets the
     // eye choose one. It is drawn in the option's own paint, which is the same
     // paint the drawing is given — see `FACE_CHOICE_ROWS`.
     const chips = FACE_CHOICE_ROWS.flatMap((which) => which.options.filter((option) => option.colour));
     expect(chips.length).toBeGreaterThan(20);
-    const html = draw();
-    expect(html.match(/class="facedesigner__dot"/g)).toHaveLength(chips.length);
-    for (const chip of chips) expect(html).toContain(chip.colour!);
-    expect(html).toContain(`class="facedesigner__dot" style="background:${chips[0]!.colour!}"`);
+    let drawnChips = 0;
+    for (const entry of FACE_GROUPS) {
+      const open = draw({ initialGroup: entry.id });
+      const count = open.match(/class="facedesigner__dot"/g)?.length ?? 0;
+      drawnChips += count;
+      for (const which of rowsOf(entry.id)) for (const option of which.options) if (option.colour) expect(open).toContain(option.colour);
+    }
+    expect(drawnChips).toBe(chips.length);
+    expect(draw()).toContain(`class="facedesigner__dot" style="background:${FACE_CHOICE_ROWS[1]!.options[0]!.colour!}"`);
   });
 
   it('draws what he picks rather than what his name rolled', () => {
@@ -118,11 +141,13 @@ describe('the manager chooses his face', () => {
     const source = readFileSync('src/ui/components/FaceDesigner.tsx', 'utf8');
     expect(source).toContain('onChange({ ...choices, [row.key]: value }');
     expect(source).toContain('aria-pressed={value === option.value}');
-    expect(source).toContain('FACE_CHOICE_ROWS.map');
+    expect(source).toContain('FACE_CHOICE_ROWS.filter');
     expect(source).toContain('facePlan({ ...subject, face: choices })');
     // A control that kept its own copy of the face would be a second version of the
-    // truth, and the save would eventually disagree with the screen.
-    expect(source).not.toContain('useState');
+    // truth, and the save would eventually disagree with the screen. Its only state
+    // is which tab is open, so the one `useState` it has must be that and nothing else.
+    expect(source).toContain('useState<FaceGroupId>(initialGroup)');
+    expect(source).not.toContain('useState(choices');
     expect(source).not.toContain('useGameStore');
   });
 });

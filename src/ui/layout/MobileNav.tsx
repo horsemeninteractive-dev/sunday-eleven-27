@@ -26,6 +26,7 @@ export function MobileNav({
   onNavigate: (view: ViewId) => void;
 }) {
   const [savesOpen, setSavesOpen] = useState(false);
+  const [confirmQuit, setConfirmQuit] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useModal(ref, () => onOpenChange(false), open);
 
@@ -72,7 +73,7 @@ export function MobileNav({
         <div className="sheet-layer">
           <button type="button" className="sheet__backdrop" aria-label="Close menu" onClick={() => onOpenChange(false)} />
           <div ref={ref} className="sheet" role="dialog" aria-modal="true" aria-label="All screens">
-            <header className="sheet__header"><h2 className="sheet__heading">Your club</h2><Button variant="ghost" ariaLabel="Close menu" onClick={() => onOpenChange(false)}>Close</Button></header>
+            <header className="sheet__header"><h2 className="sheet__heading">All screens</h2><Button variant="ghost" ariaLabel="Close menu" onClick={() => onOpenChange(false)}>Close</Button></header>
             {hasSession && (
               <button type="button" className="sheet__live" onClick={() => go('match')}>
                 <Glyph name="match" />
@@ -129,9 +130,21 @@ export function MobileNav({
               <h2 className="sheet__label">Save and load</h2>
               <div className="sheet__buttons">
                 <Button onClick={() => { onOpenChange(false); setSavesOpen(true); }}>Save or load a career</Button>
-                <Button variant="danger" size="sm" onClick={() => { void gameActions().quitToMenu(); onOpenChange(false); }}>
-                  Quit to menu
-                </Button>
+                {confirmQuit ? (
+                  <>
+                    <p className="muted small">Your career is saved. Go to the main menu?</p>
+                    <Button variant="danger" size="sm" onClick={() => { void gameActions().quitToMenu(); setConfirmQuit(false); onOpenChange(false); }}>
+                      Yes, quit to menu
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => setConfirmQuit(false)}>
+                      Stay here
+                    </Button>
+                  </>
+                ) : (
+                  <Button variant="danger" size="sm" onClick={() => setConfirmQuit(true)}>
+                    Quit to menu
+                  </Button>
+                )}
               </div>
             </section>
           </div>

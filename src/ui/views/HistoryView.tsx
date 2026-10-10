@@ -73,6 +73,7 @@ export function HistoryView() {
       <PageHeader
         eyebrow="Club admin"
         title={<span className="person-identity"><ClubBadge club={club} size={40} />{club.identity.shortName} · History</span>}
+        photo="/photos/history-programmes.webp"
         subtitle={`Founded ${history.founded} · ${history.seasons.length} season${history.seasons.length === 1 ? '' : 's'} on record`}
         meta={
           <>

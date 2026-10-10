@@ -44,6 +44,7 @@ export function KitView() {
     <div className="stack">
       <PageHeader
         eyebrow="Club"
+        photo="/photos/kit-shirts.webp"
         actions={
           <Button variant="ghost" onClick={() => gameActions().setView('dashboard')}>
             Back to the club

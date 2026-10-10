@@ -124,3 +124,19 @@ export function Glyph({ name, className }: { name: NavIcon; className?: string }
 export function UIGlyph({ name, className }: { name: UIGlyphName; className?: string }) {
   return <GlyphSvg paths={UI_PATHS[name]} className={className} />;
 }
+
+/**
+ * The three tabs of the face customiser: a head, its hair, and its eyes. Drawn
+ * on the same grid and stroke as the rest, so the tabs read as part of the set.
+ */
+export type FaceGlyphName = 'face' | 'hair' | 'eyes';
+
+const FACE_PATHS: Record<FaceGlyphName, string[]> = {
+  face: ['M12 3.6c-3.8 0-6.4 2.9-6.4 6.8 0 4.2 2.5 7.9 6.4 7.9s6.4-3.7 6.4-7.9c0-3.9-2.6-6.8-6.4-6.8', 'M9.4 10.4h.01', 'M14.6 10.4h.01', 'M9.6 14.4c.8.8 1.6 1.1 2.4 1.1s1.6-.3 2.4-1.1'],
+  hair: ['M6.2 12.4V9.6c0-3.4 2.6-5.8 5.8-5.8s5.8 2.4 5.8 5.8v2.8', 'M6.2 9.6c2.2 0 3.6-1.2 4.4-3.2 1.4 2.4 3.2 3.2 5.2 3.2', 'M6.2 12.4v6.4c0 .8.6 1.2 1.2 1.2h9.2c.6 0 1.2-.4 1.2-1.2v-6.4'],
+  eyes: ['M2.8 12c2.2-3.8 5.4-5.6 9.2-5.6s7 1.8 9.2 5.6c-2.2 3.8-5.4 5.6-9.2 5.6S5 15.8 2.8 12', 'M12 14.6a2.6 2.6 0 1 0 0-5.2 2.6 2.6 0 0 0 0 5.2'],
+};
+
+export function FaceGlyph({ name, className }: { name: FaceGlyphName; className?: string }) {
+  return <GlyphSvg paths={FACE_PATHS[name]} className={className} />;
+}

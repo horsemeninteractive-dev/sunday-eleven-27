@@ -57,7 +57,8 @@ export function ClubView() {
   return (
     <div className="stack">
       <PageHeader
-        eyebrow="Club"
+        eyebrow="Clubhouse"
+        photo="/photos/football-club.webp"
         title={<span className="person-identity"><ClubBadge club={club} size={48} />{club.identity.name}</span>}
         subtitle={[town, CLUB_STRUCTURE_LABEL[club.structure], club.identity.nickname].filter(Boolean).join(' · ')}
         meta={

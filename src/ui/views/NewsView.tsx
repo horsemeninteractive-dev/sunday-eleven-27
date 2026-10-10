@@ -122,6 +122,7 @@ export function NewsView() {
       <PageHeader
         eyebrow="Media"
         title="News"
+        photo="/photos/news-lead.webp"
         meta={<span className="small muted">{items.length} item{items.length === 1 ? '' : 's'}</span>}
         actions={
           <div className="row row--wrap row--tight">

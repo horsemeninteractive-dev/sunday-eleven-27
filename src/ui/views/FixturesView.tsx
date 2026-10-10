@@ -95,6 +95,7 @@ export function FixturesView() {
       <PageHeader
         eyebrow="Competition"
         title="Fixtures"
+        photo="/photos/stadium-matchday.webp"
         subtitle={`${game.season.label} · ${matches.length} fixtures, ${played.length} played, ${upcoming.length} to come`}
         meta={
           nextFixture ? (

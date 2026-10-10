@@ -286,6 +286,7 @@ export function CreateClubView() {
       <PageHeader
         eyebrow="New club · step 2 of 2"
         title="Design your club"
+        photo="/photos/create-club-crest.webp"
         subtitle={`${draft.leagueName} · seed “${draft.seed}”. Your club takes the place of ${replaced.identity.name}.`}
         actions={
           <><Button variant="ghost" onClick={() => gameActions().abandonDraft()}>Back</Button><Button variant="primary" onClick={submit} disabled={!affordable || name.trim().length < 3 || !townId}>Register {name.trim() || 'your club'}</Button></>

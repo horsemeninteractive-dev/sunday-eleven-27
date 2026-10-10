@@ -33,8 +33,8 @@ export function UpdatePrompt() {
       <div className="updatebar__body">
         <span className="updatebar__label">A new version is ready</span>
         <span className="updatebar__detail">
-          {running ? `v${running} is replaced by a newer build.` : 'A newer build has finished installing.'} Your
-          career is saved; reloading picks it up.
+          {running ? `Replaces v${running}.` : 'A newer build has finished installing.'} Your career is saved;
+          reloading picks it up.
         </span>
       </div>
       <div className="updatebar__actions">

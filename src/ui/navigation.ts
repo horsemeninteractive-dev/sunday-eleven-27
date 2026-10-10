@@ -157,7 +157,7 @@ export const NAV_SECTIONS: NavSection[] = [
     // runs this place, how is it doing, and what needs me. A manager who is not
     // sure where to look starts here and is sent on.
     leaves: [
-      { id: 'club', label: 'Club', icon: 'club', hint: 'Who runs it, where it stands, what needs you' },
+      { id: 'club', label: 'Clubhouse', icon: 'club', hint: 'Who runs it, where it stands, what needs you' },
       { id: 'staff', label: 'Staff', icon: 'staff', hint: 'Who runs the club off the pitch' },
       { id: 'finances', label: 'Finances', icon: 'finances', hint: 'The treasurer’s book' },
       { id: 'news', label: 'Media', short: 'News', icon: 'news', hint: 'Everything the local game has to say' },
@@ -202,7 +202,7 @@ export const VIEW_LABEL: Record<ViewId, string> = {
   news: 'News',
   inbox: 'Messages',
   finances: 'Finances',
-  club: 'Club',
+  club: 'Clubhouse',
   staff: 'Staff',
   kit: 'The kit',
   history: 'History',

@@ -148,6 +148,7 @@ export function LeagueView() {
       <PageHeader
         eyebrow="Competition"
         title={competition.name}
+        photo="/photos/league-trophy.webp"
         subtitle={`${playerCount} clubs · ${promotionLabel(competition)} · ${relegationLabel(competition)}`}
         meta={
           <>

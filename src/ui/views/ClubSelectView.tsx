@@ -72,6 +72,7 @@ export function ClubSelectView() {
       <PageHeader
         eyebrow="New career"
         title="Choose your club"
+        photo="/photos/club-select-pitches.webp"
         subtitle={`${draft.leagueName} · seed “${draft.seed}”. ${clubCount} local clubs in ${divisions.length} division${divisions.length === 1 ? '' : 's'}, each with its own squad, ground, committee and history.`}
         actions={
           <>

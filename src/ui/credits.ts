@@ -46,6 +46,25 @@ export const CREDITS: Credit[] = [
     note: 'A photograph of grassroots football, washed into the game’s greens.',
   },
   {
+    role: 'The photograph on the Home fixture',
+    names: ['Sebastian Ballard, via Geograph (CC BY-SA 2.0)'],
+    note: 'Community football pitch at Prospect Park, Reading, photographed on a Sunday morning after the games. Resized and compressed for the game; otherwise unaltered.',
+  },
+  {
+    role: 'The photograph on the Training screen',
+    names: ['Santeri Viinamäki (CC BY-SA 4.0)'],
+    note: 'A goal on a training football field. Resized and compressed for the game; otherwise unaltered.',
+  },
+  {
+    role: 'The photographs on the Cup, Fixtures and Club screens',
+    names: [
+      'philosophyfootball, FA Cup trophy (CC BY 2.0)',
+      'Anthony O’Neil, via Geograph, football stadium (CC BY-SA 2.0)',
+      'Bienvenue Tognon, football players (CC BY-SA 4.0)',
+    ],
+    note: 'Resized and compressed for the game; otherwise unaltered. The Cup photograph shows a professional final, used here for its trophy rather than its match.',
+  },
+  {
     role: 'Debts',
     names: ['Football Manager', 'Championship Manager'],
     note: 'The idiom of the management game is theirs: the calendar, the attributes a scout will and will not tell you, and the sentence "it is your job to lose".',

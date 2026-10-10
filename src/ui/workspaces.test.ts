@@ -395,16 +395,17 @@ describe('the pre-game headers, the crest and the two screens rebuilt with them'
 
   it('draws the crest in the match header at a size the club is recognisable at', () => {
     // Thirty pixels was the same height as the club's name beside it, which is
-    // what made a badge read as a bullet point. It costs the match no room: the
-    // score and the clock in the middle of the row are already taller.
-    expect(rule('.matchhead__crest')?.body).toContain('width: 44px');
-    expect(rule('.matchhead__crest')?.body).toContain('height: 44px');
+    // what made a badge read as a bullet point. Fifty-six is about the height of
+    // the score and clock stacked in the middle, so the crest fills the header.
+    expect(rule('.matchhead__crest')?.body).toContain('width: 56px');
+    expect(rule('.matchhead__crest')?.body).toContain('height: 56px');
+    expect(rule('.matchhead__crest .badge')?.body).toContain('height: 100%');
     // The phone keeps a smaller figure, because there the header is one line of
     // furniture above the pitch.
     const phone = sheet.find(
       (candidate) => candidate.selector.trim() === '.matchhead__crest' && candidate.media.includes('max-width: 860px'),
     );
-    expect(phone?.body).toContain('width: 28px');
+    expect(phone?.body).toContain('width: 40px');
   });
 
   it('lays the club designer out three across once there is room for it', () => {

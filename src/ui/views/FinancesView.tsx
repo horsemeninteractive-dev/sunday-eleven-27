@@ -141,6 +141,7 @@ export function FinancesView() {
       <PageHeader
         eyebrow="Club"
         title="Finances"
+        photo="/photos/finances-ledger.webp"
         subtitle={`${club.identity.shortName}'s treasurer's book · money held, money due and the weeks ahead`}
         meta={
           <>

@@ -55,6 +55,10 @@ npm run dev        # http://localhost:5273
 | `npm run desktop:art` | draw the installer's own artwork from the favicon → `desktop/resources/*.bmp` |
 | `npm run desktop:pack` | the desktop build, then an installable Windows `.exe` into `desktop-release/` |
 | `npm run desktop:smoke` | drive the installed desktop application through a career, end to end |
+| `npm run discord:plan` | say what the community server's configuration would change, and change nothing |
+| `npm run discord:apply` | make the community server match the specification in `src/platform/discord.ts` |
+| `npm run discord:announce` | post a release from `CHANGELOG.md` into the server's announcements |
+| `npm run xiai` | run the community bot, which answers `/ask` about the game while it is running |
 | `npm test` | the test suite |
 | `npm run soak` | play out long runs and report on them |
 | `npm run benchmark` | time the two match simulation modes, and compare their fingerprints |
@@ -152,11 +156,49 @@ npm run desktop:pack     # build the installer → desktop-release/
 [`DESKTOP.md`](DESKTOP.md) has the architecture, the commands, where a career
 lives on a desktop, and what has and has not been verified there.
 
+## The community server
+
+The Discord server is written down the same way the game's packaging is: the
+rooms, who can see what and the words pinned in them are data in
+[`src/platform/discord.ts`](src/platform/discord.ts), and a small tool makes a
+real server match it. Nothing is deleted, the plan is printed before anything is
+written, and a release announcement is read out of `CHANGELOG.md` rather than
+written a second time.
+
+```bash
+npm run discord:plan        # what would change, and nothing else
+npm run discord:apply       # ...then do it
+```
+
+It needs a bot token in `discord.env` (ignored by git, and
+[`discord.env.example`](discord.env.example) is its shape).
+[`DISCORD.md`](DISCORD.md) has the invite link the bot needs, the design and the
+reasoning behind every channel, what a bot cannot do, and what has and has not
+been verified.
+
+The same bot answers questions. `npm run xiai` connects it to Discord and it
+answers `/ask` in the server — from facts written down in
+[`src/platform/xiai.ts`](src/platform/xiai.ts), taken from this project's own
+documentation and printed with the file they came from. There is no model
+involved: it cannot invent how the game works, and a question it does not
+recognise gets no answer rather than a confident one.
+
+```bash
+npm run xiai -- --ask "how long is a season"   # try the knowledge base, no token needed
+npm run xiai -- --check                        # connect to Discord, say who it is, disconnect
+npm run xiai                                    # run the bot
+```
+
+It answers while it is running and not otherwise — the process holds the connection
+open, so a machine that is off is a bot that is quiet — and it only ever reads the
+question somebody typed at it, because it asks Discord for no intents at all.
+
 ## Further reading
 
 - [`CHANGELOG.md`](CHANGELOG.md) — what has changed, and what this build is
 - [`ANDROID.md`](ANDROID.md) — the native build: toolchain, build, launch, and what is verified
 - [`DESKTOP.md`](DESKTOP.md) — the desktop build: architecture, packaging, saves, and what is verified
+- [`DISCORD.md`](DISCORD.md) — the community server: the design, the commands, and what is verified
 - [`STEAM.md`](STEAM.md) — Steam: the integration approach, the proposed achievements, the cloud-save design, and what is verified
 - [`TOUCHLINE_ARCHITECTURE.md`](TOUCHLINE_ARCHITECTURE.md) — the football simulation: what owns what
 - [`MATCH_ENGINE.md`](MATCH_ENGINE.md) — where the match actually happens

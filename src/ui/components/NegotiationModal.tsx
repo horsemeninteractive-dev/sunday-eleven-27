@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { personDisplayName, isPlayer } from '@/domain/person';
 import {
   CANDIDATE_STATUS_LABEL,
@@ -34,6 +35,7 @@ import { Dialog } from '../dialogs/Dialog';
  * conversation with a person looks like.
  */
 export function NegotiationModal({ personId }: { personId: string }) {
+  const [confirmPass, setConfirmPass] = useState(false);
   const game = useGame();
   if (!game) return null;
   const person = game.people[personId];
@@ -129,9 +131,21 @@ export function NegotiationModal({ personId }: { personId: string }) {
                   <Button variant="ghost" block onClick={() => gameActions().inviteToTrial(personId)}>
                     Invite him down to a session
                   </Button>
-                  <Button variant="danger" block onClick={() => gameActions().passOnCandidate(personId)}>
-                    Not for us
-                  </Button>
+                  {confirmPass ? (
+                    <>
+                      <p className="muted small">He will hear that you have passed on him.</p>
+                      <Button variant="danger" block onClick={() => gameActions().passOnCandidate(personId)}>
+                        Yes, pass on him
+                      </Button>
+                      <Button variant="ghost" block onClick={() => setConfirmPass(false)}>
+                        Keep him on the list
+                      </Button>
+                    </>
+                  ) : (
+                    <Button variant="danger" block onClick={() => setConfirmPass(true)}>
+                      Not for us
+                    </Button>
+                  )}
                 </div>
               )}
               <p className="muted small">

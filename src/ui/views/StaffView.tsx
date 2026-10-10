@@ -58,6 +58,7 @@ export function StaffView() {
       <PageHeader
         eyebrow="Club admin"
         title="Staff"
+        photo="/photos/staff-touchline.webp"
         subtitle={`${members.length} on the committee at ${club.identity.name}`}
         actions={
           <Button variant="ghost" onClick={() => gameActions().setView('finances')}>

@@ -38,7 +38,7 @@ describe('the sidebar reads top to bottom', () => {
         direct: false,
         children: ['Schedule', 'League Table', 'Cups'],
       },
-      { label: 'Club', direct: false, children: ['Club', 'Staff', 'Finances', 'Media', 'History'] },
+      { label: 'Club', direct: false, children: ['Clubhouse', 'Staff', 'Finances', 'Media', 'History'] },
       { label: 'World', direct: true, children: ['The local game'] },
     ]);
   });
@@ -58,7 +58,7 @@ describe('the sidebar reads top to bottom', () => {
   it('opens the club section with the club overview, because it is the question the others answer', () => {
     const club = NAV_SECTIONS.find((section) => section.id === 'club')!;
     expect(club.leaves[0]!.id).toBe('club');
-    expect(club.leaves[0]!.label).toBe('Club');
+    expect(club.leaves[0]!.label).toBe('Clubhouse');
     // Everything the overview sends the manager on to is still in the same
     // section, so a card pointing at Staff or Finances lands somewhere the
     // sidebar already says he is.

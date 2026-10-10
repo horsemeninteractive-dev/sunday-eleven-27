@@ -68,6 +68,7 @@ export function WorldView() {
       <PageHeader
         eyebrow="World"
         title="The local game"
+        photo="/photos/world-aerial-parks.webp"
         meta={
           <>
             <span className="small muted">{clubs.length} clubs</span>

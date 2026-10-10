@@ -16,6 +16,7 @@ import { cupCompetitions } from '@/simulation/pyramid';
 import { userClub } from '@/simulation/queries';
 import { gameActions, useGame } from '../hooks';
 import { Button, PageHeader, Pill } from '../components/primitives';
+import { PLATE_ID } from '@/simulation/pyramid';
 import { FixtureRow } from '../components/FixtureRow';
 import { Statistics } from '../components/Statistics';
 import { competitionStats } from '@/simulation/tables';
@@ -64,6 +65,7 @@ export function CupView() {
       <PageHeader
         eyebrow="Competition"
         title={shown.name}
+        photo={shown.id === PLATE_ID ? '/photos/plate-trophy.webp' : '/photos/cup-trophy.webp'}
         subtitle={subtitleFor(game, shown)}
         actions={
           <Button variant="ghost" onClick={() => gameActions().setView('fixtures')}>

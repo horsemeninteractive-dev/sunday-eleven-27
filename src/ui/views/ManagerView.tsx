@@ -38,6 +38,7 @@ export function ManagerView() {
       <PageHeader
         eyebrow="Your managerial career"
         title={`${profile.firstName} ${profile.surname}`}
+        photo="/photos/profile-boots.webp"
         subtitle={`${profile.occupation || 'Volunteer'} · manager of ${club.identity.name}`}
         meta={<>
           <span className="small muted">Age {age} · born {formatShortDate(profile.birthday)}</span>

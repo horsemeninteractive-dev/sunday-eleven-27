@@ -48,6 +48,75 @@
    flat — a button, a chip, a badge — where it always clears 4.5:1.
    ========================================================================== */
 
+/* The face.
+
+   Archivo, drawn by Omnibus-Type and vendored into `public/fonts` rather than
+   fetched: the game runs offline, ships inside an Electron application and
+   inside an APK, and none of those three can be allowed to fall back to a
+   different typeface than the other two. Two axes come free in one file —
+   `wght` 100–900 and `wdth` 62–125 — which is why this sheet can set a weight
+   650 and a display size at 92% width without a second download.
+
+   Four files, split by script and slope, each with the range it actually
+   covers, so a browser that needs none of them fetches none of them. The old
+   stack named Inter, which is installed on almost no machine: it was skipped
+   silently on every platform and the game was drawn in Segoe UI on Windows,
+   Roboto on Android and SF on macOS, none of which the tracking and the
+   tabular figures below were ever measured against.
+
+   Licensed under the SIL Open Font License 1.1, kept beside the files in
+   `public/fonts/Archivo-LICENSE.txt` because that is what the licence asks for. */
+@font-face {
+  font-family: 'Archivo';
+  font-style: normal;
+  font-weight: 100 900;
+  font-stretch: 62% 125%;
+  font-display: swap;
+  src: url('/fonts/archivo-latin-standard-normal.woff2') format('woff2-variations');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212,
+    U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Archivo';
+  font-style: normal;
+  font-weight: 100 900;
+  font-stretch: 62% 125%;
+  font-display: swap;
+  src: url('/fonts/archivo-latin-ext-standard-normal.woff2') format('woff2-variations');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+    U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* The italic is a file of its own rather than a slant the browser leans over,
+   because the two places this sheet sets one are a club's quote and its motto,
+   both at a size where a synthesised oblique reads as a mistake. */
+@font-face {
+  font-family: 'Archivo';
+  font-style: italic;
+  font-weight: 100 900;
+  font-stretch: 62% 125%;
+  font-display: swap;
+  src: url('/fonts/archivo-latin-standard-italic.woff2') format('woff2-variations');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212,
+    U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Archivo';
+  font-style: italic;
+  font-weight: 100 900;
+  font-stretch: 62% 125%;
+  font-display: swap;
+  src: url('/fonts/archivo-latin-ext-standard-italic.woff2') format('woff2-variations');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+    U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
 :root {
   /* Tell the browser this is a dark UI: it stops form controls, scrollbars and
      focus rings arriving in system-white and looking like holes in the page. */
@@ -109,7 +178,18 @@
   --s5: 22px;
 
   /* Type */
-  --font: 'Inter', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', sans-serif;
+  --font: 'Archivo', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', sans-serif;
+  /* How narrow the face is set. Archivo is a grotesque rather than a condensed
+     one at its own default, and this game wants the narrow end: the sheet is
+     full of small uppercase labels and long club names in narrow columns.
+
+     One token, and the whole interface moves with it. Measured on a line of the
+     kind the game is full of, at 12px: 100% is 463.7px, this is 424.2px, the
+     narrowest the face goes (62%) is 338.8px — so there is room either side
+     without anything else changing. 88% is where a dense table gains a real
+     column and the 10px letterpress labels are still comfortable; below about
+     80% they start to close up at the counter. */
+  --font-stretch: 88%;
   --fs-xs: 0.75rem;
   --fs-sm: 0.8125rem;
   --fs-base: 0.875rem;
@@ -221,6 +301,10 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font);
+  /* Inherited, so every rule in this sheet is set at the face's own width
+     without any of them having to say so — and so a rule that wants a wider
+     word has one property to override. */
+  font-stretch: var(--font-stretch);
   font-size: var(--fs-base);
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
@@ -312,6 +396,11 @@ a,
   :focus {
     outline: 1px solid var(--club);
   }
+}
+/* AppShell moves focus to a screen's own heading when the screen arrives, so a
+   screen reader announces it. That is not a keyboard target, so it gets no ring. */
+h1[tabindex='-1']:focus {
+  outline: none;
 }
 
 /* Keyboard users should be able to jump past the chrome in one press. */
@@ -1503,6 +1592,24 @@ a,
 }
 .page-head__text {
   min-width: 0;
+}
+/* The pre-match briefing card's header, drawn on the matchday photograph. */
+.interval__head--photo {
+  background-color: #0d2617;
+  background-size: cover;
+  background-position: center 40%;
+  padding: 16px;
+  border-radius: var(--radius);
+}
+/* A screen whose heading sits on a grassroots photograph (see the photo prop on
+   PageHeader). The wash is heavier on the left, where the words are. */
+.page-head--photo {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background-color: #0d2617;
+  background-size: cover;
+  background-position: center 40%;
 }
 .page-head__eyebrow {
   margin: 0;
@@ -2831,6 +2938,27 @@ select.input {
   background-size: cover;
   background-repeat: no-repeat;
 }
+/* Home's next match: the one thing the manager came for, set on the same
+   ground photograph the pre-game screens wear. The wash is heavier at the foot
+   so the fixture card and its actions stay legible over the image. */
+.home-hero {
+  position: relative;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background-color: #0d2617;
+  background-image: linear-gradient(180deg, rgba(8, 9, 11, 0.35), rgba(8, 9, 11, 0.9)), url('/photos/prospect-park-sunday.webp');
+  background-position: center 42%;
+  background-size: cover;
+}
+.home-hero__eyebrow {
+  margin: 0 0 12px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-letterpress);
+  text-transform: uppercase;
+  color: var(--club-text);
+}
 /* The drifting stripe, as the game wears it: the pre-game ground and the
    command bar of a club are the same two boxes (see StripeField). The fade is
    carried *here*, on the still box, rather than on the layer that drifts — a
@@ -3903,6 +4031,12 @@ html[data-motion='reduced'] .firstboot__skip {
   gap: var(--s3);
   align-items: start;
 }
+/* Desktop: the details and the face sit side by side, and the world takes the
+   full width underneath them rather than a third column. */
+@media (min-width: 861px) {
+  .profile-setup__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .profile-setup__grid > :last-child { grid-column: 1 / -1; }
+}
 
 .create-club__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
 .create-club__column { display: flex; flex-direction: column; min-width: 0; gap: 20px; }
@@ -4574,17 +4708,18 @@ html[data-motion='reduced'] .matchpitch[data-celebrating='true']::after {
 }
 /* The crest is the one picture on the header: at thirty pixels it was the same
    height as the club's name beside it and read as a bullet point rather than as
-   the club. Forty-four is the size at which a badge is recognisable at a glance,
-   which is the only reason it is up there — and it costs the match no room,
-   because the score and the clock in the middle of the row are already taller
-   than it. The phone rule below keeps its own, smaller figure: on a handset the
+   the club. Fifty-six is about the height of the score and clock stacked in the
+   middle of the row, so each crest fills the header's height rather than sitting
+   small in it. The phone rule below keeps its own, smaller figure: on a handset the
    header is one line of furniture above the pitch and every pixel there is
    football. */
 .matchhead__crest {
-  width: 44px;
-  height: 44px;
+  width: 56px;
+  height: 56px;
   flex: none;
 }
+/* The badge fills its crest, so the crest's size is the badge's size. */
+.matchhead__crest .badge { width: 100%; height: 100%; display: block; }
 .matchhead__names {
   display: flex;
   align-items: center;
@@ -5932,6 +6067,57 @@ html[data-motion='reduced'] .incident {
     opacity: 1;
   }
 }
+/* Nothing in the app appears all at once. Each screen rises a few pixels as it
+   fades in, every panel fades in, and each overlay fades in with its scrim. The
+   match and replay takeovers fade as a whole, so the panels inside them are not
+   animated separately: the clock and the commentary redraw all afternoon, and a
+   panel that faded every time it was rebuilt would flicker. Everything here is
+   off for anyone who has asked for less motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .app__main > *,
+  .start,
+  .club-select,
+  .create-club,
+  .profile-setup,
+  .takeover > * {
+    animation: screen-in 220ms ease-out;
+  }
+  .panel {
+    animation: panel-in 260ms ease-out;
+  }
+  .takeover .panel {
+    animation: none;
+  }
+  .overlay {
+    animation: fade-in 160ms ease-out;
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes screen-in {
+  from {
+    transform: translateY(6px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+@keyframes panel-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
 .overlay__bar {
   display: flex;
   align-items: center;
@@ -7101,8 +7287,8 @@ html[data-motion='reduced'] .incident {
     padding: var(--s1) var(--s2);
   }
   .matchhead__crest {
-    width: 28px;
-    height: 28px;
+    width: 40px;
+    height: 40px;
   }
   .matchhead__score {
     font-size: var(--fs-xl);
@@ -8510,6 +8696,11 @@ html[data-motion='reduced'] .pitch--preparation .pitch__player { transition: non
 .manager-identity .page-head { flex: 1; min-width: 0; border: 0; padding: 0; box-shadow: none; }
 .manager-identity .page-head::after { display: none; }
 .manager-identity > .badge { flex: none; }
+/* With a photograph, the heading is the card's photograph: it stretches to the
+   card's full height and drops the card's vertical padding, so the image fills
+   the box rather than the text line. */
+.manager-identity:has(> .page-head--photo) { padding: 0 22px; overflow: hidden; }
+.manager-identity > .page-head.page-head--photo { align-self: stretch; padding: 22px; border-radius: 0; background-size: cover; background-position: center 40%; }
 /* The portrait's placeholder: a box lit the way every other box is lit, so the
    empty frame and the filled one read as the same object. */
 /* The manager screen's own frame. It was an arch, which suited a bust glyph and
@@ -8740,8 +8931,11 @@ button.chip { cursor: pointer; min-width: 36px; }
   border-radius: var(--radius-pill);
   box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.35);
 }
+/* The tab's icon and word sit on one line, the icon on the same grid as the rest. */
+.facedesigner__tab { display: inline-flex; align-items: center; gap: 6px; }
+.facedesigner__tab .glyph { width: 18px; height: 18px; }
 @media (min-width: 1280px) {
-  .facedesigner__rows { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: var(--s4); }
+  .facedesigner__rows .tab-view__panel { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: var(--s4); }
   /* The foot of the list, whichever column the last two rows land in. */
   .facedesigner__rows .option-group:nth-last-child(-n + 2) {
     margin-bottom: 0;
@@ -8875,6 +9069,11 @@ html[data-motion='reduced'] { scroll-behavior: auto; }
 .fixture-card__side .badge { flex: none; }
 .fixture-card__side .clubcell { justify-content: center; }
 .fixture-card__side .crest { display: none; }
+/* The two sides face the score: the home badge sits on the right of its name,
+   against the `v`, and the away badge on the left of its name, against the same
+   `v`. The stacked layout on a narrow screen resets both (see below). */
+.fixture-card__side--home { flex-direction: row-reverse; justify-content: flex-end; }
+.fixture-card__side--away { justify-content: flex-start; }
 /* Our own half of the board is named in the club's readable ink: the same fact
    the band states with a colour, stated again where the manager is looking. */
 .fixture-card__side--ours, .fixture-card__side--ours a { color: var(--club-text); }
@@ -8882,7 +9081,9 @@ html[data-motion='reduced'] { scroll-behavior: auto; }
   font-size: var(--fs-display);
   font-weight: 700;
   line-height: 1;
-  letter-spacing: var(--tracking-display);
+  /* No tracking: the display tracking is negative, which pulls the glyph's edge
+     toward one club and leaves the two gaps either side of the `v` unequal. */
+  letter-spacing: 0;
   font-variant-numeric: tabular-nums;
   padding-inline: 4px;
 }
@@ -8922,6 +9123,7 @@ html[data-motion='reduced'] { scroll-behavior: auto; }
   .fixture-card__side { flex-direction: column; font-size: var(--fs-lg); gap: 6px; text-align: center; }
   .fixture-card__side .badge { width: 44px !important; height: 44px !important; }
   .fixture-card__score { font-size: var(--fs-2xl); }
+  .fixture-card__side--home, .fixture-card__side--away { justify-content: center; }
   .fixture-card__foot { padding-inline: 12px; }
   .fixture-card__foot .row { width: 100%; }
   .fixture-card__foot .btn { flex: 1; }
@@ -10794,4 +10996,233 @@ html[data-motion='reduced'] .team-selection__aside { transition: none; }
      rather than a height so the text stays centred in whatever the row ends up
      being, and the marker stays a marker. */
   .instruction-help > summary { min-height: 44px; padding-block: 13px; }
+}
+
+/* ==========================================================================
+   The week bar
+
+   Seven days across the top of a screen, each carrying what is on it: the one
+   thing a manager looks at before anything else, because it says how long there
+   is until the game. It is a read-out rather than a control — the calendar
+   screen is where a day is acted on (see WeekStrip.tsx) — so nothing here has a
+   hover affordance, a cursor, or a state that suggests pressing it.
+
+   Read with the rest of the sheet: the surfaces are the same four panels, the
+   rules are `--line`, the small-caps line is the shared `--tracking-letterpress`,
+   and the day a match falls on is tinted in the club's own colour, which is the
+   one thing on the bar that is allowed to be loud.
+   ========================================================================== */
+
+.weekstrip {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.weekstrip__head {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: 8px var(--s3);
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-2);
+}
+
+.weekstrip__eyebrow {
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+}
+
+.weekstrip__range {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* What is left of the week, and whether a game is in it: the two numbers a
+   manager is actually counting. */
+.weekstrip__remaining {
+  margin-left: auto;
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The columns. A hairline between them rather than a gap with a background
+   showing through, so seven days read as one bar divided up and not as seven
+   cards that happen to sit together. */
+.weekstrip__days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--line-soft);
+}
+
+.weekstrip__day {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 88px;
+  padding: 8px 10px 10px;
+  background: var(--panel);
+}
+
+.weekstrip__day--past { background: var(--bg-2); }
+.weekstrip__day--past .weekstrip__dateline,
+.weekstrip__day--past .weekstrip__entry { opacity: 0.5; }
+
+/* Today: the column the manager is standing in. Marked with a rule along the
+   top as well as a tint, so it survives being read at a glance on a phone. */
+.weekstrip__day--today {
+  background: var(--panel-2);
+  box-shadow: inset 0 2px 0 var(--club);
+}
+
+/* A matchday wears the club's colour, flat and faint. `color-mix` is deliberately
+   avoided: `--club-wash` is the token the rest of the sheet tints with, and a
+   second way of doing the same thing in one file is how a palette drifts. */
+.weekstrip__day--match {
+  background: var(--club-wash, var(--panel-2));
+}
+
+.weekstrip__dateline {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.weekstrip__dayname {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-letterpress);
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+/* The date sits beside the day rather than pushed to the far edge: seven columns
+   this wide put a big empty middle between the two if it is right-aligned, and
+   the pair read as two facts instead of one date. */
+.weekstrip__daynum {
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+/* The one word on the bar. It is a chip rather than a tint because "which of
+   these seven is now" is the question the bar is read to answer.
+
+   Flat club paint, so the ink is the one chosen for flat paint: `--club-ink` is
+   picked across the header's stripes and belongs to that striped surface. */
+.weekstrip__today {
+  margin-left: auto;
+  padding: 1px 5px;
+  border-radius: var(--radius-pill);
+  background: var(--club);
+  color: var(--club-flat-ink);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: var(--tracking-letterpress);
+  text-transform: uppercase;
+  line-height: 1.5;
+}
+
+.weekstrip__entries {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.weekstrip__entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: var(--fs-xs);
+  line-height: 1.35;
+  color: var(--text-dim);
+}
+
+/* The dot is the weight: a match, a session, something that wants the manager,
+   club business, and the background. Five tones, five colours, no more. */
+.weekstrip__dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-top: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--text-faint);
+}
+
+.weekstrip__entry--match .weekstrip__dot { background: var(--club); }
+.weekstrip__entry--training .weekstrip__dot { background: var(--warn); }
+.weekstrip__entry--attention .weekstrip__dot { background: var(--bad); }
+.weekstrip__entry--club .weekstrip__dot { background: var(--info); }
+.weekstrip__entry--quiet .weekstrip__dot { background: var(--line); }
+
+/* The label only raises its voice where the day is not already saying it: a
+   match keeps the club's readable colour, everything that wants the manager goes
+   to full-strength text, and the rest stays in the muted ink it arrived in. */
+.weekstrip__entry--match .weekstrip__entry-label { color: var(--club-text); font-weight: 600; }
+.weekstrip__entry--attention .weekstrip__entry-label { color: var(--text); }
+
+/* A session that has been run keeps its place and stops asking: struck through
+   rather than removed, so the day still looks like the day it was. */
+.weekstrip__entry--done .weekstrip__entry-label { text-decoration: line-through; }
+
+.weekstrip__entry-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.weekstrip__entry-label {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.weekstrip__entry-time {
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.weekstrip__empty,
+.weekstrip__more {
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+}
+
+.weekstrip__empty { opacity: 0.75; }
+
+/* On a narrow screen seven columns of readable text is not seven columns: the
+   bar becomes the week as a row you push sideways, which is the same thing the
+   phone's own navigation does with a list of screens. 860px is the sheet's own
+   breakpoint for "this is no longer a wide window", so the bar turns over with
+   the rest of the layout rather than at a width of its own. */
+@media (max-width: 860px) {
+  .weekstrip__days {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(148px, 1fr);
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .weekstrip__day { scroll-snap-align: start; }
+}
+
+@media (max-width: 760px) {
+  .weekstrip__head { flex-wrap: wrap; }
+  .weekstrip__remaining { margin-left: 0; }
 }

@@ -24,6 +24,12 @@
  * black of `theme-color`, the accent green of the favicon and the boot screen,
  * and the two greys of the boot label) rather than a fourth opinion about them.
  *
+ * The words are set the same way, from `assets/fonts`: the wizard is a Windows
+ * program, so the `<text>` this used to write was drawn in whatever face the
+ * machine's own font lookup offered — Segoe UI, in practice — and a mark that
+ * says one thing while the game says another is the whole problem the favicon
+ * rule above exists to avoid.
+ *
  * Requires sharp, which is a development dependency and nothing more: the
  * bitmaps are committed, and the only time this runs is when the mark changes.
  *
@@ -38,6 +44,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
+import { loadFace, typePath, type ArtworkWeight } from './typeOutline';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const FAVICON = `${root}public/favicon.svg`;
@@ -51,10 +58,6 @@ const ACCENT = '#4CAF7D';
 /** The boot label's colour, and the muted line under the boot note's. */
 const INK = '#E8EFF3';
 const MUTED = '#7C868F';
-
-/** The game's own font stack, which is what the favicon and the card use. */
-const FONT =
-  "Inter, 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif";
 
 /** A band of rows that has to contain something, and how much of it. */
 interface Band {
@@ -94,22 +97,24 @@ function document(width: number, height: number, body: string): string {
   );
 }
 
-/** One line of the wordmark, centred on `x` unless `anchor` says otherwise. */
+/**
+ * One line of the wordmark, centred on `x` unless `anchor` says otherwise.
+ *
+ * The weight chooses the file rather than asking for a face by name: these two
+ * bitmaps are 150 and 164 pixels wide, and which archivo the system would have
+ * offered is exactly the question this installer cannot afford to ask.
+ */
 function line(
   x: number,
   y: number,
   size: number,
-  weight: number,
+  weight: ArtworkWeight,
   spacing: number,
   fill: string,
   body: string,
   anchor: 'start' | 'middle' = 'middle',
 ): string {
-  return (
-    `<text x="${x}" y="${y}" text-anchor="${anchor}" font-family="${FONT}"` +
-    ` font-size="${size}" font-weight="${weight}" letter-spacing="${spacing}"` +
-    ` fill="${fill}">${body}</text>`
-  );
+  return typePath(loadFace(weight), body, { x, y, size, tracking: spacing, fill, anchor });
 }
 
 /**

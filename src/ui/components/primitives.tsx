@@ -268,6 +268,7 @@ export function PageHeader({
   actions,
   meta,
   tone = 'default',
+  photo,
 }: {
   eyebrow?: string;
   title: ReactNode;
@@ -275,9 +276,14 @@ export function PageHeader({
   actions?: ReactNode;
   meta?: ReactNode;
   tone?: PanelTone;
+  /** A grassroots photograph behind the heading, decorative only. Its URL is under public/photos/. */
+  photo?: string;
 }) {
   return (
-    <header className={`page-head page-head--${tone}`}>
+    <header
+      className={`page-head page-head--${tone}${photo ? ' page-head--photo' : ''}`}
+      style={photo ? { backgroundImage: `linear-gradient(90deg, rgba(8, 9, 11, 0.92), rgba(8, 9, 11, 0.55)), url(${photo})` } : undefined}
+    >
       <div className="page-head__text">
         {eyebrow && <p className="page-head__eyebrow">{eyebrow}</p>}
         <h1 className="page-head__title">{title}</h1>

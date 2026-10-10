@@ -68,6 +68,7 @@ export function RecruitmentView() {
       <PageHeader
         eyebrow="Club"
         title="Recruitment"
+        photo="/photos/recruitment-trial.webp"
         subtitle="Find names through the local game, watch them, then talk terms."
         meta={
           <>

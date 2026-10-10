@@ -84,6 +84,18 @@ soak-reports/
 keystore.properties
 play-service-account.json
 
+# The Discord bot token
+#
+# The token that configures the game's community server is a credential like any
+# other: it acts as the bot, which can post as itself and read every channel it
+# can see. A token in git is a token in every clone and in every fork for ever,
+# and unlike a leaked keystore there is nothing to re-upload afterwards — the
+# only fix is to reset the token and invite the bot again. `discord.env.example`
+# is the committed shape of the ignored file, and `npm run discord:plan` refuses
+# to run at all if `discord.env` has ever been tracked rather than merely written
+# down.
+discord.env
+
 # Signed store artifacts. They are built, uploaded and deleted, never kept:
 # Play distributes the bundle and the App Store distributes the archive.
 *.aab

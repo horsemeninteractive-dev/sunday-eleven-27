@@ -24,6 +24,7 @@
 import { statSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
+import { loadFace, typePath } from './typeOutline';
 
 const repoRoot = fileURLToPath(new URL('../', import.meta.url));
 const SOURCE = `${repoRoot}assets/scene-ground.png`;
@@ -62,15 +63,20 @@ const INK = '#07110c';
  *
  * Drawn rather than laid out in the game because nothing here is interactive and
  * nothing here should ever be: a card that changes when a season rolls over is a
- * card that gets cached with last season's text in it. The font stack is the one
- * `favicon.svg` and the stylesheet already use, so the card and the mark are
- * cut from the same letters.
+ * card that gets cached with last season's text in it. The type is set from the
+ * game's own Archivo — `assets/fonts`, by way of `typeOutline` — so the card is
+ * cut from the same letters as the mark and the game, rather than from whatever
+ * face the rasteriser happened to find.
  */
 function overlay(): string {
   const title = 'Sunday Eleven 27';
   const kicker = 'SUNDAY LEAGUE FOOTBALL MANAGEMENT';
   const line =
     'Pick a side of a muddy pitch, pick a team from the local game, and take them to the whistle.';
+
+  const extraBold = loadFace(800);
+  const bold = loadFace(700);
+  const medium = loadFace(500);
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}">
   <defs>
@@ -86,24 +92,16 @@ function overlay(): string {
   <!-- The mark, exactly as the favicon draws it. -->
   <g transform="translate(80 74)">
     <rect width="104" height="104" rx="23" fill="${BRAND}" />
-    <text x="52" y="65.6" text-anchor="middle"
-      font-family="Inter, 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif"
-      font-size="36" font-weight="800" fill="${INK}">SE27</text>
+    ${typePath(extraBold, 'SE27', { x: 52, y: 65.6, size: 36, fill: INK, anchor: 'middle' })}
   </g>
 
-  <text x="80" y="330"
-    font-family="Inter, 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif"
-    font-size="88" font-weight="800" letter-spacing="-2" fill="#ffffff">${title}</text>
+  ${typePath(extraBold, title, { x: 80, y: 330, size: 88, fill: '#ffffff', tracking: -2 })}
 
   <rect x="80" y="366" width="104" height="6" rx="3" fill="${BRAND}" />
 
-  <text x="80" y="424"
-    font-family="Inter, 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif"
-    font-size="27" font-weight="700" letter-spacing="3.4" fill="${BRAND}">${kicker}</text>
+  ${typePath(bold, kicker, { x: 80, y: 424, size: 27, fill: BRAND, tracking: 3.4 })}
 
-  <text x="80" y="500"
-    font-family="Inter, 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif"
-    font-size="27" font-weight="500" fill="#c9d2cc">${line}</text>
+  ${typePath(medium, line, { x: 80, y: 500, size: 27, fill: '#c9d2cc' })}
 
   <!-- The two shirts, meeting in the middle, as they do above the match. -->
   <rect x="0" y="${HEIGHT - 8}" width="${WIDTH / 2}" height="8" fill="${HOME_SHIRT}" />

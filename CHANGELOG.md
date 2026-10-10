@@ -10,7 +10,7 @@ move (any save from an older build is migrated forward on load). `1.0.0` means
 it is finished. This file is also the changelog inside the game, reachable from
 the main menu.
 
-## [Unreleased]
+## [0.11.0] - 2026-10-10 — the week on the wall, and a face worth keeping
 
 ### Added
 
@@ -35,6 +35,118 @@ bug #443 stops it — a themed check box ignores the text colour it is given, an
 high-contrast mode, which would have left "Open Sunday Eleven 27" as black text on a near-black page. A dark
 finish page without it means hand-writing the page the framework provides. The pages stay white and the
 identity is carried by the pictures and the words.
+
+### Discord
+
+**The community server is written down, and a command makes a real server match it.** `src/platform/discord.ts`
+holds every decision as data — three roles, four categories, fourteen channels, who may see and post in each,
+and the words pinned in six of them — and `tools/discord.ts` is the small amount of HTTP that applies it, which is
+what makes the half worth arguing about testable on a machine with no bot token. `npm run discord:plan` prints
+what would change and writes nothing; `npm run discord:apply` does it. There is no `DELETE` request in the tool
+at all: a channel the specification does not name is somebody's decision rather than a mistake, so it is reported
+and left alone, and a pinned post is found by its own first line, so running it twice changes nothing.
+
+**A release is announced once.** `npm run discord:announce` takes one version's section out of `CHANGELOG.md` —
+the same file the game shows in its own changelog dialog — trims it at a paragraph boundary to fit a message,
+and mentions the `@Release Notes` role and nobody else, so somebody who wants to hear about releases hears about
+them without a general ping. Three AutoMod rules cover the things nobody argues about, and there is deliberately
+no profanity filter in them: this is a Sunday league. The server also has a voice channel (`#touchline`, because
+nothing in it is written down), a read-only `#known-issues` so that the same three bugs stop arriving every
+month, and `#ask-xiai`, which is where the next paragraph's answers live.
+
+**And the bot answers questions.** `XIAI` is the bot in that server, and `npm run xiai` is what makes it
+answerable: it registers `/ask`, holds a gateway connection, and answers from facts written down in
+`src/platform/xiai.ts` — taken from this project's own documentation and printed with the file each answer came
+from. **There is deliberately no language model in it.** A game almost nobody has heard of is exactly the thing a
+model will explain confidently and wrongly, so the bot knows a fixed set of things, shows its source, and says it
+does not know rather than guessing. It asks Discord for **no intents at all** — so it cannot read anything anybody
+types outside a command addressed to it — and it answers only while it is running.
+
+[`DISCORD.md`](DISCORD.md) has the design, the invite link the bot needs, the things Discord keeps for a person,
+and a plain account of what has and has not been run.
+
+**And the bot answers questions, without a language model.** `npm run xiai` connects `XIAI` to Discord's gateway and
+it answers `/ask` from facts taken out of this project's own documentation — the season, the cups, promotion and
+relegation, where a career is saved, how to move one between machines, what runs on a phone, a desktop and in a
+browser, and what is not built yet — each printed with the file it came from. The thing being asked about is a game
+almost nobody has heard of, and a model asked to explain it will invent mechanics in the tone of somebody who has
+played it for years; the matcher is a function of two strings with tests, and a question it cannot match gets no
+answer rather than a confident one. It answers through a slash command rather than by reading messages, so it
+identifies with no gateway intents at all and genuinely cannot see what anybody types outside a question addressed
+to it. Three channels arrived with it: `#ask-xiai`, where the answers stay searchable and correctable in public;
+`#known-issues`, read-only and pinned, so the same three bug reports stop arriving; and `#touchline`, the first
+voice channel the server has ever had.
+
+### The week, across the top of the screen
+
+**Home opens with the seven days it is going to be about.** The command centre used to answer "what is next"
+and leave "when" to the calendar screen, which is a whole screen to open to find out whether Thursday is already
+taken. Monday to Sunday now sit in a bar under the header, each day carrying what is on it — a session, a
+scout's report due, the subs going out, the game itself — so the week reads in one glance and the calendar is
+for planning rather than for looking. The day being stood on is the one column with a word on it; a matchday is
+tinted in the club's own colour, which is the only loud thing on the bar; and a day with nothing on says so,
+because three blank columns in a row read as a screen that failed to load.
+
+**It is a read-out, not a control.** Nothing on the bar is clickable: a strip that moved the clock when it was
+pressed would be one nobody dared touch to find out what is on Thursday. The decisions are all in `weekStrip.ts`
+with their own tests — that a match leads its day whatever else is on it, that an injury stops shouting once it
+has been dealt with, that a called-off session stays visible, that the week's own name survives the month
+boundary it straddles once a season — and the component only draws them.
+
+### The face the game is set in
+
+**The game was never drawn in the typeface it asked for.** The stylesheet named Inter at the head of its font
+stack and nothing anywhere in the project loaded it — no `@font-face`, no font file, no package, no link.
+Inter is installed on almost no machine, so every platform skipped straight past it and the game was drawn in
+Segoe UI on Windows, Roboto on Android and San Francisco on macOS. Three different games, and none of them the
+one the interface was designed in: the letterpress tracking on the small uppercase labels, the tabular figures
+under every score and balance, and the display tracking were all measured against a face nobody was seeing.
+
+**Archivo is vendored, not fetched.** Four files in `public/fonts/` are served from the game's own origin: the
+roman and its italic, each split into the two script ranges it covers, so a machine that needs the Latin
+Extended file asks for it and a machine that does not never pays for it. Nothing here is a network request —
+the face travels inside the website, the APK and the Electron build, which is the only way three targets can be
+promised the same letterforms. The SIL Open Font License travels with them in `Archivo-LICENSE.txt`, because
+that is what the licence asks for, and the entry document preloads the one file every screen needs so the first
+paint is not the placeholder in the platform's own face. Both axes come free in the same file: weight from 100
+to 900 — which is what lets the sheet set a 650 and an 800 it was already asking for — and width from 62% to
+125%, so the whole interface is set condensed from one token. It is set at 88%, which is where a dense table
+gains a real column without the 10px labels closing up at the counter; the number is a single line in
+`styles.css` and the shape of the sheet moves with it.
+
+**The pictures outside the game were still being drawn in Segoe UI.** The social card and the installer's two
+bitmaps are composed as SVG and rasterised by `sharp`, and sharp's text goes through the system's own font
+lookup: they asked for Inter by name, nothing had it, and every machine handed them something else — Segoe UI
+on the machine they were cut on. Nothing failed and nothing said so. They are set from the game's own Archivo
+now, by `tools/typeOutline.ts`: four TrueType files in `assets/fonts/`, about nineteen kilobytes each, one per
+weight the two pictures use and cut to the ninety-five characters they write, with `npm run art:fonts` the one
+command that fetches them. Their outlines are read in the tool and come out as SVG paths, so there is no font
+name left for a rasteriser to interpret, no installed face to fall back to, and no way for either picture to
+be set in anything but the letters the game is set in. The reader agrees with Chromium, glyph for glyph, on the
+owners of all four files — checked against the very WOFF2 the game loads, for every character, before this was
+written — and what it does not do is kern, which the artwork has always answered for with hand-set tracking.
+
+### Changed
+
+**The home screen opens on the week.** Its page header is gone, so the seven days sit at the very top, where the first look goes. The calendar is still one click away in the sidebar.
+
+**The next match reads like a fixture sheet.** The home club's badge sits on the right of its name, against the `v`, and the away badge sits against the other side of it. The badges are larger, and the `v` is no longer letter-spaced, so it sits evenly between them.
+
+**The Club page is the Clubhouse.** It is called Clubhouse in the sidebar and in its heading, so it no longer shares a name with the section it sits in.
+
+**Most screen headers have a picture.** The club, league, cup and plate, squad, news, training, fixtures, pre-match, finances, recruitment, tactics, staff, kit, inbox, world, club selection, history, manager and create-club headers carry a grassroots photograph behind the heading. The manager's photograph fills his whole hero card. The player profile is the one header still without one.
+
+**The face is chosen in three tabs.** The face editor is split into Face, Hair and Eyes, each with its own icon, so the long list no longer runs down the page. On a wide screen the details and the face sit side by side, with the world underneath them.
+
+**The match header's crests are bigger.** They are 56 pixels on a desktop and 40 on a phone, about the height of the score and clock, so each crest fills the header.
+
+**Nothing in the app appears all at once.** Screens rise a few pixels as they fade in, panels and overlays fade in, and each overlay fades in with its scrim. The match and replay takeovers fade in as a whole, and the panels inside them are not animated separately, so they do not flicker as the clock redraws. All of it is switched off for anyone who has asked for less motion.
+
+### Fixed
+
+**The home heading no longer gets a focus box.** The game moves focus to each screen's heading so a screen reader announces it, and browsers drew a focus ring around it. Only that heading is affected; the focus rings on buttons are unchanged.
+
+**The manager's photograph fills the card.** It covered only the line of text beside it. It now stretches to the full height of the hero card.
 
 ## [0.10.2] - 2026-10-09 — a sign for every pub
 

@@ -88,6 +88,7 @@ export function SquadView() {
       <PageHeader
         eyebrow="Team"
         title="Squad"
+        photo="/photos/squad-dressing-room.webp"
         subtitle="Who's in contention for Sunday? Open a name for attributes, availability and their story."
         actions={<Button variant="primary" onClick={() => gameActions().setView('team')}>Pick the team</Button>}
         meta={

@@ -92,6 +92,7 @@ export function TrainingView() {
       <PageHeader
         eyebrow="Team"
         title="Training"
+        photo="/photos/training-field-goal.webp"
         subtitle={`Preparing for Sunday · ${forecast.venueName}, ${formatDayMonth(forecast.date)}`}
         actions={<Button variant="primary" onClick={() => gameActions().openPlanner()}>Plan the week</Button>}
         tone={errors.length > 0 ? 'danger' : warnings.length > 0 ? 'warn' : 'default'}

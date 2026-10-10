@@ -82,6 +82,7 @@ export function TacticsView() {
       <PageHeader
         eyebrow="Team"
         title="Tactics"
+        photo="/photos/tactics-whiteboard.webp"
         subtitle={describeTactics(tactics)}
         meta={<span className="small muted">Your club's standing instructions · changes apply to the next fixture</span>}
         actions={

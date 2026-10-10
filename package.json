@@ -2,7 +2,7 @@
   "name": "sunday-eleven-27",
   "productName": "Sunday Eleven 27",
   "private": true,
-  "version": "0.10.2",
+  "version": "0.11.0",
   "type": "module",
   "author": "Horsemen Interactive",
   "description": "Sunday Eleven 27 - grassroots English Sunday League football management simulation",
@@ -25,6 +25,7 @@
     "balance": "vite-node tools/balance.ts",
     "benchmark": "vite-node tools/benchmark.ts",
     "soak": "vite-node tools/soak.ts",
+    "art:fonts": "vite-node tools/artFonts.ts",
     "icons": "vite-node tools/icons.ts",
     "scene": "vite-node tools/scene.ts",
     "og": "vite-node tools/og.ts",
@@ -41,7 +42,11 @@
     "desktop:dev": "npm run desktop:build && electron .",
     "desktop:start": "electron .",
     "desktop:pack": "npm run desktop:build && electron-builder --win --config electron-builder.yml",
-    "desktop:smoke": "node tools/desktopSmoke.mjs"
+    "desktop:smoke": "node tools/desktopSmoke.mjs",
+    "discord:plan": "vite-node tools/discord.ts",
+    "discord:apply": "vite-node tools/discord.ts --apply",
+    "discord:announce": "vite-node tools/discord.ts --announce",
+    "xiai": "vite-node tools/xiai.ts"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.3",

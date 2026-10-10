@@ -59,7 +59,10 @@ export function PreMatchPanel({
   return (
     <div className="interval">
       <div ref={ref} className="interval__card" role="dialog" aria-modal="true" aria-label="Matchday briefing">
-        <header className="interval__head">
+        <header
+          className="interval__head interval__head--photo"
+          style={{ backgroundImage: `linear-gradient(90deg, rgba(8, 9, 11, 0.92), rgba(8, 9, 11, 0.55)), url(/photos/prematch-matchday.webp)` }}
+        >
           <h2>Matchday</h2>
           <p className="small muted">
             {formatDayMonth(match.date)} · {match.competitionName}

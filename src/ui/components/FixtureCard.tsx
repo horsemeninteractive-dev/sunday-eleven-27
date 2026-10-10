@@ -43,9 +43,12 @@ export function FixtureCard({ state, match, actions }: { state: GameState; match
           ? `In ${days} days`
           : 'Scheduled';
 
-  const side = (club: typeof home) => (
-    <div className={`fixture-card__side${club.id === ours ? ' fixture-card__side--ours' : ''}`}>
-      <ClubBadge club={club} size={52} />
+  // The home side reads name-then-badge, so its badge sits against the `v`; the
+  // away side reads badge-then-name. The order is flipped in the stylesheet, not
+  // here, so the DOM and the screen reader keep the same order either way.
+  const side = (club: typeof home, edge: 'home' | 'away') => (
+    <div className={`fixture-card__side fixture-card__side--${edge}${club.id === ours ? ' fixture-card__side--ours' : ''}`}>
+      <ClubBadge club={club} size={68} />
       <ClubLink clubId={club.id}>{club.identity.name}</ClubLink>
     </div>
   );
@@ -62,12 +65,12 @@ export function FixtureCard({ state, match, actions }: { state: GameState; match
 
       <div className="fixture-card__body">
         <div className="fixture-card__teams">
-          {side(home)}
+          {side(home, 'home')}
           <strong className="fixture-card__score">
             {result ? `${result.homeGoals}–${result.awayGoals}` : 'v'}
             {result?.penalties && <small>pens {result.penalties.home}–{result.penalties.away}</small>}
           </strong>
-          {side(away)}
+          {side(away, 'away')}
         </div>
 
         {/* The conditions, as the small print: the day and the time, whose ground

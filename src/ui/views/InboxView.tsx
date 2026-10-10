@@ -77,6 +77,7 @@ function InboxList({ unread }: { unread: number }) {
       <PageHeader
         eyebrow="The club"
         title="Messages"
+        photo="/photos/inbox-noticeboard.webp"
         meta={
           unread > 0 ? (
             <span className="inbox__unread-note">

@@ -2,10 +2,9 @@ import type { ReactNode } from 'react';
 import type { GameState } from '@/domain/game';
 import type { Match } from '@/domain/match';
 import { isPlayer } from '@/domain/person';
-import { formatDate, formatShortDate } from '@/simulation/calendar';
+import { formatShortDate } from '@/simulation/calendar';
 import {
   currentMatchday,
-  formOf,
   leaguePosition,
   matchOpponent,
   matchVenueLabel,
@@ -20,28 +19,28 @@ import { leagueMatchdayCount } from '@/simulation/timeline';
 import { seasonOutlook } from '@/simulation/treasurer';
 import { ordinal } from '@/simulation/news';
 import { validateLineup } from '@/simulation/selection';
+import { plannerDays } from '@/simulation/planner';
 import { HOME_MATTER_LIMIT, clubMatters } from '../clubMatters';
 import { moneyShort } from '../format';
 import { gameActions, useGame, useNextFixture } from '../hooks';
-import { openMatter, runCommand, useCommandState } from '../commandActions';
-import { isScreenIntent } from '../commandState';
-import { Button, FormPips, PageHeader } from '../components/primitives';
+import { openMatter, useCommandState } from '../commandActions';
+import { Button } from '../components/primitives';
 import { ClubLink } from '../components/Links';
 import { FixtureCard } from '../components/FixtureCard';
-import { ClubBadge } from '../components/Badge';
 import { openMatchReport } from '../reportActions';
 import { AdaptivePanels } from '../components/AdaptivePanels';
+import { WeekStrip } from '../components/WeekStrip';
 import { ActionTile, FixtureTile, MetricTile, NewsTile, Section, Tile, TileGrid } from '../components/hierarchy';
 
 /**
  * Home: the command centre.
  *
- * Read in a glance, then act. The header says who we are and what the situation
- * is; the next match is the one thing on the screen the manager is here to deal
- * with; four tiles answer the obvious questions — squad, training, league,
- * money — and nothing else is allowed above the fold. Results and news are
- * below, and every deeper thing (the full table, the ledger, the roster) is a
- * door rather than a wall of numbers.
+ * Read in a glance, then act. The week bar at the top says how long there is and
+ * what is already committed; the next match is the one thing on the screen the manager is here
+ * to deal with; four tiles answer the obvious questions — squad, training,
+ * league, money — and nothing else is allowed above the fold. Results and news
+ * are below, and every deeper thing (the full table, the ledger, the roster) is
+ * a door rather than a wall of numbers.
  */
 export function DashboardView() {
   const game = useGame();
@@ -79,37 +78,14 @@ export function DashboardView() {
 
   return (
     <div className="stack">
-      <PageHeader
-        eyebrow={`${game.season.label} · ${command.eyebrow}`}
-        title={<span className="person-identity"><ClubBadge club={club} size={40} />{club.identity.name}</span>}
-        subtitle={command.title}
-        meta={
-          <>
-            <span className="small muted">{formatDate(game.date)}</span>
-            <span className="small muted">
-              {game.season.label} · matchday {matchday} of {matchdays}
-            </span>
-            <FormPips form={formOf(game, club.id)} />
-          </>
-        }
-        actions={
-          <div className="row row--wrap row--tight">
-            {navigable(command).map((action) => (
-              <Button
-                key={action.label}
-                variant={action.variant === 'quiet' ? 'ghost' : 'default'}
-                size="sm"
-                title={action.hint}
-                onClick={() => runCommand(action.intent)}
-              >
-                {action.label}
-              </Button>
-            ))}
-          </div>
-        }
-      />
+      {/* The week before the fixture: a season is arranged around one game, but the
+          seven days around it are what the manager actually plans. It is three
+          lines tall, so it costs the fold almost nothing and saves opening the
+          calendar to find out whether Thursday is already taken. */}
+      <WeekStrip days={plannerDays(game)} today={game.date} />
 
-      <Section title="Next match">
+      <section className="home-hero" aria-labelledby="home-next-heading">
+        <h2 id="home-next-heading" className="home-hero__eyebrow">Next match</h2>
         {next && opponent ? (
           <FixtureCard state={game} match={next} actions={<>
             <span className={`small ${selectionProblems.length ? 'tone tone--warn' : 'muted'}`}>{selectionProblems.length ? `${selectionProblems.length} selection problems` : 'Selection ready'}</span>
@@ -121,7 +97,7 @@ export function DashboardView() {
             <span className="tone tone--muted">No fixture scheduled.</span>
           </Tile>
         )}
-      </Section>
+      </section>
 
       <TileGrid min={190}>
         <MetricTile
@@ -240,12 +216,6 @@ export function DashboardView() {
       ]} />
     </div>
   );
-}
-
-/** Only the doors. Anything that moves the game on lives in the command bar. */
-function navigable(command: ReturnType<typeof useCommandState>) {
-  if (!command) return [];
-  return command.secondary.filter((action) => isScreenIntent(action.intent));
 }
 
 function outcomeFor(match: Match, clubId: string): 'W' | 'D' | 'L' {

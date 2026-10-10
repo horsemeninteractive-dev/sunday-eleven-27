@@ -9072,7 +9072,10 @@ html[data-motion='reduced'] { scroll-behavior: auto; }
 /* The two sides face the score: the home badge sits on the right of its name,
    against the `v`, and the away badge on the left of its name, against the same
    `v`. The stacked layout on a narrow screen resets both (see below). */
-.fixture-card__side--home { flex-direction: row-reverse; justify-content: flex-end; }
+/* In a row-reverse flex box the start is the right-hand edge, so `flex-start` is
+   what packs the home badge against the score. `flex-end` packed it to the left,
+   which left a wide gap between the badge and the `v`. */
+.fixture-card__side--home { flex-direction: row-reverse; justify-content: flex-start; }
 .fixture-card__side--away { justify-content: flex-start; }
 /* Our own half of the board is named in the club's readable ink: the same fact
    the band states with a colour, stated again where the manager is looking. */

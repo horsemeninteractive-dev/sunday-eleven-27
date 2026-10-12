@@ -10,6 +10,35 @@ move (any save from an older build is migrated forward on load). `1.0.0` means
 it is finished. This file is also the changelog inside the game, reachable from
 the main menu.
 
+## [Unreleased]
+
+### Changed
+
+**The game has a mark of its own, and it reads SE27.** Everywhere the game is seen before it is played — the browser tab, the
+home screen, the launcher on a phone, the store listing, the installer's header, the social card — the same tile now carries the
+same two letters and the same season: **SE** set in the wordmark's own Archivo, the face SUNDAY and ELEVEN are drawn in, and
+**27** in Fake Identity, the display numerals the game already keeps for the year — and in the game's own green, `--accent`,
+which is what makes the season the one part of the mark that is a colour rather than an ink. The two are held together by two
+rules the start screen's lockup was already built on, and both are now *measurements* rather than numbers typed in. The year
+stands exactly as tall as the caps beside it: the tool reads the letters' cap band and the digits' own height out of the two font
+files and sizes one against the other, so a change to either face moves the mark with it. And every gap in the lockup is the
+same gap, because the two faces would otherwise set three different ones — Archivo's 0.117em between its own S and its own E,
+its 0.048em after the E, and Fake Identity's 0.050em between its digits — so the mark measures all three at the sizes they are
+finally set at and wears the widest of them everywhere. Behind the letters is the ground the menu is drawn on: the field's own
+green, mown bands and the faint markings of a pitch seen from above, the menu's stripe laid over it at the menu's own angle,
+green and strength — down as far as the letters' contrast allows, and the shade that keeps the letters readable is measured the
+same way, as strong as the green season needs to stay clear of the stripe it stands on.
+
+**A tool writes it, so no machine can draw it differently.** The mark used to be a `<text>` element naming a font, which meant
+whatever was drawing it chose the face: `npm run icons` even carried a check for an icon arriving with no letters on it,
+because a machine without the named font would quietly produce one. `npm run mark` now sets the two runs from the outlines in
+`assets/fonts/archivo-800.ttf` and `public/fonts/Fake Identity.ttf` — the files the game itself loads — and a missing face is an
+error at the point of drawing rather than a blank icon on somebody's home screen. It writes one file, `public/favicon.svg`, and
+that file is the only source the rest of the set has: `npm run icons` rasterises every app icon, splash screen and store asset
+from it, `npm run desktop:art` draws the installer's bitmaps from it, and `npm run og` places it on the social card. The mark
+also states where its own ink is, so the maskable icons shrink the wordmark by how much it has to shrink to survive a circular
+crop rather than by a number kept in another tool.
+
 ## [0.12.0] - 2026-10-12 — the man between jobs, and a press with names in it
 
 ### Added

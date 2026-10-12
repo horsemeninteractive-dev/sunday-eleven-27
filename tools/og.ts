@@ -14,6 +14,12 @@
  * away shirt — which is the one piece of the interface that says "football" from
  * a distance.
  *
+ * The mark in the corner is not drawn here at all: it is `markBody()` from
+ * [`tools/mark.ts`](tools/mark.ts), the same markup `public/favicon.svg` holds,
+ * so a card that shows the game's mark shows the *game's mark* — the tile the
+ * launcher, the tab and the installer's header all wear — and the two cannot
+ * drift apart the way a hand-drawn copy of a mark eventually does.
+ *
  *   npm run og
  *
  * It is a developer tool, like `scene` and `icons`: nothing in the game imports
@@ -24,6 +30,7 @@
 import { statSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
+import { markBody } from './mark';
 import { loadFace, typePath } from './typeOutline';
 
 const repoRoot = fileURLToPath(new URL('../', import.meta.url));
@@ -56,7 +63,6 @@ const HOME_SHIRT = '#558b2f';
 const AWAY_SHIRT = '#e0e3e8';
 
 const BRAND = '#4caf7d';
-const INK = '#07110c';
 
 /**
  * The type, as one SVG.
@@ -89,11 +95,8 @@ function overlay(): string {
 
   <rect width="${WIDTH}" height="${HEIGHT}" fill="url(#shade)" />
 
-  <!-- The mark, exactly as the favicon draws it. -->
-  <g transform="translate(80 74)">
-    <rect width="104" height="104" rx="23" fill="${BRAND}" />
-    ${typePath(extraBold, 'SE27', { x: 52, y: 65.6, size: 36, fill: INK, anchor: 'middle' })}
-  </g>
+  <!-- The mark, drawn by the tool that writes the favicon: one mark, one file. -->
+  <svg x="80" y="74" width="104" height="104" viewBox="0 0 64 64">${markBody()}</svg>
 
   ${typePath(extraBold, title, { x: 80, y: 330, size: 88, fill: '#ffffff', tracking: -2 })}
 
@@ -160,10 +163,42 @@ async function main(): Promise<void> {
     );
   }
 
+  /**
+   * The mark in the corner, which is the one thing on the card nobody typed.
+   *
+   * It is drawn from the favicon's own markup, so a card whose tile failed to
+   * render — a changed font, a clip the rasteriser refused — would arrive as a
+   * sentence and a photograph with a hole where the game's mark should be. Two
+   * readings say it is there: the tile's green, and its letters' near-white.
+   */
+  const corner = await sharp(composed)
+    .extract({ left: 80, top: 74, width: 104, height: 104 })
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  let green = 0;
+  let light = 0;
+  for (let i = 0; i < corner.data.length; i += corner.info.channels) {
+    const [r, g, b] = [corner.data[i]!, corner.data[i + 1]!, corner.data[i + 2]!];
+    if (g > r + 8 && g > b + 8) green += 1;
+    if (r + g + b > 500) light += 1;
+  }
+  const pixels = corner.data.length / corner.info.channels;
+  const grass = (green / pixels) * 100;
+  const letters = (light / pixels) * 100;
+  if (grass < 30 || letters < 2) {
+    throw new Error(
+      `og: the mark's corner is ${grass.toFixed(1)}% green and ${letters.toFixed(1)}% light — ` +
+        'the tile or its letters did not render. Run `npm run mark` and check `public/favicon.svg`.',
+    );
+  }
+
   writeFileSync(OUTPUT, composed);
   const kb = (bytes: number): string => `${(bytes / 1024).toFixed(0)} KB`;
   console.log(`  assets/scene-ground.png ${kb(statSync(SOURCE).size).padStart(7)}  source`);
-  console.log(`  public/og.png           ${kb(composed.length).padStart(7)}  ${WIDTH}x${HEIGHT}, title ${(coverage * 100).toFixed(1)}% covered`);
+  console.log(
+    `  public/og.png           ${kb(composed.length).padStart(7)}  ${WIDTH}x${HEIGHT}, ` +
+      `title ${(coverage * 100).toFixed(1)}% covered, mark ${grass.toFixed(0)}% green`,
+  );
   console.log('\n  Wrote public/og.png.');
 }
 

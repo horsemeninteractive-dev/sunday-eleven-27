@@ -20,9 +20,10 @@
  * The art is generated from `public/favicon.svg` rather than drawn again, for
  * the reason the rest of the icon set is: two copies of a mark is how they stop
  * matching. Change the favicon, run this, and the installer follows — which is
- * why the palette below is the three colours the game already uses (the near
- * black of `theme-color`, the accent green of the favicon and the boot screen,
- * and the two greys of the boot label) rather than a fourth opinion about them.
+ * why the palette below is the colours the game already uses (the near black of
+ * `theme-color`, the accent green the mark's stripe and this wizard's rules are
+ * both drawn in, and the two greys of the boot label) rather than a fourth
+ * opinion about them.
  *
  * The words are set the same way, from `assets/fonts`: the wizard is a Windows
  * program, so the `<text>` this used to write was drawn in whatever face the
@@ -64,10 +65,23 @@ interface Band {
   what: string;
   top: number;
   bottom: number;
-  /** Counted as exactly the accent, as the bright ink, or as the muted grey. */
-  kind: 'accent' | 'ink' | 'muted';
+  /**
+   * Counted as exactly the accent, as the bright ink, as the muted grey, or as
+   * the mark's own green.
+   */
+  kind: 'accent' | 'ink' | 'muted' | 'mark';
   /** The smallest share of the band that may be that colour. */
   least: number;
+  /**
+   * The columns the band is counted over, left inclusive and right exclusive.
+   *
+   * A band is otherwise the whole width of the picture, which is what the rules
+   * and the rules alone want. The header's two lines of text sit beside the
+   * mark, and the mark's own letters are white: without a column range, a title
+   * that never rendered could pass on the ink of the tile next to it.
+   */
+  left?: number;
+  right?: number;
 }
 
 interface Art {
@@ -135,9 +149,14 @@ const HEADER: Art = {
     line(45, 27, 9, 800, 0.4, INK, 'SUNDAY ELEVEN 27', 'start') +
     line(45, 38, 4.8, 600, 1.1, MUTED, 'SUNDAY LEAGUE FOOTBALL', 'start'),
   bands: [
-    { what: 'the wordmark', top: 19, bottom: 30, kind: 'ink', least: 0.02 },
-    { what: 'what game it is', top: 33, bottom: 41, kind: 'muted', least: 0.005 },
-    { what: 'the mark', top: 13, bottom: 43, kind: 'accent', least: 0.04 },
+    // The two lines of text, counted from the first column after the tile: the
+    // tile has white letters of its own, and they are not evidence of this line
+    // having rendered.
+    { what: 'the wordmark', top: 19, bottom: 30, kind: 'ink', least: 0.02, left: 45, right: 150 },
+    { what: 'what game it is', top: 33, bottom: 41, kind: 'muted', least: 0.005, left: 45, right: 150 },
+    // The tile, counted over its own 30 pixels: a share of the whole width would
+    // be a tenth of the tile's green, which is not a measurement of anything.
+    { what: 'the mark', top: 13, bottom: 43, kind: 'mark', least: 0.3, left: 8, right: 38 },
     { what: 'the rule', top: 55, bottom: 57, kind: 'accent', least: 0.8 },
   ],
   note: 'the bar every inner page wears',
@@ -162,7 +181,7 @@ const SIDEBAR: Art = {
     line(82, 216, 5.6, 600, 1.8, MUTED, 'SUNDAY LEAGUE FOOTBALL') +
     line(82, 292, 5.6, 600, 2, MUTED, 'HORSEMEN INTERACTIVE'),
   bands: [
-    { what: 'the mark', top: 54, bottom: 138, kind: 'accent', least: 0.2 },
+    { what: 'the mark', top: 54, bottom: 138, kind: 'mark', least: 0.3, left: 40, right: 124 },
     { what: 'the rule', top: 170, bottom: 172, kind: 'accent', least: 0.15 },
     { what: 'the wordmark', top: 186, bottom: 203, kind: 'ink', least: 0.01 },
     { what: 'what game it is', top: 208, bottom: 219, kind: 'muted', least: 0.005 },
@@ -269,6 +288,24 @@ function hexColour(hex: string): [number, number, number] {
 const GREEN = hexColour(ACCENT);
 
 /**
+ * Whether a pixel is the mark: green, and not the near-black ground.
+ *
+ * The mark is a slice of pitch — dark green grass, mown bands, and the game's own
+ * green laid over it as a stripe — standing on the near-black the game is drawn
+ * on, so "green" is what says the tile is there at all. It used to be counted as
+ * *the* accent green, which the mark no longer is: only its stripe is, at a
+ * shade of it, so the exact colour covered two or three pixels of a 30-pixel
+ * tile and the check was a coin toss rather than a measurement.
+ *
+ * The inset keeps the other two colours out of it. The greys are blue-ish
+ * (`#7C868F`), and the wordmark's near-white is not green either, so a missing
+ * tile cannot be conjured out of the text beside it.
+ */
+function isMark(red: number, green: number, blue: number): boolean {
+  return green > red + 8 && green > blue + 8;
+}
+
+/**
  * Light enough to be the wordmark rather than the accent line or a blend.
  *
  * The threshold sits above the accent green (which sums to 376) on purpose: the
@@ -297,9 +334,9 @@ function isMuted(red: number, green: number, blue: number): boolean {
  * Whether the file says what the design says.
  *
  * Five claims, in the order they would go wrong: the size MUI asked for, the
- * depth NSIS can read, the accent colour where the design puts it, a band of
- * rows per line of text in the colour that line is drawn in — which is what
- * catches a font that never rendered — and a margin between the outermost light
+ * depth NSIS can read, the mark's green over the whole picture and a band of
+ * rows per thing in the colour that thing is drawn in — which is what catches a
+ * tile or a font that never rendered — and a margin between the outermost light
  * pixel and the edge of the picture, which is what catches a wordmark that
  * overran its strip.
  */
@@ -313,13 +350,13 @@ function verify(art: Art, path: string): string {
   if (image.depth !== 24) throw new Error(`${art.file} is ${image.depth}-bit; write 24`);
 
   const total = image.width * image.height;
-  let accent = 0;
+  let mark = 0;
   let inkLeft = image.width;
   let inkRight = -1;
   for (let y = 0; y < image.height; y += 1) {
     for (let x = 0; x < image.width; x += 1) {
       const [red, green, blue] = rgb(image.pixels, image.width, x, y);
-      if (red === GREEN[0] && green === GREEN[1] && blue === GREEN[2]) accent += 1;
+      if (isMark(red, green, blue)) mark += 1;
       if (isInk(red, green, blue)) {
         if (x < inkLeft) inkLeft = x;
         if (x > inkRight) inkRight = x;
@@ -330,16 +367,20 @@ function verify(art: Art, path: string): string {
   const shares: string[] = [];
   for (const band of art.bands) {
     let hit = 0;
-    const rows = (band.bottom - band.top) * image.width;
+    const left = band.left ?? 0;
+    const right = band.right ?? image.width;
+    const rows = (band.bottom - band.top) * (right - left);
     for (let y = band.top; y < band.bottom; y += 1) {
-      for (let x = 0; x < image.width; x += 1) {
+      for (let x = left; x < right; x += 1) {
         const [red, green, blue] = rgb(image.pixels, image.width, x, y);
         const matches =
           band.kind === 'accent'
             ? red === GREEN[0] && green === GREEN[1] && blue === GREEN[2]
             : band.kind === 'ink'
               ? isInk(red, green, blue)
-              : isMuted(red, green, blue);
+              : band.kind === 'mark'
+                ? isMark(red, green, blue)
+                : isMuted(red, green, blue);
         if (matches) hit += 1;
       }
     }
@@ -354,8 +395,17 @@ function verify(art: Art, path: string): string {
     }
   }
 
-  if (accent / total < 0.03) {
-    throw new Error(`${art.file} is barely green: ${((accent / total) * 100).toFixed(1)}% of it`);
+  // The picture as a whole carries the mark, and the mark is green: a tenth of
+  // either bitmap is the tile, of which most is grass. This used to be a claim
+  // that at least 3% of the picture was the accent green *exactly*, which the
+  // old mark was and this one is not — its stripe is a shade of that green over
+  // grass rather than the colour itself — so what is counted is the green the
+  // mark is actually made of.
+  if (mark / total < 0.06) {
+    throw new Error(
+      `${art.file} has almost no grass in it: ${((mark / total) * 100).toFixed(1)}% of it is mark green — ` +
+        'the tile did not draw, or nothing but the ground did',
+    );
   }
   if (inkRight === -1) throw new Error(`${art.file} has no light pixels at all`);
   if (inkLeft < 3 || inkRight > image.width - 4) {

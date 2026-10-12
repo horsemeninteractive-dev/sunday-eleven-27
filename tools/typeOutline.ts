@@ -62,7 +62,12 @@ export const ARTWORK_CHARACTERS = Array.from({ length: 95 }, (_, i) => String.fr
 export interface Face {
   /** Where the outlines came from, for the failures. */
   readonly file: string;
-  readonly weight: ArtworkWeight;
+  /**
+   * What the file is, in the words the artwork uses for it: `Archivo 800`, or
+   * `Fake Identity`. Not a weight, because not every face the artwork sets has
+   * one — the season's numerals are a single-weight display face of their own.
+   */
+  readonly label: string;
   readonly unitsPerEm: number;
   /**
    * The glyph for a character. Throws when the file has none, because a card
@@ -268,7 +273,7 @@ function unsupported(file: string, character: string, what: string): Error {
 }
 
 /** One face, read and ready to set text in. */
-function read(bytes: Buffer, file: string, weight: ArtworkWeight): Face {
+function read(bytes: Buffer, file: string, label: string): Face {
   const tables = directory(bytes);
   const head = table(tables, 'head', file);
   const maxp = table(tables, 'maxp', file);
@@ -375,7 +380,7 @@ function read(bytes: Buffer, file: string, weight: ArtworkWeight): Face {
 
   return {
     file,
-    weight,
+    label,
     unitsPerEm,
     glyph,
     missing: (text) =>
@@ -384,16 +389,33 @@ function read(bytes: Buffer, file: string, weight: ArtworkWeight): Face {
   };
 }
 
-const FACES = new Map<ArtworkWeight, Face>();
+const FACES = new Map<string, Face>();
+
+/** A face, read once per file. */
+function load(file: string, label: string): Face {
+  const cached = FACES.get(file);
+  if (cached) return cached;
+  const face = read(readFileSync(file), file, label);
+  FACES.set(file, face);
+  return face;
+}
 
 /** The face for a weight, read once. */
 export function loadFace(weight: ArtworkWeight): Face {
-  const cached = FACES.get(weight);
-  if (cached) return cached;
-  const file = fileURLToPath(new URL(`../assets/fonts/archivo-${weight}.ttf`, import.meta.url));
-  const face = read(readFileSync(file), file, weight);
-  FACES.set(weight, face);
-  return face;
+  return load(fileURLToPath(new URL(`../assets/fonts/archivo-${weight}.ttf`, import.meta.url)), `Archivo ${weight}`);
+}
+
+/**
+ * A face the game itself ships, rather than one of the artwork's four cuts.
+ *
+ * The mark's season — the `27` — is set in the game's own display numerals
+ * (`public/fonts/Fake Identity.ttf`), not in Archivo, so the artwork has to read
+ * that file too. Same reader, same rules about what a font may contain: it is a
+ * small TrueType file with a format 4 map and simple outlines, and a character
+ * it does not carry fails by name rather than drawing a gap.
+ */
+export function loadFontFile(file: string, label: string): Face {
+  return load(file, label);
 }
 
 export interface Placement {

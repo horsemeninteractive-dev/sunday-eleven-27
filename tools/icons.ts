@@ -76,21 +76,60 @@ const JOBS: IconJob[] = [
  *
  * Derived by editing the favicon's own markup rather than by keeping a second
  * copy of the design, because two copies of a mark is how they stop matching.
+ * Two rounded rectangles carry the corner — the field itself, and the clip that
+ * holds every layer inside it — and both are squared. The count is checked
+ * rather than assumed: a third one would mean the mark had grown a corner this
+ * cannot follow, and an icon bled from a mark it only half understood is the
+ * sort of thing nobody notices until a launcher crops it.
  */
 function bleed(favicon: string): string {
-  return favicon.replace(/rx="[^"]*"/, 'rx="0"');
+  const corners = favicon.match(/rx="[^"]*"/g) ?? [];
+  if (corners.length !== 2) {
+    throw new Error(
+      `the favicon has ${corners.length} rounded corners, and this expects 2 (the field and its clip): ` +
+        'run `npm run mark`, or teach this about the new corner.',
+    );
+  }
+  return favicon.replace(/rx="[^"]*"/g, 'rx="0"');
 }
+
+/**
+ * How much of a maskable icon's width the safe zone is.
+ *
+ * A maskable icon may be cropped to a circle 80% of its width across — that is
+ * the whole of what "maskable" promises — so the pitch is allowed to run to the
+ * edges and the wordmark is not. It is not the launcher's business what the
+ * field looks like; it is everybody's business whether the letters survived.
+ */
+const SAFE_ZONE = 0.4;
+/** How much of that circle the wordmark's corners are kept inside. */
+const SAFE_MARGIN = 0.92;
 
 /**
  * The wordmark drawn smaller, so it sits inside the maskable safe zone.
  *
- * A maskable icon may be cropped to a circle 80% of its width across, so the
- * mark itself is allowed to reach the edges but the text is not.
+ * How far it has to shrink is a question about where its ink actually is, which
+ * the mark states in its own markup (`data-ink`, in the mark's own units) rather
+ * than leaving a number here to go stale the next time the lockup is re-set.
+ * The corners of the ink box are put inside `SAFE_MARGIN` of the safe circle,
+ * so a release that sets the wordmark wider moves this with it.
  */
 function markInSafeZone(favicon: string): string {
+  const frame = /viewBox="0 0 ([^"]*)"/.exec(favicon)?.[1]?.split(/\s+/).map(Number) ?? [];
+  const ink = /data-ink="([^"]*)"/.exec(favicon)?.[1]?.split(/\s+/).map(Number) ?? [];
+  if (frame.length !== 2 || ink.length !== 4 || [...frame, ...ink].some((value) => !Number.isFinite(value))) {
+    throw new Error(
+      'the favicon does not state its frame and its wordmark\'s ink box (viewBox, data-ink): run `npm run mark`',
+    );
+  }
+  const canvas = frame[0]!;
+  const reach = Math.hypot(ink[2]! / 2, ink[3]! / 2);
+  const round = (value: number) => Number(value.toFixed(4));
+  const scale = round((canvas * SAFE_ZONE * SAFE_MARGIN) / reach);
+  const centre = canvas / 2;
   return favicon.replace(
-    /(<text[\s\S]*?<\/text>)/,
-    '<g transform="translate(16 16) scale(0.78) translate(-16 -16)">$1</g>',
+    /(<g data-wordmark="1"[^>]*>[\s\S]*?<\/g>)/,
+    `<g transform="translate(${centre} ${centre}) scale(${scale}) translate(${-centre} ${-centre})">$1</g>`,
   );
 }
 
@@ -112,21 +151,43 @@ async function main(): Promise<void> {
   }
 
   // A little report, so a blank icon is caught here rather than on a home
-  // screen: the mark is a dark word on a green field, so a sane icon has both
-  // a lot of green and a meaningful amount of dark.
+  // screen. What is checked is the two things the mark is: a green ground — the
+  // pitch and the stripe, with the season standing on them in that same green —
+  // and the two letters in their own near-white above it. So the near-white
+  // share counts the letters and not the `27`, and the green share counts
+  // everything else: what the thresholds are looking for is that both are
+  // there at all.
+  //
+  // It used to count *dark* pixels, because the old mark was dark letters on a
+  // green field, and nothing else caught a missing font — the letters were drawn
+  // by librsvg from a font name, so a machine without that font produced an icon
+  // with nothing on it. The letters are outlines from a file in this repository
+  // now, so that failure cannot happen; a mark whose ink or whose green has gone
+  // missing still can, and those are what these two shares are for.
   const { data, info } = await sharp(`${iconDir}icon-512.png`)
     .raw()
     .toBuffer({ resolveWithObject: true });
-  let dark = 0;
+  let ink = 0;
+  let green = 0;
   for (let i = 0; i < data.length; i += info.channels) {
-    if (data[i]! < 70 && data[i + 1]! < 70 && data[i + 2]! < 70) dark += 1;
+    const [r, g, b] = [data[i]!, data[i + 1]!, data[i + 2]!];
+    if (r > 200 && g > 200 && b > 200) ink += 1;
+    if (g > r + 8 && g > b + 8) green += 1;
   }
-  const share = (dark / (data.length / info.channels)) * 100;
-  console.log(`\n  icon-512.png: ${share.toFixed(1)}% dark pixels`);
-  if (share < 4 || share > 30) {
+  const pixels = data.length / info.channels;
+  const inkShare = (ink / pixels) * 100;
+  const greenShare = (green / pixels) * 100;
+  console.log(`\n  icon-512.png: ${inkShare.toFixed(1)}% ink, ${greenShare.toFixed(1)}% green`);
+  if (inkShare < 3 || inkShare > 20) {
     throw new Error(
-      `icon-512.png looks wrong: ${share.toFixed(1)}% dark pixels, expected the "SE27" wordmark. ` +
-        'The text has probably failed to render — check that a sans-serif font is available to librsvg.',
+      `icon-512.png looks wrong: ${inkShare.toFixed(1)}% of it is near-white, expected the "SE27" wordmark. ` +
+        'The outlines have probably failed to draw — check `npm run mark` and its fonts.',
+    );
+  }
+  if (greenShare < 40) {
+    throw new Error(
+      `icon-512.png looks wrong: only ${greenShare.toFixed(1)}% of it is green, and the mark is a pitch. ` +
+        'The field, the mown bands and the stripe have probably not rendered.',
     );
   }
 

@@ -26,6 +26,7 @@
     "benchmark": "vite-node tools/benchmark.ts",
     "soak": "vite-node tools/soak.ts",
     "art:fonts": "vite-node tools/artFonts.ts",
+    "mark": "vite-node tools/mark.ts",
     "icons": "vite-node tools/icons.ts",
     "scene": "vite-node tools/scene.ts",
     "og": "vite-node tools/og.ts",

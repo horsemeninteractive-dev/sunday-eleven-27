@@ -573,17 +573,29 @@ async function main() {
 
   const before = await page.evaluate('window.__smoke.view()');
   const started = Date.now();
-  // “Team selection” opens a screen; “The calendar”, beside it, opens the
-  // planner over the screen you are already on — which is a different thing, and
-  // not what this check is about.
-  let navigated = await openScreen('team selection');
-  if (!navigated.clicked) navigated = await openScreen('the squad');
+  /*
+   * Which door is offered depends on the screen, and the desktop top bar is not
+   * one of them: it carries the one primary action and nothing else, so a door
+   * to another screen has to be found in the screen itself — Home's card says
+   * “Pick the team”, and the same destination is “Team selection” on the screens
+   * that name it. The squad list is that kind of destination under another name.
+   * Any of them is the same navigation, and what this check is about is that a
+   * door opens the screen behind it, so they are tried in the order the manager
+   * meets them. “The calendar” is deliberately not among them: it opens the
+   * planner *over* the screen you are on, which is a different thing.
+   */
+  let navigated = { clicked: false, label: null };
+  for (const door of ['pick the team', 'team selection', 'the squad']) {
+    navigated = await openScreen(door);
+    if (navigated.clicked) break;
+  }
   let after = before;
   while (Date.now() - started < 20000) {
     after = await page.evaluate('window.__smoke.view()');
     if (after && after !== before) break;
     await sleep(50);
   }
+  if (!after || after === before) note(`no door on the screen opened it; it offered: ${await page.evaluate('window.__smoke.dump()')}`);
   check('clicking a screen in the sidebar opens it', Boolean(after) && after !== before, `${before} → ${after} in ${Date.now() - started}ms (${navigated.label ?? 'nothing matched'})`);
 
   const labels = await page.evaluate('window.__smoke.labels()');

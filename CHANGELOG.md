@@ -10,7 +10,19 @@ move (any save from an older build is migrated forward on load). `1.0.0` means
 it is finished. This file is also the changelog inside the game, reachable from
 the main menu.
 
-## [Unreleased]
+## [0.12.1] - 2026-10-12 — the S gets its feet back, and the mark goes out as a kit
+
+### Added
+
+**The mark now comes as a kit, so a page can use the real thing.** `npm run promo` writes the game's own mark at size into `promo/` — the
+full lockup and the mark the icons carry, each as SVG and PNG — transparent for a page that brings its own ground, and plated on the three
+grounds the game actually has: the near-black it is played on, the light theme's own off-white in that theme's inks, and **the launcher's
+own ground**, the club green mown in bands with the tile's markings, stripe, glow and shade behind it, read out of `public/favicon.svg`
+rather than drawn a second time. Every file is checked as it is written: the setting and the inks come from the numbers the menu keeps,
+both ink pairs are measured against their floor on every run — the season on the green against the **3.5:1** the tile itself is built to,
+and the command prints what it measured (about 3.8:1 at its worst, 4.34:1 on the bare mown band) — and a mark that has drifted from the
+game fails the command rather than being written. `promo/README.md` says which plate is for a store listing, which for a post and which
+for a page that is not the game, and `promo/USAGE.txt` is the whole rule in one sentence for quoting.
 
 ### Changed
 
@@ -38,6 +50,24 @@ that file is the only source the rest of the set has: `npm run icons` rasterises
 from it, `npm run desktop:art` draws the installer's bitmaps from it, and `npm run og` places it on the social card. The mark
 also states where its own ink is, so the maskable icons shrink the wordmark by how much it has to shrink to survive a circular
 crop rather than by a number kept in another tool.
+
+### Fixed
+
+**The mark's box now states the round letters' feet, so nothing crops the bottom off the S.** Archivo draws a round letter a little past
+the line it stands on — the S dips below its own baseline, which is what makes it read as standing on the line rather than floating above
+it — and the mark's ink box stopped at the baseline. Anything that cropped to that box was cutting the foot off the S: the maskable icons'
+safe zone, and the Windows installer's panels. The box is measured from the fonts' own outlines, so it now carries the overshoot, and the
+favicon, every app icon, the Android splash screens, the store artwork and the installer's two bitmaps are all regenerated from it. The
+mark is still centred by its **caps** rather than by its ink, so it has not moved on the tile — it has only stopped being clipped.
+
+### Discord
+
+**A release announces itself, and the announcement is built where a test can hold it.** `npm run discord:announce` posts a release's own
+notes to the community server, assembled by `announcementMessage` in the spec rather than on the way out to the API: the first run posted
+the notes under a key Discord does not read, and Discord answers **200** to a key it does not know, so the run reported success while the
+message arrived carrying the version line and the ping and nothing else. `npm run discord:announce -- --dry-run` prints what would be
+posted and posts nothing; an announcement is never edited after the fact; and a release's builds are filed by version, so an announcement
+for a release with nothing to install says nothing about downloads instead of offering the previous release's files.
 
 ## [0.12.0] - 2026-10-12 — the man between jobs, and a press with names in it
 

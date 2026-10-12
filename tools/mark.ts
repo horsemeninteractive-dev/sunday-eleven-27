@@ -325,11 +325,23 @@ function lockup(): Lockup {
   const yearSize = size * yearPerLetter;
 
   const band = (capBand / letters.unitsPerEm) * size;
+  /*
+   * How far the letters reach below the baseline.
+   *
+   * Archivo draws a round letter a little past the line it stands on — the S runs
+   * 12 units under its own baseline, and 12 over the flat cap line, which is what
+   * makes it read as standing on the line rather than floating above it. `run`
+   * measures that, and the box has to state it: a box that stopped at the baseline
+   * would be a box the ink pokes out of, and everything that crops to the box —
+   * the maskable safe zone in `tools/icons.ts`, a promotion sheet — would be
+   * cutting the bottom off the S. Which it was.
+   */
+  const overshoot = -(se.bottom / letters.unitsPerEm) * size;
   const centre = CANVAS / 2;
-  // The ink box is centred in the tile, top to bottom as well as left to right:
-  // it is the caps that are centred, so the box is the cap band and no lift is
-  // wanted — a leaded line's optical centre is a different question from a
-  // mark's.
+  // The box is centred in the tile by its *caps* rather than by the overshoot:
+  // the overshoot is the compensation that makes a round letter look level, so a
+  // box centred on the ink would lift the mark by half of it. It is why the mark
+  // is set on the cap band and the box is allowed to dip below it.
   const baseline = centre + band / 2;
   const total = totalPerLetter * size;
   const left = centre - total / 2;
@@ -346,7 +358,7 @@ function lockup(): Lockup {
    * its own box is what keeps that from being a number typed into another tool
    * and drifting the first time this one changes.
    */
-  const ink = { left, top: baseline - band, width: total, height: band };
+  const ink = { left, top: baseline - band, width: total, height: band + overshoot };
   const box = [ink.left, ink.top, ink.width, ink.height]
     .map((value) => Number(value.toFixed(3)))
     .join(' ');
@@ -537,4 +549,13 @@ function main(): void {
   console.log('\n  Every icon is rasterised from this file: `npm run icons`, `npm run og`, `npm run desktop:art`.');
 }
 
+/*
+ * `main()` runs on import, as it does in every tool in this folder, and one tool
+ * does import this file: `tools/og.ts` borrows `markBody()` to place the mark on
+ * the social card. So `npm run og` rewrites `public/favicon.svg` on its way past
+ * — the same fonts give the same bytes, so nothing is harmed by it — and prints
+ * this report ahead of its own. That cannot be guarded against by looking at
+ * `process.argv`: `vite-node` runs the script itself and leaves only the script's
+ * own arguments behind, so nothing in it names this file.
+ */
 main();

@@ -10,11 +10,13 @@ import {
   loserOf,
   winnerOf as winner,
   cupRoundMatchday,
+  cupRoundOf,
   drawCupRound,
   PRELIMINARY_SIZE,
   PLATE_PRELIMINARY_FROM_FIRST_ROUND,
 } from './cup';
-import { LEAGUE_CUP_ID, PLATE_ID } from './pyramid';
+import { checkCalendarIntegrity, seasonSnapshot, type SoakViolation } from './soak';
+import { LEAGUE_CUP_ID, PLATE_ID, registerFixture } from './pyramid';
 import { createTestGame } from './testSupport';
 import { processDay } from './day';
 import { leagueMatchdayCount } from './timeline';
@@ -283,6 +285,27 @@ describe('a season of cups actually played', () => {
     expect(main.cup?.winnerClubId).not.toBe(plate.cup?.winnerClubId);
   });
 
+  it('writes the round onto every tie it draws, including the rearranged ones', () => {
+    // The round is the tie's own now, not a number worked back out of the
+    // matchday, so every record of a cup tie has to carry it - the original, the
+    // replay that replaces it, and both cups alike.
+    for (const match of Object.values(state.matches)) {
+      const competition = state.competitions[match.competitionId];
+      if (!competition?.cup) continue;
+      expect(typeof match.cupRound).toBe('number');
+      expect(cupRoundOf(state, competition, match)).toBe(match.cupRound);
+    }
+  });
+
+  it('passes the calendar and competition invariants on a season actually played', () => {
+    // Two cups were drawn, played and won in this world, which is what
+    // `cup-decided` is asked about at the close of a season: a completed cup
+    // passes, and the fixture lists agree with the matches all season long.
+    const failures = checkCalendarIntegrity(state, seasonSnapshot(state));
+    const described = failures.map((item: SoakViolation) => `${item.invariant}: ${item.detail}`);
+    expect(described).toEqual([]);
+  });
+
   it('never puts a club in two ties on the same day', () => {
     const byDate = new Map<string, Set<ClubId>>();
     for (const match of Object.values(state.matches)) {
@@ -389,5 +412,103 @@ describe('drawing a round whose slot has already arrived', () => {
     for (const tie of ties) {
       expect(tie.date > blockedThrough).toBe(true);
     }
+  });
+});
+
+/**
+ * A round is an identity, not a share of the matchday numbering.
+ *
+ * Both cups are laid out over one calendar, and the arithmetic that used to be
+ * the only way to read a tie's round subtracts a global base and a per-cup
+ * offset from the matchday number. Two competitions sharing one Sunday - which is
+ * exactly what a second cup set would need - made that arithmetic answer
+ * whichever round the matchday happened to belong to, so one competition's ties
+ * could be read as the other's round.
+ */
+describe('cup round identity', () => {
+  const MAIN_ROUND = 3;
+
+  it('keeps two cups apart on one matchday, by the round each tie was drawn for', () => {
+    const { state } = createTestGame('cup-round-identity');
+    const main = state.competitions[LEAGUE_CUP_ID]!;
+    const plate = state.competitions[PLATE_ID]!;
+
+    // The main cup's third night, taken by the Plate's opening round: one
+    // matchday number, two competitions' rounds.
+    const shared = cupRoundMatchday(state, main, MAIN_ROUND);
+    const mainTie = matchesForRound(state, main, 1)[0]!;
+    expect(mainTie.matchday).not.toBe(shared);
+
+    const plateTie: Match = {
+      ...mainTie,
+      id: 'tie_plate_shared' as MatchId,
+      competitionId: PLATE_ID,
+      competitionName: plate.name,
+      matchday: shared,
+      cupRound: 1,
+    };
+    state.matches[plateTie.id] = plateTie;
+    registerFixture(state, PLATE_ID, plateTie.id, shared);
+
+    const mainOnShared: Match = {
+      ...mainTie,
+      id: 'tie_main_shared' as MatchId,
+      matchday: shared,
+      cupRound: MAIN_ROUND,
+    };
+    state.matches[mainOnShared.id] = mainOnShared;
+    registerFixture(state, LEAGUE_CUP_ID, mainOnShared.id, shared);
+
+    // Each tie answers its own cup's round, on the same number.
+    expect(cupRoundOf(state, plate, plateTie)).toBe(1);
+    expect(cupRoundOf(state, main, mainOnShared)).toBe(MAIN_ROUND);
+
+    // And the two cannot be read into each other's bracket: the Plate's round one
+    // is the Plate's tie and not the main cup's, though both are on one night.
+    const plateRoundOne = matchesForRound(state, plate, 1).map((tie) => tie.id);
+    expect(plateRoundOne).toContain(plateTie.id);
+    expect(plateRoundOne).not.toContain(mainOnShared.id);
+    const mainRoundThree = matchesForRound(state, main, MAIN_ROUND).map((tie) => tie.id);
+    expect(mainRoundThree).toContain(mainOnShared.id);
+    expect(mainRoundThree).not.toContain(plateTie.id);
+  });
+
+  it('falls back to the matchday arithmetic for a tie saved before the field existed', () => {
+    const { state } = createTestGame('cup-round-legacy');
+    const main = state.competitions[LEAGUE_CUP_ID]!;
+    const tie = matchesForRound(state, main, 1)[0]!;
+
+    const legacy: Match & { cupRound?: number } = { ...tie };
+    delete legacy.cupRound;
+    // The arithmetic is what such a save was already being read with, so it gets
+    // the same answer it always did: round one of round one's matchday.
+    expect(cupRoundOf(state, main, legacy)).toBe(1);
+
+    const withRounds = matchesForRound(state, main, 1).map((match) => match.id).sort();
+    for (const match of matchesForRound(state, main, 1)) delete (match as { cupRound?: number }).cupRound;
+    expect(matchesForRound(state, main, 1).map((match) => match.id).sort()).toEqual(withRounds);
+  });
+
+  it('writes the round on the ties a later draw creates', () => {
+    const { state } = createTestGame('cup-round-drawn');
+    const plate = state.competitions[PLATE_ID]!;
+    // The Plate as it stands once the main cup has fed it: a field, and its
+    // opening round about to be drawn.
+    plate.clubIds = Object.values(state.clubs)
+      .filter((club) => club.active)
+      .slice(0, 8)
+      .map((club) => club.id);
+    plate.cup = { ...plate.cup!, round: 1, complete: false };
+
+    const drawn = drawCupRound(state, plate, {
+      seasonId: state.season.id,
+      seasonLabel: state.season.label,
+      leagueMatchdays: leagueMatchdayCount(state),
+    });
+    expect(drawn).not.toBeNull();
+
+    const ties = matchesForRound(state, plate, 1);
+    expect(ties.length).toBeGreaterThan(0);
+    for (const tie of ties) expect(tie.cupRound).toBe(1);
   });
 });

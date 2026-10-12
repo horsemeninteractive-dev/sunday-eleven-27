@@ -2,7 +2,7 @@
   "name": "sunday-eleven-27",
   "productName": "Sunday Eleven 27",
   "private": true,
-  "version": "0.11.1",
+  "version": "0.12.0",
   "type": "module",
   "author": "Horsemen Interactive",
   "description": "Sunday Eleven 27 - grassroots English Sunday League football management simulation",
@@ -46,7 +46,11 @@
     "discord:plan": "vite-node tools/discord.ts",
     "discord:apply": "vite-node tools/discord.ts --apply",
     "discord:announce": "vite-node tools/discord.ts --announce",
-    "xiai": "vite-node tools/xiai.ts"
+    "xiai": "vite-node tools/xiai.ts",
+    "xiai:dev": "npx --yes wrangler dev --config worker/wrangler.toml",
+    "xiai:deploy": "npx --yes wrangler deploy --config worker/wrangler.toml",
+    "xiai:logs": "npx --yes wrangler tail --config worker/wrangler.toml",
+    "xiai:verify": "vite-node tools/xiai.ts --verify"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.3",

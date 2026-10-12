@@ -7,6 +7,7 @@ import { defaultTactics } from '@/domain/tactics';
 import { monthOf } from './calendar';
 import { stream, Rng } from './rng';
 import { estimateAttendance } from './match/attendance';
+import { supportConfidenceOf } from './support';
 import type { MatchEnvironment } from './match/core';
 import { isPlayer } from '@/domain/person';
 import { nextFixtureFor } from './schedule';
@@ -14,6 +15,7 @@ import { fixtureIdsOnMatchday } from './pyramid';
 import { autoPickLineup } from './selection';
 import { clubStyle } from './ai/style';
 import { clubCohesionValue, clubSystemFamiliarity } from './training/cohesion';
+import { managingClubId } from './career';
 
 /**
  * Matchday services sit between the world model and the match engine: they
@@ -194,6 +196,8 @@ export interface CreateMatchParams {
   competitionId: string;
   competitionName: string;
   kickOff: string;
+  /** Which round of its cup this is, for a cup tie. See `Match.cupRound`. */
+  cupRound?: number;
 }
 
 export function createMatchRecord(params: CreateMatchParams): Match {
@@ -236,6 +240,9 @@ export function createMatchRecord(params: CreateMatchParams): Match {
     originalDate: null,
     replacedByMatchId: null,
     lateCallMade: false,
+    // Written only when there is a round to write: a league fixture has none, and
+    // a field set to `undefined` would be a difference a save round trip invents.
+    ...(params.cupRound === undefined ? {} : { cupRound: params.cupRound }),
   };
 }
 
@@ -299,11 +306,15 @@ export function buildLineupForClub(state: GameState, clubId: ClubId): MatchLineu
  * opposition is still picked on the day.
  */
 export function ensureUserXi(state: GameState): void {
-  const match = nextFixtureFor(state, state.userClubId, state.date);
+  // Nobody is picking a team while they are between jobs: there is no club whose
+  // XI is theirs to edit. The club they left is picked for by its own manager.
+  const clubId = managingClubId(state);
+  if (!clubId) return;
+  const match = nextFixtureFor(state, clubId, state.date);
   if (!match) return;
-  const side: 'home' | 'away' = match.homeClubId === state.userClubId ? 'home' : 'away';
+  const side: 'home' | 'away' = match.homeClubId === clubId ? 'home' : 'away';
   if (match.lineups[side].starting.length > 0) return;
-  match.lineups[side] = buildLineupForClub(state, state.userClubId);
+  match.lineups[side] = buildLineupForClub(state, clubId);
 }
 
 /**
@@ -340,7 +351,8 @@ export function expectedAttendanceFor(state: GameState, match: Match): number {
     conditions: match.conditions,
     matchday: match.matchday,
     rivalryIntensity: home.rivalries[away.id]?.intensity ?? 0,
-    involvesUserClub: match.homeClubId === state.userClubId || match.awayClubId === state.userClubId,
+    involvesUserClub: match.homeClubId === managingClubId(state) || match.awayClubId === managingClubId(state),
+    supporterConfidence: supportConfidenceOf(home),
   });
 }
 
@@ -351,7 +363,8 @@ export interface EnvironmentOptions {
 export function matchEnvironment(state: GameState, match: Match, options: EnvironmentOptions = {}): MatchEnvironment {
   const referee = match.refereeId ? state.people[match.refereeId] : undefined;
   const strictness = referee && referee.kind === 'official' ? (referee.attributes.strictness ?? 11) : 11;
-  const userInvolved = match.homeClubId === state.userClubId || match.awayClubId === state.userClubId;
+  const userClubId = managingClubId(state);
+  const userInvolved = userClubId !== null && (match.homeClubId === userClubId || match.awayClubId === userClubId);
 
   return {
     getPlayer: (id) => {
@@ -361,7 +374,7 @@ export function matchEnvironment(state: GameState, match: Match, options: Enviro
     clubName: (id) => state.clubs[id]?.identity.name ?? id,
     clubShortName: (id) => state.clubs[id]?.identity.shortName ?? id,
     // Only the club the human actually manages has its bench left alone.
-    userClubId: userInvolved ? state.userClubId : null,
+    userClubId: userInvolved ? userClubId : null,
     autoManageAllBenches: options.autoManageAllBenches ?? true,
     // Only the fixture with a manager in the dugout gets a transcript written
     // for it: nobody reads the rest, and a whole division's worth of prose

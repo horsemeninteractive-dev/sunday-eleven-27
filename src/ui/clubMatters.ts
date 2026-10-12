@@ -1,4 +1,5 @@
 import type { GameState } from '@/domain/game';
+import { GROUND_WORKS } from '@/domain/facilities';
 import type { PersonId } from '@/domain/ids';
 import { isOfficial, isPlayer, personDisplayName } from '@/domain/person';
 import { competenceLabel, STAFF_ROLE_LABEL, type StaffRole } from '@/domain/staff';
@@ -12,6 +13,8 @@ import { validateLineup } from '@/simulation/selection';
 import { secretarySummary } from '@/simulation/secretary';
 import { governanceSummary } from '@/simulation/governance';
 import { renewalText, sponsorshipSummary } from '@/simulation/sponsorship';
+import { fundraisingSummary } from '@/simulation/fundraising';
+import { groundSummary } from '@/simulation/grounds';
 import { sessionForecast } from '@/simulation/training/plan';
 import { sessionRecordedFor } from '@/simulation/training/store';
 import { treasurerSummary } from '@/simulation/treasurer';
@@ -204,7 +207,9 @@ export function clubMatters(game: GameState, limit = CLUB_MATTER_LIMIT): ClubMat
 
   matters.push(...messageMatters(game));
   matters.push(...moneyMatters(game, club.id));
+  matters.push(...fundraisingMatters(game, club.id));
   matters.push(...committeeMatters(game, club.id));
+  matters.push(...groundMatters(game, club.id));
   matters.push(...sponsorMatters(game, club.id));
   matters.push(...teamMatters(game, club.id));
 
@@ -331,6 +336,41 @@ function moneyMatters(game: GameState, clubId: string): ClubMatter[] {
 }
 
 /* ------------------------------------------------------------------------ *\
+ * The club's own money, raised off its own people
+ * ------------------------------------------------------------------------ */
+
+/**
+ * One card, and only when the money is thin and a night is actually available.
+ *
+ * A club with a healthy balance is not nagged about a raffle, and a club that has
+ * already booked its night, or asked enough of its people this season, has
+ * nothing to be told — the screen is where that lives.
+ */
+function fundraisingMatters(game: GameState, clubId: string): ClubMatter[] {
+  const club = game.clubs[clubId];
+  if (!club) return [];
+  const summary = fundraisingSummary(game, clubId);
+  if (club.finances.balance >= 150 || !summary.availability.canOrganise || summary.pending) return [];
+
+  const best = [...summary.options].sort((a, b) => b.forecast.net - a.forecast.net)[0]!;
+  const inTheRed = club.finances.balance < 0;
+  return [
+    {
+      id: 'fundraising',
+      tone: inTheRed ? 'warn' : 'info',
+      label: LABEL[inTheRed ? 'warn' : 'info'],
+      title: 'There is money in a night',
+      detail: `${best.label} would bring in about ${moneyShort(best.forecast.net)}. The club's own people are the ones who pay for it.`,
+      // Its own subject, not the balance again: being in the red and having a
+      // night you could run are two different things to be told.
+      topic: 'fundraising',
+      weight: inTheRed ? 58 : 40,
+      destination: { kind: 'view', view: 'finances', anchor: 'fundraising' },
+    },
+  ];
+}
+
+/* ------------------------------------------------------------------------ *\
  * The committee and the paperwork
  * ------------------------------------------------------------------------ */
 
@@ -391,6 +431,60 @@ function committeeMatters(game: GameState, clubId: string): ClubMatter[] {
       topic: 'admin',
       weight: first.importance >= 3 ? 76 : 52,
       destination: { kind: 'view', view: 'staff', anchor: 'secretary-desk' },
+    });
+  }
+
+  return matters;
+}
+
+/* ------------------------------------------------------------------------ *\
+ * The ground
+ * ------------------------------------------------------------------------ */
+
+/**
+ * Two ground matters, and no more than two.
+ *
+ * The first is a decision the manager has not made and is losing something by
+ * not making: the club has paid for a surface better than the one the ground
+ * was born with and is not paying to look after it, so every fourth home fixture
+ * takes a point back off it. That is precisely the shape of thing this list
+ * exists for — a real number, a real cost, one door — and it is silent on a
+ * ground nobody has improved, which is every club in the county at the start.
+ *
+ * The second is a fact rather than a decision: the club has work in hand, the
+ * money has already gone, and the ground changes on a date. It is filed at a
+ * lower weight than the money, because the manager can do nothing about it but
+ * wait, and a card that only says "wait" should never outrank one that asks.
+ */
+function groundMatters(game: GameState, clubId: string): ClubMatter[] {
+  const summary = groundSummary(game, clubId);
+  if (!summary) return [];
+  const matters: ClubMatter[] = [];
+
+  if (!summary.upkeep.on && summary.quality > summary.baselineQuality) {
+    matters.push({
+      id: 'ground-wear',
+      tone: 'warn',
+      label: LABEL.warn,
+      title: 'Nobody is looking after the pitch',
+      detail: `The surface is at ${summary.quality}/20, up from ${summary.baselineQuality}/20, and every fourth home fixture takes a point back off it. ${moneyShort(summary.upkeep.perWeek)} a week holds it where it is.`,
+      topic: 'ground:upkeep',
+      weight: 46,
+      destination: { kind: 'view', view: 'club', anchor: 'ground' },
+    });
+  }
+
+  const inHand = summary.inHand[0];
+  if (inHand) {
+    matters.push({
+      id: `ground-work:${inHand.id}`,
+      tone: 'info',
+      label: LABEL.info,
+      title: 'Work on the ground is in hand',
+      detail: `The ${GROUND_WORKS[inHand.work].label.toLowerCase()} was paid for on ${formatShortDate(inHand.startedOn)} and finishes around ${formatShortDate(inHand.completesOn)}.`,
+      topic: 'ground:work',
+      weight: 32,
+      destination: { kind: 'view', view: 'club', anchor: 'ground' },
     });
   }
 

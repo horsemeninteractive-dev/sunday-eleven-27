@@ -6,7 +6,8 @@ import { addLedgerEntry } from '@/simulation/finance';
 import { seedInitialSponsorship } from '@/simulation/sponsorship';
 import { setStaffAvailability } from '@/simulation/staff';
 import { createTestGame } from '@/simulation/testSupport';
-import { addDays } from '@/simulation/calendar';
+import { addDays, formatShortDate } from '@/simulation/calendar';
+import { commissionGroundWork, setUpGroundUpkeep } from '@/simulation/grounds';
 import { CLUB_MATTER_LIMIT, HOME_MATTER_LIMIT, clubMatters, clubRoster } from './clubMatters';
 import { isNavigable } from './navigation';
 
@@ -57,10 +58,13 @@ describe('club matters', () => {
     // a card can happily name a section that was renamed last month and simply
     // never scroll anywhere. So every anchored destination is checked against
     // the source of the screen it points into.
-    const VIEWS: Partial<Record<ViewId, string>> = {
+    const VIEWS: Partial<Record<ViewId, string | string[]>> = {
       finances: 'src/ui/views/FinancesView.tsx',
       staff: 'src/ui/views/StaffView.tsx',
-      club: 'src/ui/views/ClubView.tsx',
+      // A screen may draw a section through a component of its own — the
+      // clubhouse draws the ground from `GroundPanel` — so an anchor is looked
+      // for in every file the screen is made of, not only in its own source.
+      club: ['src/ui/views/ClubView.tsx', 'src/ui/components/GroundPanel.tsx'],
     };
     const { state } = createTestGame('matters-anchors');
     makeOverdrawn(state, 1400);
@@ -72,9 +76,13 @@ describe('club matters', () => {
       );
     expect(anchored.length).toBeGreaterThan(0);
     for (const destination of anchored) {
-      const path = VIEWS[destination.view];
-      expect(path, `no source mapped for '${destination.view}'`).toBeTruthy();
-      expect(readFileSync(path!, 'utf8')).toContain(`id="${destination.anchor}"`);
+      const mapped = VIEWS[destination.view];
+      const sources = Array.isArray(mapped) ? mapped : mapped ? [mapped] : [];
+      expect(sources.length, `no source mapped for '${destination.view}'`).toBeGreaterThan(0);
+      expect(
+        sources.some((path) => readFileSync(path, 'utf8').includes(`id="${destination.anchor}"`)),
+        `'${destination.anchor}' is not a section of '${destination.view}'`,
+      ).toBe(true);
     }
   });
 
@@ -158,6 +166,66 @@ describe('club matters', () => {
     // in the agreement's own terms — a monthly deal is not "a week".
     expect(`${matter.title} ${matter.detail}`).toContain(state.world.businesses[deal.sponsorId]!.name);
     expect(matter.detail).toContain(deal.terms.frequency === 'weekly' ? 'a week' : 'a month');
+  });
+
+  it('suggests a night when the money is thin, and stays quiet when it is not', () => {
+    const { state } = createTestGame('matters-fundraising');
+
+    // A club with money in the bank is not nagged about a raffle it does not
+    // need — the fundraising screen is there when the manager wants it.
+    expect(clubMatters(state, 0).find((matter) => matter.id === 'fundraising')).toBeUndefined();
+
+    makeOverdrawn(state, 300);
+    const matter = clubMatters(state, 0).find((entry) => entry.id === 'fundraising')!;
+    expect(matter).toBeTruthy();
+    expect(matter.destination).toEqual({ kind: 'view', view: 'finances', anchor: 'fundraising' });
+    // It quotes the club's own best night, not a made-up figure.
+    expect(matter.detail).toMatch(/£/);
+  });
+
+  it('asks the manager to look after a pitch he has already paid to improve, and settles when he does', () => {
+    const game = createTestGame('matters-ground');
+    const state = game.state;
+    const club = state.clubs[state.userClubId]!;
+    const ground = state.world.grounds[club.groundId]!;
+    ground.tenantClubId = club.id;
+
+    // A ground nobody has improved has nothing to lose, and is not a matter: no
+    // club in the county is nagged about a £9 it has no reason to spend.
+    expect(clubMatters(state, 0).find((entry) => entry.topic === 'ground:upkeep')).toBeUndefined();
+
+    // A surface the club has paid for, and nobody looking after it.
+    ground.quality = 14;
+    ground.baseQuality = 9;
+    const matter = clubMatters(state, 0).find((entry) => entry.topic === 'ground:upkeep')!;
+    expect(matter).toBeTruthy();
+    expect(matter.destination).toEqual({ kind: 'view', view: 'club', anchor: 'ground' });
+    expect(matter.detail).toContain('14/20');
+    expect(matter.detail).toContain('9/20');
+
+    // £9 a week settles it, because the decision has been made.
+    setUpGroundUpkeep(state, club.id, true);
+    expect(clubMatters(state, 0).find((entry) => entry.topic === 'ground:upkeep')).toBeUndefined();
+  });
+
+  it('notes work that is with a contractor without asking the manager for anything', () => {
+    const game = createTestGame('matters-ground-work');
+    const state = game.state;
+    const club = state.clubs[state.userClubId]!;
+    const ground = state.world.grounds[club.groundId]!;
+    ground.tenantClubId = club.id;
+    ground.drainage = 6;
+
+    const result = commissionGroundWork(state, club.id, 'drainage');
+    expect(result.ok).toBe(true);
+
+    const matter = clubMatters(state, 0).find((entry) => entry.topic === 'ground:work')!;
+    expect(matter).toBeTruthy();
+    // A fact, not an alarm: the money has gone and the date is the date.
+    expect(matter.tone).toBe('info');
+    expect(matter.detail).toMatch(/pitch drainage/i);
+    expect(matter.detail).toContain(formatShortDate(result.project!.completesOn));
+    expect(matter.destination).toEqual({ kind: 'view', view: 'club', anchor: 'ground' });
   });
 
   it('takes a word from the committee to the man who said it', () => {

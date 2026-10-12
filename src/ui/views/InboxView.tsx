@@ -20,6 +20,7 @@ import {
 import { Button, EmptyState, PageHeader } from '../components/primitives';
 import { Glyph } from '../components/icons';
 import { Portrait } from '../components/Portrait';
+import { Bubble } from '../components/Bubble';
 
 /**
  * Messages.
@@ -261,23 +262,24 @@ export function MessageLog({
         return (
           <div key={message.id}>
             {message.startsDay && <p className="inbox__day">{message.dayLabel}</p>}
-            <article className={`bubble${message.mine ? ' bubble--mine' : ''}`}>
-              {!message.mine && sender && (
-                <span className="bubble__face">
-                  <Portrait person={sender} size="sm" />
-                </span>
-              )}
-              <div className="bubble__words">
-                {/* A sender name on every one of the manager's own messages would be
-                    noise; on anybody else's it is the point. The group case needs
-                    it either way, because "who said that" is genuinely ambiguous. */}
-                {!message.mine && <p className="bubble__from">{message.sender}</p>}
-                <p className="bubble__body">{message.body}</p>
-                <p className="bubble__when" title={message.whenTitle}>
-                  {message.when}
-                </p>
-              </div>
-            </article>
+            <Bubble
+              mine={message.mine}
+              // The man who wrote it, drawn — and no face on the manager's own
+              // words. A face cannot be drawn for anybody the save no longer
+              // holds, which is why the name is still what gets printed.
+              face={!message.mine && sender ? <Portrait person={sender} size="sm" /> : undefined}
+              // A sender name on every one of the manager's own messages would be
+              // noise; on anybody else's it is the point. The group case needs it
+              // either way, because "who said that" is genuinely ambiguous.
+              from={!message.mine ? message.sender : undefined}
+              when={message.when}
+              whenTitle={message.whenTitle}
+            >
+              {/* The sentence, and nothing around it: the bubble draws its own
+                  body paragraph, for this screen and the negotiation table
+                  alike. */}
+              {message.body}
+            </Bubble>
           </div>
         );
       })}

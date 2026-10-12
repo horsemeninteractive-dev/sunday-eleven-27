@@ -10,6 +10,566 @@ move (any save from an older build is migrated forward on load). `1.0.0` means
 it is finished. This file is also the changelog inside the game, reachable from
 the main menu.
 
+## [0.12.0] - 2026-10-12 — the man between jobs, and a press with names in it
+
+### Added
+
+**A club that cannot pay its way can now come back as itself.** The fold-and-reform cycle has always replaced what it took, but
+always with a stranger: a new name, a new crowd, no past, on somebody else's pitch. What a county actually does is bring the
+same club back where the club was worth bringing back, and that is a different thing from filling its place. Whether the club
+that arrives in a folded club's place is *the club* or *a new one* is decided by what the club actually was — seasons on
+record, and a crowd that has not given up — and never by a roll of a die. A club with a history behind it and its crowd still
+turning out comes back as **a re-formation**: the same name, the same shirts, the same ground, the same derby, the same gate,
+and none of the debt, the squad, the committee or the trophies. A club nobody watched, or one that folded in its first season
+or two, is a place in the league that **a new club** fills, named after its town like any other. Each carries its `heritage` —
+the club it came from, the year that club was founded, and what came across — so the archive, the Club screen and every screen
+that names a club can tell a re-formation from a replacement, and the club that went keeps its own record untouched while it
+sits in the archive. The two also play at different levels, deliberately: a re-formation plays at the standard it was already
+playing at, and a new club takes the standard of the rung it steps into.
+
+**And a committee that cannot pay its way can ask the town to save it.** Money in this world had no way out and no way back:
+a club only ever climbed towards solvency or slid to its death, so every club in the red was a club that was going to fold
+however its own crowd felt about it. The committee's first act in administration is now an **appeal** — a raffle, a bucket at
+the gate, a phone round of the local businesses — and what it raises is read off the club rather than rolled for: what the
+county thinks of it, whether its own crowd still turns out, how big a place it plays in, and how many seasons it has behind
+it, bounded at both ends. At the top of the range a club the county cares about raises a bit over what a good season at the
+gate is worth, which clears a small debt outright and does not touch a large one; at the bottom a club nobody watches raises a
+couple of hundred pounds. It is spent once per spell in administration and earned again only by getting straight first, so
+recovery is a real possibility for a club in trouble and not a formality, and there is no bailout anywhere in it.
+
+**A manager's record is his own, and it outlives the clubs he is at.** Until now the only record of a career was the club's
+own: his seasons *were* the club's seasons, and a sacking or a club folding under him left the story in somebody else's book.
+The career now keeps its own ledger — a **spell** for every run in charge of a club, with the day it began, the day it ended
+and how it ended (*dismissed*, *moved*, or *club-folded*, which is nobody's decision and is kept apart from a sacking) — and
+it survives everything: unemployment, a move, a club going under. The world and the record are held to each other: while he is
+between jobs there is no club he manages anywhere in the state, and while he is in work the club the career names is the club
+the world has him at. A club folding under him hands him to the job market with the record intact, and the club that took his
+club's place is a post he can apply for — so a career can go **across** clubs and seasons rather than being one long tenure
+that ends when the club does.
+
+**The county now has a press, and it has names in it.** Until now the news feed was written by nobody: every story arrived in the same
+voice, with no paper behind it and no reporter to hold to it, and a career's worth of headlines read like the game talking to itself. A
+county of thirty-six clubs is covered by a handful of papers, a station, a fanzine and a website — three to five of them, generated from
+the world seed and kept for the career — and each has **one reporter with a patch**: the clubs nearest his town, so a paper follows the
+same villages for seasons and a club promoted out of the county becomes somebody else's story. Stories are attributed by the publishing
+pipeline rather than by whatever wrote them, so a result, a signing, a committee decision or a watched match all carry the same kind of
+masthead, and the rule is about **attention, not knowledge**: something that matters is filed by whoever is closest to it, something
+ordinary only by the reporter whose patch it is and whose sort of thing it is, and a Thursday night is filed by nobody — the story still
+prints, because the manager still knows it, but it carries no byline. A reporter the manager has snubbed watches that club's small
+stories a little harder, which is the only thing regard changes about him. The news screen prints the byline and the paper, and the Club
+screen has a new section: who writes about this club, what he has filed, and how the crowd he writes for is feeling.
+
+**And it says which of it is a fact.** The paper also says things it only half knows, and until now the game could not tell the
+difference — gossip was a sentence somebody had typed. A rumour is now a real record: a **source** (the reporter who heard it), a
+**subject** (his patch's manager under pressure, a club in the red, a side short of players, a centre-forward everybody has noticed), the
+**evidence** it was built from and the **reliability** a reader should accord it — two different numbers, deliberately — and the **fact it
+was built on, read at the time**, which is what makes it falsifiable. It is settled later by comparing the world against that fact: a claim
+that a committee will act is confirmed when the club changes manager and disproved when it does not, never the other way round, and nothing
+in the simulation ever reads a rumour to decide anything. A claim that is answered early is settled early, one the world keeps refusing to
+answer is put off **once** and then answered anyway, and a claim whose club folds or whose season ends goes quiet. The feed labels every
+claim unconfirmed and every settlement for what it is, and keeps no more than a handful live, because a paper runs a few stories and a feed
+runs everything.
+
+**The manager can answer the paper, and it costs something.** A claim about his own club carries two buttons on the Club screen — *play it
+down* or *give them something* — and neither of them settles anything: what they change is the reporter's view of him, which moves his
+coverage later, and how the crowd reads it, by a point or two. A denial that the world then proves right is remembered: the verdict says
+so, in the reporter's own words, and he does not forget it.
+
+**Two clubs can now be something to each other for a reason, and a crowd can change its mind.** A rivalry has always been a single number
+arriving with the world, so a close game, a cup tie and a sending off could not make two clubs care about each other and nothing ever
+cooled. The number now has **two halves**: what two clubs are to each other when nothing is happening, which geography sets and which does
+not move, and the heat of recent meetings, which does. Cup ties, one-goal games, thrashings, red cards and an immediate rematch add heat,
+capped at twelve an afternoon and never past the ceiling; one good grudge becomes an old rivalry after enough afternoons that mattered; and
+the close season takes heat down towards the waterline, drifts the waterline of a pairing nobody has played, and lets a tension with
+nothing behind it go entirely. It is the same arithmetic for a signing raid, so taking a player off a club can no longer turn two
+strangers bitter in one afternoon. And every club now has **a crowd with an opinion**: one aggregate number between 5 and 98 that a result
+moves by at most four, a derby moves further, playing badly drags down and a summer pulls back towards not minding, promotion and
+relegation applied on top of the drift. It is what the gate reads — up to about a seventh either way — and crossing a band is worth a line
+in the paper. Every one of these is bounded by a per-match limit, a floor and a ceiling, and a fixture is settled **once** however many
+routes reach it, so a watched match cannot count twice.
+
+**The pitch you are watching a match on is the pitch the game is being played on.** The surface was one flat green whatever
+the afternoon was: the condition was printed above the picture — *Overcast · Muddy pitch* — while the ground under it looked
+exactly the same in a July friendly and a February league game. A manager picks his football around a heavy pitch, and the
+one screen where he is standing on it said nothing at all. Now the grass is drawn: eight surfaces, painted rather than
+named — lush, fair and thin as the grass goes off, heavy and brown when it is cutting up, grey with standing water, paler
+and colder under frost, and the two surfaces that are not grass at all, the bright even 3G and the ash-grey cinder, which
+are given no bald patches because there is no grass on them to lose. The mowing shows on a pitch that was cut this morning
+and is flattened out of one that is wet, and the wear is *where* the grass has gone: the six-yard boxes first, then the
+centre spot every kick-off is taken from, then the touchline the benches stand behind, and only then the flanks nobody has
+run on since August.
+
+**And every mark of it is a reading rather than a decoration.** The day's verdict the engine actually played by decides what
+the surface is *like* — mud, water and frost outrank everything, because a cinder pitch in a downpour has water lying on it
+— the ground's own 1-20 of grass decides how much of it is left, so a pitch re-laid in October has grass in the goalmouths
+in November and the one beside it does not, and the football played since anybody last looked at it decides how cut up it
+is. That last one is the £9 a week made visible: **scuff is nought while the club is paying for the ground to be looked
+after** and grows with the games when it is not, so the difference between a pitch that reads cut and one that is being cut
+up is the difference between paying the groundsman and not. The reading travels on the render contract (`MatchSurface`, a
+new field beside the teams) because a renderer has no ground and no weather and may not infer either from the football: the
+2D pitch paints it (`ui/match/pitchSurface.ts`), and a 3D renderer would shade it from the same numbers. The marks turn
+with the picture — a goalmouth is at the left of a landscape pitch and at the foot of a portrait one — and everything the
+winter leaves is drawn *under* the paint, the men and the ball, because a mud patch is a state of the grass rather than a
+thing standing on it.
+
+**The club can now spend money on its ground, and the ground is a real place with a landlord.** A Sunday club's pitch is the
+most expensive thing it owns and the thing it complains about most — the far corner holds water, the surface is bald by
+February, there is nowhere to get changed — and until now there was nothing a manager could do about any of it. The
+Clubhouse screen has a ground section: what the club has (the surface, the drainage, the lights, the rooms, the bar, and
+the day's own verdict on the pitch, drawn with the same badge the matchday card uses), what is being done, and what could
+be. Four jobs, each priced and timed in `domain/facilities.ts` rather than in a screen: **pitch drainage** and **pitch
+surface** in three stages each, **floodlights** and a **clubhouse** in one. Every one of them ends in a fact the rest of
+the game was already reading — the surface the engine charges a passing penalty for and the league reads before it lets a
+club up, the drainage the pitch inspection turns into a lost Sunday, the lights a Thursday night in December needs, the bar
+a gate is worth — so nothing here is a number only the ground screen can see.
+
+**And none of it is free, and none of it is permanent.** The money leaves the club's account the day the work is
+commissioned, through the same ledger every other payment goes through, under a new `ground` category the treasurer's book
+can total; the ground itself does not change until the day it is promised for, which the day loop carries out — once,
+whatever happens to the date afterwards, which is what `completedOn` is for. Work in hand blocks a second job, because one
+contractor is on the site at a time, and the screen says which job it is waiting on rather than greying a button out. A
+club that pulls out gets half back and loses the rest, and the ground is not touched at all, so a cancelled job cannot
+leave a half-dug pitch behind. Above all of it sits the decision that makes the rest mean anything: a pitch nobody looks
+after is ground down by the football played on it — a point off the surface every fourth home fixture, never below the
+surface the ground was born with — and **ground upkeep**, £9 a week charged on the Friday the calendar already knows
+about, is what stops it. That is a standing commitment rather than an upgrade, it can be stopped at any time, and it is
+the reason a club that has just spent £980 on a re-lay has to think about what it is going to do with it in November.
+
+**What a club may commission depends on the ground, not on the club.** A side that only hires somebody else's pitch
+cannot relay it, and the tile says so in the holder's name rather than leaving the manager to guess; a club in
+administration is told to get its books straight first. What each job is actually worth is measured rather than asserted:
+a drainage job is priced by rolling the Sundays the club has left at that ground on the game's own weather, with the drains
+as they are and with the drains as they would be, and reporting how many would be lost to standing water and how many
+would turn into the heavy, ankle-deep afternoons that are playable and no fun. The upkeep appears in the two weekly sums
+the finances and club screens already promise and in the treasurer's forward look, so no screen can quote a balance the
+club is about to be billed out of. Everything is read by one function — `groundSummary` — which both the screen and the
+action obey, so what a manager is offered and what he is allowed to do cannot drift apart.
+
+**Home says where the manager is, which it never did.** The screen opened on a fixture between two names: four metric tiles, a
+wall of decision cards, four result cards and three news cards, four sections of equal weight — a dashboard rather than a
+desk, and nothing on it that said *what club this is*. The ground, the nickname and the motto the club was founded with
+lived on two other screens and the crest was in the top bar. It now opens on the week, then on the club: the crest at the
+size the clubhouse draws it, the name the club is actually called, what everybody calls it, the town and the ground it
+plays on, the line it says about itself, and the man picking the team — his own drawn face, and how long he has been there
+— set on the ground photograph the pre-game screens already wear. The photograph was on the next-match band before this and
+is not any more: the fixture has the matchday picture, because two pictures on one screen have to be saying two different
+things and "this is where we play" and "there is a game" are those two.
+
+**The next match is printed, and what needs you is led by one thing.** The fixture keeps the shared fixture sheet, with the
+state of the selection read off the club — *Selection ready · 18 available* — and the two doors into preparing for it, both
+of them screens, because the command bar above still owns moving the calendar on. A club with no fixture is told why
+instead of being shown an empty card: a season that is over, or a calendar with nothing on it, and a door to the fixture
+list either way. Under it, one ruled strip of four facts, and every one of them is now a door into the screen it summarises
+(`MetricTile` grew the optional `onClick` for that, so a number is a summary rather than a read-out). Then the one list both
+Home and the clubhouse read: the loudest genuine **decision** in front, in a band of its own with a button that says what
+pressing it does — *Read the message*, *Have a word*, *Sort it out* — the rest of the model's rows underneath it as the same
+ruled rows the clubhouse draws, and the post that is not asking for anything as a single line rather than as a fifth card
+(*12 threads are waiting: 19 unread messages, none of them urgent*). Results are a run instead of four cards: the mark, the
+score, who it was against, the competition and the day, each afternoon its own door into the report.
+
+**And the reading of that list is a module rather than a layout.** `ui/homeBriefing.ts` decides which matter leads, what
+follows it, and what is only being told, in plain functions over the game state with no JSX and no store — the same split
+`commandState.ts` and `newsStory.ts` make — so the one judgement worth arguing with is settled against six typed rows
+(`homeBriefing.test.ts`) before it is ever settled against a generated career. Nothing in it decides what matters:
+`clubMatters` still does, and Home and the Clubhouse both read it, so the two screens cannot disagree about what a manager
+should be looking at. The screen itself is checked by printing it against a real career — the club band, the fixture and
+its absent case, the lead matter, the form strip and a strip of numbers that goes somewhere
+(`views/dashboardView.test.ts`).
+
+**The paper knows what happened, not just which column it is in.** A story has always been filed under one
+of six columns — Match, Squad, Club, League, World, Finances — and every kind of event this game writes went
+into one of them, so a cup final, a postponement and a routine result were three columns apart at most and a
+signing, a release and a hamstring were one between them. Every kind of event now travels with the story it
+wrote, and the news screen draws what happened: a knockout tie wears the cup, a player arriving or leaving
+wears a shirt on a hanger, a man who cannot play wears the physio's room, a Thursday night wears the cones, an
+achievement wears a medal, and a fixture that was called off — or forfeited — wears a date with a line through
+it. Seven new drawings on the same 64-by-40 sheet, in the same hand, held to the same measurements, and the
+six columns are still in the set: a story from a career saved before the event travelled with it draws exactly
+what it drew before. The line above a headline says the same thing in words — *Signed*, *Called off*, *Cup
+draw* — rather than the column it was filed in, and the dashboard's own news reads the same table, so one
+story cannot be "Squad" on Home and "Signed" on the paper.
+
+**And the front page prints the football.** A story about a match is headlined by the match itself — the two
+crests, the two shirts and the score the header, half time, full time and the report were already drawn from —
+rather than by a generic pitch beside a sentence. A tie nobody has played shows the two clubs and the date
+instead, and *never* a score: the scoreline draws the score a match is currently at, so a drawn tie put through
+it as though it were a result would print 0–0 on the front page of a paper about a game nobody has played. A
+result that has been played opens onto its match report, which is the one thing the paper can offer that the
+story cannot print.
+
+**A page rather than a run of the same card.** One story leads, printed across the front with the paper's own
+photograph behind it — the lead image that has been sitting in `public/photos/` unused since the noticeboard
+took over the top of the screen. The next two are given a column each with their own opening line showing,
+because that paragraph is the whole difference between a story the page is pointing at and a headline in a
+list. The rest are still clippings pinned under the day they happened. The arrangement changes; the paper does
+not.
+
+**A manager can lose his job, and find another.** The committee's view has been formed at the season
+boundary for a while, and the one thing it never did was act on it. It does now. A sustained run below what
+the club expects — three seasons' worth, or a club that has spent years in the red — is enough for the
+committee to part ways, and the manager wakes up **between jobs**: no club, no fixture he has to pick a team
+for, and no bench. The game keeps running around him. The days still pass, the county plays its football, and
+the only thing he can do is look at the job board and wait for a committee to call.
+
+**And the way back is a job market, not a reset.** When a post comes free, a handful of the vacancies his
+standing makes him a plausible candidate for are held open for a few weeks rather than filled the same
+afternoon, and he applies for them. A yes gives him the club — squad, fixtures, bank balance and all — and
+his record now shows both spells, how the first one ended, and the fact that the football did not stop while
+he was out of work. The AI never appoints him on its own, however long he waits: the next job is his to find.
+
+**The way back is never closed.** A career could still stall on the one thing the feature cannot leave to luck: a summer in which nobody else changed managers left him a job board with nothing on it, and the next chance a year away — or two, if the county was quiet again. It happened in a real career the week this was written: sacked in July, and the only post that came free all summer was his own, which no committee re-advertises to the man it has just sacked. So the managers' market now takes one more decision when a manager is out of work and the carousel has left him nothing: the committee of the club nearest to his standing parts with its manager, for the same reason the clubs a rung above already did — a poor season, and a manager of his standing looking for work. It is taken once, without a roll, because a way back that only sometimes exists is not a way back, and it is named by his own career (`guaranteeVacancyFor`) rather than by the market, because the club that would talk to him is a judgement about him. He still has to win the post on the same terms as any other application.
+
+**Out of work is not the game with the club screens taken out.** Being sacked used to leave one screen in the
+whole shell: the job board. The squad, the tactics sheet and the books were right to go with the job — they
+belong to a club that is no longer his — but his own page, his messages, the local paper and the world he is
+looking for work in were never about a club, and they were shut too: the story of his own dismissal was filed
+to a paper he could not open. The shell now asks the career which screens still exist (`ui/navigation.ts`),
+draws both navigations from that one answer — the desktop sidebar and the phone's five, and the More sheet
+behind them — and falls back to the board for anything a club owned, so there is no destination it can offer
+that would contradict him. And the club's own correspondence stops: the treasurer's worries, the secretary's
+post, the committee's view, the staff's concerns and the sponsor's business are written to the man in the job,
+and nobody is. The world carries on playing its football without him, which is the point of the state.
+
+**The pitch can be given the whole screen, with the afternoon on it as a television scorecard.** A button in the
+bottom-right corner of the grass — in the corner of the picture rather than in the frame around it, so it is
+in the same place either way — and one press gives the pitch the window: the header, the two team sheets, the
+timeline rail and the totals all stand aside, and the football is drawn from edge to edge. What is left over
+the picture is what a broadcast leaves there, at the size a broadcast leaves it: **one bar, one row** — the
+station's own block (`SETV`), the two clubs as three-letter codes in boxes wearing the strips they turned out
+in, the score between them and the clock in its own cell at the end — 309 by 30 pixels measured on the picture,
+where the stacked card it replaced was 340 by 110. The code is derived from the club's name by one rule for
+every club — the noise words set aside, then the longest word of what is left, so Donhall Social Club is `DON`
+and The Old Three Tuns is `THR` — because this game has no register of official codes and a code is not allowed
+to be about a different club. The ink in each box is chosen for that box's colour by the same `flatClubInk`
+the men on the pitch are held to, the score is the score the engine is playing, and the clock is the minute
+alone while the football is being played (`72'`) with the header's own phrase at the three moments there is no
+minute to give — kick-off, half time and full time. Both clocks are `displayMinute` read once, so a bar a
+minute behind the header is not a state this code can be in. The full names are a hover away in the boxes, and
+the whole bar is one sentence to a screen reader rather than six fragments — that sentence keeping the period
+(`Second half · 72'`), because a sentence has the room for it and a box does not. It is flat paint over the grass — nothing on it to press
+— and the incident banner moves to the foot of the picture, which is where a lower-third goes and is the one
+place the bar cannot reach. The same button comes back, and so do Escape, the Android back gesture and the
+browser's own way out of fullscreen; the browser's fullscreen is asked for on the way in, and given up only when
+this view is what asked for it, so a window the manager had already put in fullscreen keeps it. The control
+strip stays where it is, because the football has not stopped and a view of a live match that could not be
+paused would be worse than the screen it replaced — and a match watched in words has no pitch to give the
+screen, so the view cannot outlive the picture it was opened for.
+
+**The managers' carousel now turns through the whole pyramid.** Until now only the top division ever changed
+manager, because the market read the first competition it found. Every division has a committee that can lose
+faith, which is what gives a manager released in the third tier somewhere to apply.
+
+**Fundraising is a real loop, not a ledger category.** A club can now put on a **quiz night**, a **raffle** or
+a **do at the pub**. Each one is booked into the calendar with the notice a night needs, sits there like
+anything else, and settles on its own evening as **one line in the ledger** — the whole night, taking and cost
+in a single figure under `fundraising`, in or out. Nothing is taken before it happens, and a night that loses
+money books a loss rather than being quietly forgotten.
+
+**And what it makes is read off the club, not rolled.** The return depends on the club's standing and the size
+of the place it plays in; on the crowd it has *actually* been drawing lately rather than its reputation on
+paper, and on the weather that evening; on how well the night is organised — the manager's own handling, the
+secretary's competence and how many volunteers turn up to put the chairs out; and on relationships, which is
+the chairman's goodwill putting the word round and, for a do at the pub, the pub's own pull. A hamlet club's
+night returns less than a town club's because fewer people live there. The committee notices the result too:
+a good night warms the chairman through the ordinary relationship system, and a bad one is a concern he
+remembers. The club can ask so much of the same people — a few weeks between nights, and a few in a season —
+and the finances screen prices each night up front, so the number on the button is the number it banks.
+
+**The pitch is drawn inside the picture now, with the ground around it — and the goals stand on it.** The live pitch was
+the box itself: the touchlines ran along the edge of the renderer's frame, the grass was whatever shape a phone had left
+over, and there was nowhere to put a goal, because a goal is the one piece of a football pitch that is *not* on it — the
+mouth is on the goal line and the net hangs behind, over ground the pitch does not cover. So the box is now a picture
+rather than a pitch: the playing surface is inset inside it by two margins, the grass and the lines painted on it live on
+that surface, and what is left over is ground. Both goals are drawn on it, hung off the surface they belong to — the home
+goal at the `x = 0` end and the away goal at `x = 1`, the mouth about a tenth of the width of the pitch and the net a short
+way behind the line, the mouth edge the bright one because two posts and a bar are what a manager reads at a glance. They
+come round with the picture, because they are part of the same picture: across a landscape box they stand at the left and
+the right, and up a portrait one at the foot of the screen and the top of it, the home goal still at the end the home
+side attacks away from. Everything placed by coordinates — the twenty-two men, the ball — is placed in the surface's own
+space, so a point outside the pitch is now on the ground rather than cut off at the line, and the surface clips nothing,
+which is what makes a net drawable in the first place — and a thrower on the ground at all. The ground is the same width
+on all four sides, and it is a real strip on every one of them: the ends need it for the nets, and the sides need it
+because a throw-in is taken from *off* the touchline. It was a wide strip at the ends and a hairline at the sides at first,
+swapped over when the pitch stood up so a whole goal was not clipped off the top of the box, and a strip wide enough to
+hold a man needs no swapping: nothing about the ground turns with the picture any more. The whole arrangement is held to a rendered picture
+and the stylesheet's own geometry (`pitchScreen.test.ts`), and the frame's refusal to clamp a point behind a goal line is
+pinned where the maths lives (`pitchFrame.test.ts`).
+
+**Play that leaves the pitch is drawn now, because there is ground to draw it on.** A restart is the football that is *not*
+being played: the ball is out of play at the line it left from, one man goes to it, and everybody else is arranged around
+where it is going. Every part of that is on the pitch now. The ball out of play is drawn as itself — dimmer than a loose
+ball, because nobody is playing it — wherever the engine says it is, and the spot it comes back in from is chalked on the
+grass at the engine's own spot rather than one the picture picked. That mark is a mark of its own rather than a ring around
+the ball, because for a throw-in the two are not the same place. The man taking it wears a ring nobody else wears and is named like a
+keeper, because a ball on a line with twenty-two anonymous men around it is not a throw-in: with the ball dead nobody is
+*on* it, so nothing marks it as anybody's, and which man is over it is a decision rather than something a renderer could
+work out from positions. So the render contract grew the dead ball — which restart, whose, and who is taking it — read as
+a *function* for the same reason `alpha` is one: a throw-in begins and ends between two events, so a value copied when the
+state was built would arrive long after the throw had been taken. A replay says so plainly instead: the record holds where
+the ball was and whether it was out of play, and never who was standing over it. And the four **corner flags** are planted
+in the ground at the corners at last, with the corner arcs struck from them on the grass — the one piece of a football
+ground that stands off the pitch at all four of its corners, which is exactly what the ground around the playing surface is
+for, and what a corner is. The arcs are four rings each centred on a corner of the surface, so only the quarter lying on
+the grass is ever painted and no arc has to be turned with the picture — which nothing else in a pitch this shape can say.
+
+**A throw-in is taken from off the pitch now, ball in the thrower's hands.** A throw-in is the one restart in the game
+that does not come off the grass: the thrower stands on the ground behind the touchline and throws it back in, which is
+what the ground turned out to be for. So the laws grew the place he stands — `throwInStandSpot`, a yard and a bit beyond
+the painted line on the side the ball went out of — the engine sends him there and will not take the throw until he has
+walked the last of the way (a looser tolerance had him throwing it from a metre inside the field, which is not a throw-in
+from anywhere), and the ball travels out to the line with him: a dead ball is drawn in the thrower's hands rather than
+left sitting on the grass a stride from the man holding it. The throw is struck from the ground it is taken from, and the
+boundary is judged on the crossing rather than the position — a ball on its way back in has not gone out, and without that
+the throw was handed straight back to the other side off a ball nobody had touched. The mark on the line is still the
+engine's own spot, which is why it stopped being drawn under the ball when the ball left the pitch: it is a place the ball
+comes *back into* play from. And the one man the picture draws off the bottom of itself wears his name above his head
+rather than under his feet, because a name should not be the part of him that leaves the box — on a short landscape box,
+or on a phone held up, that is the difference between a throw-in you can put a name to and a ring on the touchline. The
+law is pinned where the football is (`restarts.test.ts`: off the pitch, over the spot, back in over the line, no second
+throw-in for the other side), the contract where the picture reads it (`matchEnginePresentation.test.ts`), and the drawing
+where it is drawn (`pitchScreen.test.ts`, which now reads the thrower's own coordinates out of the rendered picture and
+finds him past the edge of the grass).
+
+**The game can be played with the lights on.** It was drawn in one palette — a near-black page with the accent green on
+it — and it is a game played at a kitchen table on a Sunday morning, in a browser tab somebody is also reading his
+league's results in. **Preferences** now offers **System, Dark and Light** under a panel called Lights, the answer is
+settled before the first paint rather than after it (the boot placeholder in `index.html` resolves the same stored
+preference, so nobody is handed a near-black page and watches it turn over), the browser is told which way it is in
+`color-scheme` and in the `theme-color` a phone paints the bar above the game with, and a manager who is following his
+system is followed while he plays rather than asked again when it changes.
+
+**And the second palette is the same palette twice rather than a second design.** The sheet's rule for what may change is
+*a surface is repainted and a drawing is not*: the page, the five tones of a panel, the rules, the scrims and the glass on
+the menu are answered for with the lights on, and the grass and its chalk, the pitch drawn on the substitution board, the
+two shirts, a crest, a face and the scorecard over the picture are not repainted at all — a Sunday pitch is the same
+colour whatever the room is. `theme.test.ts` reads both blocks off the stylesheet rather than from a copy of them and
+holds them to it: every token is answered for in both, no token is invented with the lights on, every ink that is read as
+words clears 4.5:1 on every surface it is written on **in both palettes**, the five tones keep their order so a panel head
+is still above a panel, and the one wash that reverses — a white lift out of the dark, a shade into the light — reverses
+at the same alphas.
+
+**And the lights come up rather than snap on.** A theme change is the manager's own doing, and it is also the change with
+the most surface to travel: every panel, every rule and every word on the screen is a different colour afterwards. The
+palette is now a set of **typed** custom properties, so the colours themselves are interpolated one into the other,
+rather than a veil being laid over the screen while the palette is switched behind it. Nothing is registered that is not
+genuinely a different colour in the two palettes: the shadow is a shadow rather than a colour, and the club's inks are
+mixed in JavaScript against the surface they will be read on, so they arrive with the next render instead. A browser
+without `@property` ignores the registrations and the transition that depends on them and changes in one frame, exactly
+as it did before — nothing is broken by the absence of the fade, it is only abrupt — and a manager who has asked the game
+to hold still gets the one-frame change the rest of the sheet gives him.
+
+**You can find out what the side you are playing actually does.** The only opposition intelligence in the game was one
+line derived from the club's own instructions — *their game: direct* — which is a fact about the club and was the whole
+of the preparation a manager could do. Nothing read what they had been *doing*: the shape they lined up in, who scored
+and from where, whether the goals against arrived late because they chase a game. The tactics screen now carries an
+**opposition report**, built out of the match records the simulation already writes (`simulation/intelligence/opposition.ts`),
+and every line on it says where it came from and how much of it there is. Their **plan** is a fact about the club, because
+it is what their manager sends them out with. Their **results** are public and exact, because a Sunday manager reads the
+results. Everything else has to be *watched*: the manager sees his own fixtures, and the rest of the county is the work of
+whoever the club has out looking — so a club with a scout in post has a fuller and a truer picture than one with nobody,
+and the report says so, with the dates it covers and how many of their afternoons there is detail behind.
+
+**And it is honest about the difference between a fact and a reading.** A shape, a scorer or a scoreline is exact; *they
+sit deep and break* is a reading of the record, and the report labels the two differently, prints the evidence behind each
+and calls a single watched afternoon a hunch rather than an identity, because one Sunday is not a pattern. Missing evidence
+is never replaced with invented certainty: a side nobody has watched gets their results, their plan, and the sentence that
+says there is nothing else to go on — a real answer, and an honest one before a manager has seen them at all. What it does
+not do is decide any football. It describes the simulation that exists, one reading of it, and the report sits beside the
+instructions rather than instead of them.
+
+**The other thirty-five clubs now sign for what they are short of.** An AI club used to fill its gaps with the best
+footballer in the county, whoever he was and wherever he played, and with thirty-six clubs doing it the county's squads
+drifted into shapes nobody chose — sides with one goalkeeper, no right back and five centre forwards, every summer adding
+a man they did not need and letting go of one who was not the problem. The clubs shop from the same **squad reading** the
+manager's own recruitment screen prints (`recruitment/needs.ts`), so a manager and his opposite number are looking at the
+same football: the shape the club actually plays, the jobs its own instructions ask at each position, and who in the squad
+can do them. A club replaces like for like — the men it has just let go, by position, before it looks at anything else —
+and it does not displace a man who already answers the position unless the man coming in is clearly the better footballer
+for that job. A side that has just released a 31-year-old centre half no longer signs a forward because the forward was
+the best player available, which is how a club ends up keeperless for three years; and a club in the red shops narrowly,
+because a committee keeping the lights on does not go adding men it has not got a hole for. Each signing's own record says
+what it was for — *signed for Hutsey AFC to cover centre back* — so a summer of thirty-six clubs can be read back rather
+than guessed at. One position per area of the side per summer, so a side short at the back replaces what it lost there and
+does not also go shopping there in the same week.
+
+### Discord
+
+**XIAI answers without a machine being on.** The bot used to be a process holding a gateway connection open, so a
+laptop that was shut was a bot that was quiet. It is a **Discord interactions endpoint** now — a Cloudflare Worker
+in `worker/xiaiEndpoint.ts`, deployed with `npm run xiai:deploy` — so Discord does the dialling and the endpoint is woken
+only when there is something to answer. The application's **Interactions Endpoint URL** points at it, and nothing
+else about it changed: the same facts in `src/platform/xiai.ts`, the same tests, and the same answers word for
+word, because the command line and the endpoint share the code that decides what to say rather than each keeping
+a copy. The deployed half holds **no bot token at all** — a request is verified against the application's public
+key, over the timestamp and the raw body, *before* anything is parsed, and the reply goes back on the
+interaction's own one-use token — so the bot token never leaves the machine that configures the server.
+
+**And there are three new ways to ask.** `/ask` offers a **topic picker**, built from the knowledge base's own
+titles, for somebody who does not know what to ask. Every answer carries a **👍 / 👎** pair, and a 👎 is reported
+into a channel — with a link to the answer, when `XIAI_FEEDBACK_WEBHOOK` is set — so an answer that is wrong gets
+counted rather than argued about. Right-clicking any message gives **Ask XIAI**, which answers from the message it
+was pointed at, and that one is worth naming: a context-menu command is handed the text of the message it targets,
+so the bot can be asked in a whole sentence without ever requesting the privileged Message Content intent. It still
+asks for no intents of its own and still cannot read a channel.
+
+**It forgives a plural and a typo, and only those.** A miss was usually a slipped key rather than a topic it had
+never heard of, so the matcher now folds a plural or a participle onto the word it came from, and forgives one
+wrong letter — but only in words of six letters or more, and a swapped pair of letters from four up. The two limits
+are what keep it honest: `spare` is one letter from `share` and `2027` is one digit from `2026`, and neither is an
+answer to the other. Eight answers are new — a cup tie level after ninety, sendings off and injuries, who runs the
+club, the staff and what they change in the week, where the money comes from and goes, sponsorship, matchday subs,
+and where each summer's squad comes from — and `transfer` was taken out of the answer about moving a career,
+because "is there a transfer window" was being told how to move a save between machines.
+
+**And the deployed bot can be checked from the machine that made it.** `npm run xiai:verify` signs a PING of its
+own — the same bytes and headers Discord signs — and reads the answer, and the answer it *wants* from a deployment
+is a **401**: the endpoint is up, it holds a public key, and it refused a signature it cannot trust. A PONG is
+Discord's to give and only Discord's, because it signs with the private half nobody else has; against a local
+`wrangler dev` run the check earns a real `{"type": 1}` anyway (`--new-key` writes a key down, `worker/.dev.vars`
+is told its public half, and the endpoint answers). It reads the application back as well, to see whether the
+Interactions Endpoint URL is the address it just checked — an endpoint deployed, working and answering nobody is
+the mistake this exists to catch — and the one result it reports as a defect rather than a pass is a PONG to a key
+it has never been given, because that means the signature was not checked at all.
+
+### Changed
+
+**The county's football is now described as regions and pyramids, and the description is the only thing that changed.** The game
+has always had exactly one ladder, and the code said so in a dozen places that would each have had to be unpicked before a second
+one could exist: a single loose configuration on the save, a division found by hunting the world for the competition whose tier
+number was one away, and a competition id built from one fixed prefix. None of that is visible in a career, and none of it has
+changed one. The world now holds **regions** — one, drawn around the towns it already has, with every town placed in it — and the
+ladder a career plays on is a **pyramid** with an id of its own, holding the shape it was generated with and the competitions it
+owns. That id is `league` precisely because it is already the prefix of every competition the game has ever written
+(`comp_league_t1`, `comp_league_cup`, `comp_plate`), so not one competition was renamed, no match was re-homed, no club changed
+division and no date moved: a career saved before this wakes up with the ladder it already had, described the new way, and carries
+on mid-season. What it buys is the mistake it exists to prevent — a step up a ladder is now taken through that pyramid's own
+ordered divisions rather than by tier arithmetic, so a club cannot be promoted into another county's division because two ladders
+happen to number their rungs the same way.
+
+**And a career still opens.** The save format moves to **23**, and a career written before it is migrated on load: it is given
+exactly one region, around the towns it already has, and exactly one pyramid, made of the ladder it is already playing, and it is
+written back as a version 23 save. Nothing is regenerated and nothing is lost — the towns keep their names, positions and
+population, the clubs keep their squads, staff, ground and history, and the tables, cups and fixtures carry on from where they
+were, mid-season included.
+
+### Fixed
+
+**A cup round is a round now, not a matchday number.** The round a tie belongs to used to be worked back out of the matchday it was played on, which
+was arithmetic rather than an identity: both cups in the county number their rounds from one, so the same number was only ever "round three of
+whichever competition this matchday belonged to", and a second cup sharing a Sunday would have been read as the first one's round. A tie now carries
+the round it was drawn for, from the draw that made it to the replay that replaces it, and the draw, the round advance, the bracket and every screen
+that shows a cup all read that instead. A career saved before this is read exactly as it was: the round is filled in on load from the arithmetic it
+was always being given, and not one tie, date, result, competition or bracket moves.
+
+**And a season can no longer be built around a cup round that has no date.** A cup round whose place in the calendar could not be found used to be
+skipped in silence, which left a competition that could never be drawn again: no error, no warning, and the only symptom a cup with no final, a
+trophy nobody could win and an honours list quietly short by one. The season now compares the rounds it asked for with the rounds it was given, and
+refuses to start rather than playing one out; in the game the manager is stopped on the day with the competition and the reason named. Three checks
+watch the whole family of these over a long career — every cup that began reaching a winner, every drawn round having a day it can be played on, and
+every fixture being in a competition whose own list agrees with it — so a lost slot, a stuck bracket and a fixture in a competition that is not
+there are found in a report rather than in year twelve of a save. A valid season's calendar is unchanged to the day.
+
+**A man promoted from the committee kept the post he had left.** The best-placed man inside a club is normally the assistant,
+so being promoted to the manager's job from within is the ordinary route into it — and the committee's roster went on naming
+him as the assistant in the post he had just left. Nothing noticed at the time, because the roster's own readers skip a man who
+is also the manager; what noticed was his **retirement**. The managers' market retires a manager at 68 and takes him out of the
+world, and the club was then left pointing at a man who no longer existed: the fifteen-season soak reported `club-staff-exists`
+for a re-formed club four seasons after it was minted, naming an assistant who had been promoted and then retired. A man
+promoted from inside now gives up the posts he was holding, and a manager who leaves the world takes every committee post he
+still held with him.
+
+**A re-formation was minted at the middle of its division rather than at its own standard.** A club that comes back is the
+same club — the same crowd, the same pitch, the same name — so re-rolling its standing around the median of the rung was a
+quiet way of writing off the standing of every club that ever had a bad decade, and a rung that churns was dragged towards
+its own middle by it. Measured over ten seasons on one seeded county, the top two divisions closed to within the separation
+the pyramid is meant to hold (`tier-stratification`, two failures); a re-formation now keeps the standing the club had, and
+the same run reports no failures at all.
+
+**The two doors at the foot of a fixture card are one press wide on a phone.** On a narrow screen the state of
+the XI and the two buttons shared one row, and the layout squeezed all three: *Pick the team* wrapped across
+three lines in a box 67 pixels wide. The state of the selection now takes a line of its own above the buttons,
+and a button keeps the width its label needs — measured at 390 pixels, both are 44 pixels tall and neither
+wraps.
+
+**A manager between jobs is never shown the dashboard of the club he left.** The screen reads the club the
+manager actually manages — the same question every other user-gated system asks — and draws nothing at all when
+the answer is nobody, so a career with no club cannot be shown the ground, the committee or the fixtures of the
+one behind him.
+
+**A run of bad seasons is counted even after the new season's record has been opened.** The archive holds a
+blank record for the season about to start from the moment it is created, and the committee's count of
+consecutive failures stopped on it — so a manager could never be dismissed for a run of failures, only for
+being deep in the red.
+
+**The game's own error is announced once, on the screen you are looking at.** The dialog shell drew the error
+itself whenever it happened to be the top layer, and the banner drew it everywhere else — two rules for one
+sentence, with two silent failures between them: an error raised over a surface that does not draw it (a player's
+own page, the changing room at half time) was announced nowhere at all, and one raised over a dialog had a banner
+and a rule arguing about which of them was the real one. It is drawn in one file now, put into whatever has the
+screen as a strip of that surface, and the shell draws only its own content.
+
+**One bubble for a conversation, wherever it is read.** The inbox drew the manager's own words as `bubble--mine`
+and the negotiation table drew the same two directions as `bubble--you` and `bubble--them`, so one idea had two
+names and one rule each. Both screens render the same component and the sheet has one rule per direction, so the
+second vocabulary is gone along with a rule nothing used. Two smaller things the same audit left open: the squad
+list's secondary columns now drop off below 861 pixels the way the league, history, world, finances and recruitment
+tables already did, rather than being squeezed into soup, and the tactical effects that sat behind a closed
+disclosure at the foot of the tactics screen are printed under the instructions that cause them. The calendar also
+takes its opening month from the club's own season rather than from a date written into the component.
+
+**A screen that quotes a price is quoting the game's own.** The open session was offered at £20–£40 on the button and
+in the sentence under it, and charged at £18–£42; a hall booked because the weather turned the training pitch was
+described as £20–£30 and cost £18–£32. Both ranges are named where the money is actually spent now, beside the ledger
+entry that charges it, and the screens print the range itself — so what the button promises and what the book records
+cannot come apart again.
+
+**A club in the bottom three is told it is in the bottom three.** The one line the league screen has about the table
+read its subject from the competition rather than from the club's place in it, so a side sitting 19th of 20 was told it
+stood *Above the drop* with *0 pts* beside it: the gap to the last safe club is negative and was clamped at nothing. The
+label and the number follow the position now, the way the colour on the row already did — *In the drop · 3 pts from
+safety* for a club below the line, and a cushion, or *level on points*, for one above it. A test walks a whole table and
+insists the sentence and the row's mark agree at every place.
+
+**A manager between jobs is told when he went out of work, not when he looked.** The one screen there is without a club opened
+with *Out of work since* and today's date under it, because it printed the day the manager happened to be reading the screen —
+true on the first morning of unemployment and wrong on every morning after it. It reads the end date of the job he left now,
+the same date the record under it prints beside the club.
+
+**The longest-serving player is the man who has been here longest.** The history screen's line about him was worked out
+from appearances, so the man it named was whoever had played most while the sentence under his name said when he joined —
+which made a man who signed last week the club's longest servant. It is read from the date the sentence prints.
+
+**The world's directories say where they stopped.** The club list has always said *12 of 24 shown* and offered the rest;
+the business list under it showed twenty-four businesses and said nothing, so the end of the list looked like the end of
+the town. It carries the same control now. Two smaller things on the same screens: the training history counted the
+club's own sessions twice — *12 sessions · 12 on file* is now *12 sessions · 2 called off* — and a club with no ground
+printed *capacity 0* beside a name and a surface that said `—`.
+
+**The year a club is founded in belongs to the world, not to the clock.** A club designed on the create screen had its
+founding year clamped to the machine's own calendar year, so the same seed built a different club on another day and a
+year the manager had just typed could be rewritten underneath a screen that was still showing it. Founding years are
+held inside the career's own season now, between 1850 and the year the career starts, and the input, the drawing and the
+club all read that one rule. The career's opening year, which four files each wrote down for themselves, is one
+constant.
+
+**And a rule the game already knows is not written a second time in a screen.** The bench was five in four places on
+the team sheet and a fifth in the validator that refuses a sixth; a thin turnout at training was measured against a
+written-in eleven; the seed rule was stated twice on the profile screen and the club-name rule four times in the
+designer; the club-select panel had declared its own copy of the shared `Fact` row and printed `£5/£3` — the game's own
+defaults — as the subs terms of whichever club the manager was looking at. Each of them reads from one place now: the
+bench, the side, the seed, the name, the club's own figures.
+
+**The two things that ask the manager for something wear the lights as well.** The install card on the menu and the bar
+that says a new build is waiting are the only two pieces of the game that interrupt him — one wants to be put on a home
+screen, the other wants him to reload into the build that has already arrived — and both were still painted for the dark
+sheet when the lights came on. The card kept a near-black glass of its own over the menu's photograph, which made it the
+one surface on that screen that had not gone pale, and the bar carried a shadow nearly three times the weight the light
+palette gives a floating surface, which made a perfectly legible panel look like it was floating in a hole. The card is
+the menu's glass now — literally the same declaration as the saved careers beside it, so the screen has one glass rather
+than three shades nobody chose — and the bar is let down by the same amount the half-time card and a dialog's panel are,
+because a shadow on a light page is read as depth rather than as darkness. Both are pinned in `theme.test.ts`, which now
+reads the light block's own rule for each of them rather than trusting that somebody remembered.
+
 ## [0.11.1] - 2026-10-10 — the badge sits against the score
 
 ### Fixed

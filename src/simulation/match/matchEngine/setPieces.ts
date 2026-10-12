@@ -9,6 +9,7 @@ import {
   penaltyTaker,
   restartSpotFor,
   strikeOutcome,
+  throwInStandSpot,
 } from '../laws';
 import { roleProfile } from '../roles';
 import { strikeBall } from './ball';
@@ -168,12 +169,19 @@ function arrange(state: MatchEngineState, sp: SetPieceState, rng: Rng): void {
     if (player.sentOff) continue;
 
     if (taker && player.playerId === taker.playerId) {
-      // The taker stands at the ball: on the spot itself for a kick-off or a
-      // throw-in — where he is the one man allowed at it — and a couple of paces
-      // behind it for the rest, so he can meet it.
-      const back = sp.kind === 'kickoff' || sp.kind === 'throw-in' ? 0 : sp.kind === 'corner' ? 0.02 : 0.03;
-      player.tx = clamp(sp.spot.x - facing * back, 0.02, 0.98);
-      player.ty = clamp(sp.spot.y, 0.02, 0.98);
+      // Where the taker stands. On the grass for every restart taken from it: on
+      // the spot itself for a kick-off, where he is the one man allowed at it,
+      // and a couple of paces behind it for the rest, so he can meet it.
+      //
+      // A throw-in is the exception, and the only one: it is taken from outside
+      // the field of play, so his mark is the ground behind the line
+      // (`throwInStandSpot`) while the ball is played from the spot on it. His
+      // mark is deliberately not clamped to the grass — being off the pitch is
+      // the whole of it — and the mover is told it may be reached.
+      const stand = sp.kind === 'throw-in' ? throwInStandSpot(sp.spot) : null;
+      const back = sp.kind === 'kickoff' ? 0 : sp.kind === 'corner' ? 0.02 : 0.03;
+      player.tx = stand ? stand.x : clamp(sp.spot.x - facing * back, 0.02, 0.98);
+      player.ty = stand ? stand.y : clamp(sp.spot.y, 0.02, 0.98);
       player.intent = 'hold';
       continue;
     }
@@ -379,12 +387,34 @@ export function advanceSetPiece(state: MatchEngineState, world: DecisionWorld, s
     }
     sp.elapsed += dt;
     const taker = playerOf(state, sp.takerId);
-    // A throw-in is not taken until the taker is genuinely at the line: a looser
-    // tolerance let the ball be thrown from a pace or two inside the field, which
-    // is exactly what a throw-in must not look like. The margin allows for the
-    // stride the movement rules always leave short of a mark.
-    const arriveMargin = sp.kind === 'throw-in' ? 0.02 : 0.05;
-    const arrived = !taker || distance(taker.x, taker.y, sp.spot.x, sp.spot.y) < arriveMargin;
+    // A throw-in is not taken until the thrower is genuinely off the pitch: his
+    // mark is behind the line, so that is what is measured, and a tolerance taken
+    // to the spot instead would let the ball be thrown from a pace inside the
+    // field — which is exactly what a throw-in must not look like. Every other
+    // restart is measured to the ball, which is where the taker is going.
+    //
+    // The margin is the stride the movement rules leave short of a mark and no
+    // more. A loose one is not a detail: twenty thousandths of the pitch is a
+    // stride, and a thrower who stops that far short of a mark a stride outside
+    // the line is still on the grass — so the throw gets taken by a man standing
+    // over the touchline. Being off the field is the whole of it, and he has to
+    // have walked the last of the way to be there.
+    const arriveMargin = sp.kind === 'throw-in' ? 0.006 : 0.05;
+    const mark = sp.kind === 'throw-in' && taker ? { x: taker.tx, y: taker.ty } : sp.spot;
+    const arrived = !taker || distance(taker.x, taker.y, mark.x, mark.y) < arriveMargin;
+    // The ball is in the thrower's hands while the throw-in is arranged, so it
+    // travels out to the line with him and is drawn on the ground rather than
+    // left sitting on the grass a stride from the man holding it. It is still out
+    // of play, so nothing else in the simulation moves it — and the mark on the
+    // line it comes back in from is the spot, which the picture is handed
+    // separately because the ball is no longer drawn there.
+    if (sp.kind === 'throw-in' && taker) {
+      const ball = state.ball;
+      ball.x = taker.x;
+      ball.y = taker.y;
+      ball.px = taker.x;
+      ball.py = taker.y;
+    }
     // A kick-off also waits for the pitch to be legal: everyone back in his own
     // half and out of the circle.
     const legal = sp.kind !== 'kickoff' || kickoffReady(state, sp);

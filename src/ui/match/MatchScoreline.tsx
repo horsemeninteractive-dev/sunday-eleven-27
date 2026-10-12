@@ -1,6 +1,7 @@
 import type { GameState } from '@/domain/game';
 import type { Match } from '@/domain/match';
 import { currentScore } from '@/simulation/match/matchEngine';
+import { formatDayMonth } from '@/simulation/calendar';
 import { matchKitColours, shirtLine } from '../kit';
 import { ClubBadge } from '../components/Badge';
 
@@ -25,8 +26,25 @@ import { ClubBadge } from '../components/Badge';
  * is a drawing of one match: the same drawing is the head of a card over the
  * pitch and the headline of the report, and neither of them has to hand it
  * anything but the match they are about.
+ *
+ * It draws a match that has *not* been played too — the same crests, the same
+ * two names, the same two strips — and that is the paper's use of it. A cup draw
+ * is a story about two clubs and a date, and the football in it has not happened
+ * yet, so `score` is turned off and the middle of the drawing is the date the tie
+ * will be played. What must never happen is the other thing: a tie handed to
+ * this component as though it were a result, printing 0–0 on the front page of a
+ * paper about a game nobody has played.
  */
-export function MatchScoreline({ game, match }: { game: GameState; match: Match }) {
+export function MatchScoreline({
+  game,
+  match,
+  score: withScore = true,
+}: {
+  game: GameState;
+  match: Match;
+  /** Off for a tie nobody has played yet. See the note above. */
+  score?: boolean;
+}) {
   const home = game.clubs[match.homeClubId]!;
   const away = game.clubs[match.awayClubId]!;
   // The shirts, not the two clubs' own colours, which is the same answer the
@@ -44,11 +62,18 @@ export function MatchScoreline({ game, match }: { game: GameState; match: Match 
         </span>
         <strong>{home.identity.name}</strong>
       </span>
-      <span className="matchscore__score">
-        <span>{score.home}</span>
-        <span className="matchscore__dash">–</span>
-        <span>{score.away}</span>
-      </span>
+      {withScore ? (
+        <span className="matchscore__score">
+          <span>{score.home}</span>
+          <span className="matchscore__dash">–</span>
+          <span>{score.away}</span>
+        </span>
+      ) : (
+        // The date, where the score would be: a tie that has not been played
+        // has a when rather than a result, and this is the one cell of the
+        // drawing that can hold it without a second layout.
+        <span className="matchscore__score matchscore__score--when">{formatDayMonth(match.date)}</span>
+      )}
       <span className="matchscore__side matchscore__side--away">
         <strong>{away.identity.name}</strong>
         <span className="matchscore__crest">

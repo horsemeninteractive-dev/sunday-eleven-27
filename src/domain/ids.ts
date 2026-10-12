@@ -5,6 +5,7 @@
  * naming them makes it obvious which entity an id belongs to at every call site.
  */
 export type WorldId = string;
+export type RegionId = string;
 export type TownId = string;
 export type GroundId = string;
 export type BusinessId = string;
@@ -13,6 +14,12 @@ export type PersonId = string;
 export type PlayerId = string;
 export type MatchId = string;
 export type CompetitionId = string;
+/**
+ * A local ladder of football. It is also the id prefix of every competition it
+ * owns — `league` → `comp_league_t1` — which is what lets a second pyramid exist
+ * without any competition in an existing save being renamed.
+ */
+export type PyramidId = string;
 export type SeasonId = string;
 export type NewsId = string;
 export type EventId = string;

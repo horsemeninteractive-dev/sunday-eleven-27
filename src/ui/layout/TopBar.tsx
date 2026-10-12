@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { GameState } from '@/domain/game';
 import type { Match } from '@/domain/match';
 import { formatDate, formatDayMonth, formatKickOff } from '@/simulation/calendar';
@@ -7,8 +7,7 @@ import { matchVenueLabel } from '@/simulation/queries';
 import { nextFixtureFor as scheduleNextFixture } from '@/simulation/schedule';
 import type { CommandState } from '../commandState';
 import { runCommand } from '../commandActions';
-import { clubStyle } from '../colour';
-import { gameActions } from '../hooks';
+import { gameActions, useClubColours } from '../hooks';
 import { ClubBadge } from '../components/Badge';
 import { Glyph } from '../components/icons';
 import { StripeField } from '../components/StripeField';
@@ -26,8 +25,16 @@ import { Dialog } from '../dialogs/Dialog';
  * run the session, or play the match.
  */
 
-function colours(game: GameState): Record<string, string> {
-  return clubStyle(game.clubs[game.userClubId]!.identity.colours);
+/**
+ * The club's colours, resolved for the theme in force.
+ *
+ * The bar is painted flat in the club's colour and read over its own stripes,
+ * which is the same in either theme — but one of the tokens is not: the club's
+ * *text* ink is mixed against the surface it will be written on, and the panel
+ * under a link is a different colour with the lights on.
+ */
+function useColours(game: GameState): Record<string, string> {
+  return useClubColours(game.clubs[game.userClubId]!.identity.colours);
 }
 
 /**
@@ -43,6 +50,20 @@ export function nextFixtureFor(game: GameState): Match | null {
 function NextMatchBlock({ game, command }: { game: GameState; command: CommandState }) {
   const club = game.clubs[game.userClubId]!;
   const fixture = nextFixtureFor(game);
+
+  if (command.phase === 'between-jobs') {
+    return (
+      <div className="nextmatch">
+        <span className="nextmatch__head">
+          <span className="nextmatch__label">Between jobs</span>
+          <span className="nextmatch__title">Looking for a club</span>
+        </span>
+        <span className="nextmatch__meta">
+          <span>{game.season.label}</span>
+        </span>
+      </div>
+    );
+  }
   const isMatchday = command.phase === 'matchday';
   const isToday = isMatchday && fixture?.date === game.date;
 
@@ -89,10 +110,49 @@ function NextMatchBlock({ game, command }: { game: GameState; command: CommandSt
   );
 }
 
+/**
+ * Finding somebody without leaving the keyboard.
+ *
+ * `Ctrl`/`Cmd`+`K` is the shortcut every desktop player already has in their
+ * fingers from other applications, and this game has one search worth reaching
+ * for: the command bar's. Two things are on the screen and only one of them is
+ * ever visible — the desktop bar and, on a phone, the bar's own search dialog —
+ * so the shortcut belongs to whichever control is actually laid out, which is
+ * what `offsetParent` answers (`null` under a `display: none` shell). Both
+ * halves register their own listener for that reason, and neither has to know
+ * about a breakpoint width.
+ */
+function isSearchShortcut(event: KeyboardEvent): boolean {
+  return (event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === 'k';
+}
+
+function isOnScreen(element: HTMLElement | null): boolean {
+  return !!element && element.offsetParent !== null;
+}
+
+/** The key the manager's own machine would print on a key cap. */
+export function searchShortcutLabel(): string {
+  if (typeof navigator === 'undefined') return 'Ctrl K';
+  const platform = `${navigator.platform ?? ''} ${navigator.userAgent ?? ''}`;
+  return /mac|iphone|ipad|ipod/i.test(platform) ? '\u2318K' : 'Ctrl K';
+}
+
 function SearchBox({ game, onChoose }: { game: GameState; onChoose?: () => void }) {
   const resultId = useId();
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (!isSearchShortcut(event) || !isOnScreen(input.current)) return;
+      event.preventDefault();
+      input.current!.focus();
+      input.current!.select();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
 
   const results = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -121,6 +181,7 @@ function SearchBox({ game, onChoose }: { game: GameState; onChoose?: () => void 
     <div className="topbar__search" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false); }} onKeyDown={(event) => { if (event.key === 'Escape') { event.stopPropagation(); setOpen(false); } if (event.key === 'ArrowDown') { const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('.searchresults__item')]; const index = buttons.indexOf(document.activeElement as HTMLButtonElement); if (buttons.length) { event.preventDefault(); buttons[(index + 1) % buttons.length]?.focus(); } } }}>
       <Glyph name="search" className="topbar__search-icon" />
       <input
+        ref={input}
         type="search"
         value={query}
         placeholder="Search clubs, players…"
@@ -132,6 +193,9 @@ function SearchBox({ game, onChoose }: { game: GameState; onChoose?: () => void 
         onFocus={() => setOpen(true)}
         aria-controls={open && query.trim().length >= 2 ? resultId : undefined}
       />
+      {/* The shortcut is written where the shortcut is used: a key nobody knows
+          about is a key nobody presses. */}
+      <kbd className="topbar__search-key">{searchShortcutLabel()}</kbd>
       {open && query.trim().length >= 2 && (
         <div className="searchresults" id={resultId} role="region" aria-label="Search results">
           {!hasResults && <p className="searchresults__empty">Nothing found for “{query}”.</p>}
@@ -187,25 +251,36 @@ function SearchBox({ game, onChoose }: { game: GameState; onChoose?: () => void 
 
 export function DesktopTopBar({ game, command }: { game: GameState; command: CommandState }) {
   const club = game.clubs[game.userClubId]!;
+  const betweenJobs = command.phase === 'between-jobs';
+  const colours = useColours(game);
 
   return (
-    <header className="topbar on-club" style={colours(game)}>
+    <header className="topbar on-club" style={colours}>
       <StripeField className="topbar__stripes" pattern="var(--club-stripes)" fade="var(--club-bar-fade)" />
       <div className="topbar__row">
-        <button
-          type="button"
-          className="topbar__club"
-          onClick={() => gameActions().openProfile({ kind: 'club', id: club.id })}
-          title={`${club.identity.name} — club profile`}
-        >
-          <span className="topbar__crest">
-            <ClubBadge club={club} />
+        {betweenJobs ? (
+          <span className="topbar__club topbar__club--static">
+            <span className="topbar__names">
+              <span className="topbar__club-name">Between jobs</span>
+              <span className="topbar__club-sub">Looking for a club</span>
+            </span>
           </span>
-          <span className="topbar__names">
-            <span className="topbar__club-name">{club.identity.name}</span>
-            <span className="topbar__club-sub">{club.identity.nickname}</span>
-          </span>
-        </button>
+        ) : (
+          <button
+            type="button"
+            className="topbar__club"
+            onClick={() => gameActions().openProfile({ kind: 'club', id: club.id })}
+            title={`${club.identity.name} — club profile`}
+          >
+            <span className="topbar__crest">
+              <ClubBadge club={club} />
+            </span>
+            <span className="topbar__names">
+              <span className="topbar__club-name">{club.identity.name}</span>
+              <span className="topbar__club-sub">{club.identity.nickname}</span>
+            </span>
+          </button>
+        )}
 
         <NextMatchBlock game={game} command={command} />
 
@@ -243,20 +318,38 @@ export function DesktopTopBar({ game, command }: { game: GameState; command: Com
 
 export function MobileTopBar({ game, command }: { game: GameState; command: CommandState }) {
   const [searchOpen, setSearchOpen] = useState(false);
+  const searchButton = useRef<HTMLButtonElement>(null);
   const club = game.clubs[game.userClubId]!;
+  const betweenJobs = command.phase === 'between-jobs';
+  const colours = useColours(game);
+
+  // The phone's half of the same shortcut: the desktop bar is not laid out here,
+  // so this is the one that answers, and it opens the dialog rather than an
+  // input it has not got.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (!isSearchShortcut(event) || !isOnScreen(searchButton.current)) return;
+      event.preventDefault();
+      setSearchOpen(true);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
+
   return (
-    <header className="mobilebar on-club" style={colours(game)}>
+    <header className="mobilebar on-club" style={colours}>
       <StripeField className="mobilebar__stripes" pattern="var(--club-stripes)" fade="var(--club-bar-fade)" />
       <button
         type="button"
         className="mobilebar__club"
-        onClick={() => gameActions().openProfile({ kind: 'club', id: club.id })}
+        disabled={betweenJobs}
+        onClick={() => !betweenJobs && gameActions().openProfile({ kind: 'club', id: club.id })}
       >
         <span className="topbar__crest">
-          <ClubBadge club={club} />
+          {betweenJobs ? null : <ClubBadge club={club} />}
         </span>
         <span className="mobilebar__text">
-          <strong>{club.identity.shortName}</strong>
+          <strong>{betweenJobs ? 'Between jobs' : club.identity.shortName}</strong>
           {/* Quieter than the club's short name by its size alone: an opacity
               here would be the club's ink mixed with the club's colour, which
               is a smaller amount of the same text rather than a quieter one. */}
@@ -266,7 +359,7 @@ export function MobileTopBar({ game, command }: { game: GameState; command: Comm
         </span>
       </button>
       <div className="mobilebar__tools">
-        <button type="button" className="topbar__icon" aria-label="Find a club or player" onClick={() => setSearchOpen(true)}><Glyph name="search" /></button>
+        <button ref={searchButton} type="button" className="topbar__icon" aria-label="Find a club or player" onClick={() => setSearchOpen(true)}><Glyph name="search" /></button>
         <UtilityMenu icon compact />
       </div>
       {searchOpen && <Dialog title="Find a club or player" narrow onClose={() => setSearchOpen(false)}><SearchBox game={game} onChoose={() => setSearchOpen(false)} /><p className="small muted">Type at least two letters. Use Tab or the down arrow to reach results.</p></Dialog>}

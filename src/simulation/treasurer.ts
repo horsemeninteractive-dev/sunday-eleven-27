@@ -7,6 +7,7 @@ import {
   personDisplayName,
   type Person,
 } from '@/domain/person';
+import { GROUND_UPKEEP } from '@/domain/facilities';
 import { collectPlayerSubs, financeSummary } from './finance';
 import { staffCompetence, staffIsAvailable } from './staff';
 import { weeklySponsorshipIncome } from './sponsorship';
@@ -343,8 +344,12 @@ export function seasonOutlook(state: GameState, clubId: ClubId = state.userClubI
   // are owed per match, and only the money handed over reaches the balance.
   const weeklyIn = weeklySponsorshipIncome(state, clubId);
   // The pitch is not in the weekly run rate: it is charged when the club plays
-  // at home, which is a fixture cost rather than a standing one.
-  const weeklyOut = club.finances.insurancePerWeek + club.finances.trainingCostPerWeek;
+  // at home, which is a fixture cost rather than a standing one. The ground
+  // upkeep is, though — it is a standing commitment like the insurance, and a
+  // projection that left out a bill the club has taken on would be promising a
+  // balance that is not going to be there in May.
+  const upkeep = state.facilities?.upkeep?.[clubId] === true ? GROUND_UPKEEP.perWeek : 0;
+  const weeklyOut = club.finances.insurancePerWeek + club.finances.trainingCostPerWeek + upkeep;
   const weeklyNet = Math.round((weeklyIn - weeklyOut) * 100) / 100;
   const projected = Math.round((club.finances.balance + weeklyNet * weeksLeft) * 100) / 100;
   return { weeklyNet, weeksLeft, seasonEnd, projected };

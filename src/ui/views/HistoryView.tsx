@@ -1,5 +1,5 @@
 import type { ClubSeasonRecord } from '@/domain/club';
-import { isPlayer } from '@/domain/person';
+import { isPlayer, type Player } from '@/domain/person';
 import { formatShortDate } from '@/simulation/calendar';
 import { clubMatches, squadOf } from '@/simulation/queries';
 import { gameActions, useGame } from '../hooks';
@@ -60,6 +60,7 @@ export function HistoryView() {
     .filter((player) => player.clubId === club.id);
   const topScorer = allPlayers.slice().sort((a, b) => b.record.goals - a.record.goals)[0];
   const mostAppearances = squad.slice().sort((a, b) => b.record.appearances - a.record.appearances)[0];
+  const longestServing = longestServingPlayer(squad);
   const seasons = applySort(
     history.seasons.filter((season) => season.played > 0),
     sort,
@@ -78,6 +79,13 @@ export function HistoryView() {
         meta={
           <>
             <span className="small muted">{club.identity.nickname}</span>
+            {club.heritage && (
+              <span className="small muted">
+                {club.heritage.kind === 'reformed'
+                  ? `Re-formed ${club.heritage.since.slice(0, 4)} — the same club, back on the same ground`
+                  : `Formed ${club.heritage.since.slice(0, 4)} in place of ${club.heritage.predecessorName}`}
+              </span>
+            )}
             <span className="small muted">
               {history.honours.length > 0 ? `${history.honours.length} honour${history.honours.length === 1 ? '' : 's'}` : 'No honours yet'}
             </span>
@@ -254,16 +262,27 @@ export function HistoryView() {
             </li>
           ))}
         </ul>
-        {mostAppearances && (
+        {longestServing && (
           <p className="muted small">
             Longest-serving player in the current squad:{' '}
-            <PlayerLink personId={mostAppearances.id}>{playerName(mostAppearances)}</PlayerLink> since{' '}
-            {formatShortDate(mostAppearances.joinedClubOn)}.
+            <PlayerLink personId={longestServing.id}>{playerName(longestServing)}</PlayerLink> since{' '}
+            {formatShortDate(longestServing.joinedClubOn)}.
           </p>
         )}
       </Section>
     </div>
   );
+}
+
+/**
+ * The man who has been at the club longest.
+ *
+ * A different fact from the man with the most appearances, which is what the
+ * sentence that names him used to be worked out from: that line says when he
+ * joined, so the man it names has to be the one with the earliest date.
+ */
+export function longestServingPlayer(squad: readonly Player[]): Player | undefined {
+  return [...squad].sort((a, b) => a.joinedClubOn.localeCompare(b.joinedClubOn))[0];
 }
 
 /** The heaviest win on record, or nothing if the club has never won by two. */

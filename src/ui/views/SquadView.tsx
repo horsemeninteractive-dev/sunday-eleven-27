@@ -33,6 +33,28 @@ const BAND_LABEL: Record<PositionGroup, string> = {
 type SquadSortKey = 'player' | 'pos' | 'condition' | 'form' | 'availability' | 'apps' | 'goals' | 'morale' | 'assists' | 'age' | 'passing' | 'tackling' | 'shooting' | 'pace' | 'stamina';
 type SquadViewMode = 'selection' | 'performance' | 'attributes';
 
+/**
+ * The columns a narrow screen drops.
+ *
+ * A squad list is the one table in the game with enough columns to be soup below
+ * 861px, and the sheet's own answer to that already exists — `.col--opt` is hidden
+ * there, and every other sortable table in the game (league, history, world,
+ * finances, recruitment) marks its secondary columns with it. What stays is the
+ * column a decision needs: who he is, where he plays, and the two or three numbers
+ * the view is *for*. What goes is the rest of it, which his own page still holds
+ * in full.
+ */
+const OPTIONAL_COLUMNS: Record<SquadViewMode, ReadonlySet<string>> = {
+  selection: new Set(['form', 'morale']),
+  performance: new Set(['assists', 'form']),
+  attributes: new Set(['shooting', 'pace', 'stamina']),
+};
+
+/** `col--opt` for a heading or a cell the phone drops, and nothing otherwise. */
+function optionalColumn(viewMode: SquadViewMode, key: string): string | undefined {
+  return OPTIONAL_COLUMNS[viewMode].has(key) ? 'col--opt' : undefined;
+}
+
 /** What each heading sorts by. Kept with the table it belongs to. */
 const SQUAD_SORT: SortAccessors<Player, SquadSortKey> = {
   player: (player) => `${player.surname} ${player.firstName}`,
@@ -152,9 +174,9 @@ export function SquadView() {
                 <tr>
                   <SortTh label="Player" sortKey="player" sort={sort} onSort={setSort} />
                   <SortTh label="Pos" sortKey="pos" sort={sort} onSort={setSort} />
-                  {viewMode === 'selection' && <><SortTh label="Fitness" sortKey="condition" sort={sort} onSort={setSort} /><SortTh label="Form" sortKey="form" sort={sort} onSort={setSort} /><SortTh label="Morale" sortKey="morale" sort={sort} onSort={setSort} /><SortTh label="Availability" sortKey="availability" sort={sort} onSort={setSort} /></>}
-                  {viewMode === 'performance' && <><SortTh label="Apps" sortKey="apps" sort={sort} onSort={setSort} /><SortTh label="Goals" sortKey="goals" sort={sort} onSort={setSort} /><SortTh label="Assists" sortKey="assists" sort={sort} onSort={setSort} /><SortTh label="Form" sortKey="form" sort={sort} onSort={setSort} /></>}
-                  {viewMode === 'attributes' && <><SortTh label="Age" sortKey="age" sort={sort} onSort={setSort} />{(['passing', 'tackling', 'shooting', 'pace', 'stamina'] as const).map(key => <SortTh key={key} label={key.charAt(0).toUpperCase() + key.slice(1)} sortKey={key} sort={sort} onSort={setSort} />)}</>}
+                  {viewMode === 'selection' && <><SortTh label="Fitness" sortKey="condition" sort={sort} onSort={setSort} /><SortTh label="Form" sortKey="form" sort={sort} onSort={setSort} className={optionalColumn(viewMode, 'form')} /><SortTh label="Morale" sortKey="morale" sort={sort} onSort={setSort} className={optionalColumn(viewMode, 'morale')} /><SortTh label="Availability" sortKey="availability" sort={sort} onSort={setSort} /></>}
+                  {viewMode === 'performance' && <><SortTh label="Apps" sortKey="apps" sort={sort} onSort={setSort} /><SortTh label="Goals" sortKey="goals" sort={sort} onSort={setSort} /><SortTh label="Assists" sortKey="assists" sort={sort} onSort={setSort} className={optionalColumn(viewMode, 'assists')} /><SortTh label="Form" sortKey="form" sort={sort} onSort={setSort} className={optionalColumn(viewMode, 'form')} /></>}
+                  {viewMode === 'attributes' && <><SortTh label="Age" sortKey="age" sort={sort} onSort={setSort} />{(['passing', 'tackling', 'shooting', 'pace', 'stamina'] as const).map(key => <SortTh key={key} label={key.charAt(0).toUpperCase() + key.slice(1)} sortKey={key} sort={sort} onSort={setSort} className={optionalColumn(viewMode, key)} />)}</>}
                 </tr>
               </thead>
               <tbody>
@@ -191,11 +213,11 @@ export function SquadView() {
                       <Meter value={player.fitness} tone={player.fitness < 60 ? 'warn' : 'ok'} />
                       <span className="muted small">{Math.round(player.fitness)}%</span>
                     </td>
-                    <td data-label="Form">
+                    <td data-label="Form" className={optionalColumn(viewMode, 'form')}>
                       <Meter value={player.form} tone={player.form > 60 ? 'ok' : player.form < 40 ? 'warn' : 'accent'} />
                       <span className="muted small">{Math.round(player.form)}</span>
                     </td>
-                    <td data-label="Morale">{Math.round(player.morale)}</td>
+                    <td data-label="Morale" className={optionalColumn(viewMode, 'morale')}>{Math.round(player.morale)}</td>
                     <td data-label="Availability">
                       <Pill tone={availabilityTone(player.availability.status)}>{player.availability.status}</Pill>
                       {player.availability.note && <div className="muted small">{player.availability.note}</div>}
@@ -206,8 +228,8 @@ export function SquadView() {
                     </td>
                     <td data-label="Goals">
                       {player.record.goals}
-                    </td><td data-label="Assists">{player.record.assists}</td><td data-label="Form">{Math.round(player.form)}</td></>}
-                    {viewMode === 'attributes' && <><td data-label="Age">{player.age}</td><td data-label="Passing">{player.attributes.technical.passing}</td><td data-label="Tackling">{player.attributes.technical.tackling}</td><td data-label="Shooting">{player.attributes.technical.shooting}</td><td data-label="Pace">{player.attributes.physical.pace}</td><td data-label="Stamina">{player.attributes.physical.stamina}</td></>}
+                    </td><td data-label="Assists" className={optionalColumn(viewMode, 'assists')}>{player.record.assists}</td><td data-label="Form" className={optionalColumn(viewMode, 'form')}>{Math.round(player.form)}</td></>}
+                    {viewMode === 'attributes' && <><td data-label="Age">{player.age}</td><td data-label="Passing">{player.attributes.technical.passing}</td><td data-label="Tackling">{player.attributes.technical.tackling}</td><td data-label="Shooting" className={optionalColumn(viewMode, 'shooting')}>{player.attributes.technical.shooting}</td><td data-label="Pace" className={optionalColumn(viewMode, 'pace')}>{player.attributes.physical.pace}</td><td data-label="Stamina" className={optionalColumn(viewMode, 'stamina')}>{player.attributes.physical.stamina}</td></>}
                   </tr>
                   </Fragment>
                   );

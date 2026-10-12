@@ -166,7 +166,10 @@ describe('the navigation is a rail that the frame gives way to', () => {
 
 describe('a chosen control is painted by its own state', () => {
   const css = source('styles.css');
-  const declarations = [...css.matchAll(/^[^{}]*(?::not\(\.(?:tab--active|segmented__item--active|chip--on)\))?[^{}]*\{[^}]*background: linear-gradient\(180deg, rgba\(255, 255, 255, 0\.0[0-9]+\), transparent\)/gm)];
+  // The lift is `--lift` now rather than a white written into the rule, because
+  // a surface raised out of the dark is raised *into* the light — the same wash
+  // at the same alpha, and on a light page it is a shade rather than a highlight.
+  const declarations = [...css.matchAll(/^[^{}]*(?::not\(\.(?:tab--active|segmented__item--active|chip--on)\))?[^{}]*\{[^}]*background: linear-gradient\(180deg, rgba\(var\(--lift\), 0\.0[0-9]+\), transparent\)/gm)];
 
   it('keeps the neutral surface off the chosen one', () => {
     // The surface layer matched plain `.tab`/`.segmented__item` and, coming
@@ -245,31 +248,116 @@ describe('the screens rebuilt in this pass', () => {
     expect(css).toContain('@media (min-width: 1080px)');
   });
 
-  it('gives a story a picture of the kind of story it is', () => {
+  it('prints a front page, a second tier and then the clippings', () => {
     const view = source('views/NewsView.tsx');
-    // One on the lead story and one on every card in the feed: the picture
-    // belongs to the story rather than being an ornament on the screen.
-    expect(view.split('<NewsPlate').length - 1).toBe(2);
-    expect(view).toContain('<NewsPlate category={item.category} className="news-plate--lead" />');
+    // One story leads, the next two are given a column each, and everything else
+    // is filed under the day it happened. A paper that printed its stories at one
+    // size would be a list, whatever it was drawn on.
+    expect(view).toContain('const [lead, ...afterLead] = shown');
+    expect(view).toContain('afterLead.slice(0, FEATURES)');
+    expect(view).toContain('afterLead.slice(FEATURES)');
+    expect(view).toContain('news-features');
+    expect(view).toContain('news-story--feature');
+    // The lead has a band of its own across the top, and the story's opening line
+    // is what a feature gives its column that a clipping cannot.
+    expect(view).toContain('news-lead__front');
+    expect(view).toContain('news-story__standfirst');
+
+    const css = source('styles.css');
+    // The date is still the spine of the feed, and the second tier is two
+    // columns of it rather than a wider grid of the same card.
+    expect(css).toMatch(/\.news-lead__front \{[^}]*background-image[^}]*photos\/news-lead\.webp/s);
+    expect(css).toMatch(/\.news-features \{[^}]*display: grid/s);
+    expect(css).toMatch(/@media \(min-width: 720px\) \{\s*\.news-features/s);
+    // A phone gets a shorter band and a smaller feature picture rather than the
+    // desktop composition scrolled sideways.
+    expect(css).toMatch(/@media \(max-width: 600px\) \{[\s\S]*\.news-lead__front/s);
+  });
+
+  it('gives a story a picture of what actually happened', () => {
+    const view = source('views/NewsView.tsx');
+    // One on the lead, one on each story given a column, and one on every card in
+    // the feed: the picture belongs to the story rather than being an ornament on
+    // the screen.
+    expect(view.split('<NewsPlate').length - 1).toBe(3);
+    expect(view).toContain('<NewsPlate plate={plateForStory(item)} className="news-plate--lead" />');
+    expect(view).toContain('<NewsPlate plate={plateForStory(item)} className="news-plate--feature" />');
     // And on a card it is drawn inside the summary, beside the headline it is a
     // picture of, rather than in the body that only opens when the card does.
-    expect(view.slice(view.indexOf('<summary>'))).toContain('<NewsPlate category={item.category} />');
+    expect(view.slice(view.indexOf('<summary>'))).toContain('<NewsPlate plate={plateForStory(item)} />');
+    // The picture and the label are chosen in one place, from the event, and the
+    // screen asks that one place rather than reading the category itself.
+    expect(view).toContain("from '../newsStory'");
+    expect(view).toContain('labelForStory(item)');
+    // The column is the filter, not the label: the screen never prints a story
+    // as "Squad" when it can say what happened to it.
+    expect(view).not.toContain('{item.category}');
 
-    // The six kinds of story, six drawings: a paper whose match report and whose
-    // finance warning wore the same picture would have said nothing by drawing
-    // it, so each kind has one of its own in the same map.
+    // The drawings themselves: the set is keyed on the story, so it holds more
+    // than the six columns and every one of them is a drawing rather than a
+    // glyph. Which event wears which is `newsStory.ts`'s table, pinned in
+    // `newsStory.test.ts`.
     const plate = source('components/NewsPlate.tsx');
-    for (const category of ['Match', 'Squad', 'Club', 'League', 'World', 'Finances']) {
-      expect(plate, category).toContain(`${category}: [`);
+    for (const key of ['Match', 'Squad', 'Club', 'League', 'World', 'Finances', 'Cup', 'Transfer', 'Absence', 'Training', 'Milestone', 'CalledOff', 'Rows']) {
+      expect(plate, key).toContain(`${key}: [`);
     }
 
     const css = source('styles.css');
-    // One sheet, one size, and the lead story's copy of it twice that size —
-    // drawn at half the stroke weight, or the lead's picture would be the one
-    // thing on the screen with a heavier hand than everything around it.
+    // One sheet, one size, and the two wider readings of it — the lead's at twice
+    // the size and the feature's in between — each drawn at the weight that keeps
+    // the stroke the same on the page, or the biggest picture on the screen would
+    // be the one with the heaviest hand.
     expect(css).toMatch(/\.news-plate \{[^}]*width: 64px/s);
     expect(css).toMatch(/\.news-plate--lead \{[^}]*stroke-width: 0\.75/s);
+    expect(css).toMatch(/\.news-plate--feature \{[^}]*stroke-width: 1/s);
     expect(css).toMatch(/\.news-story > summary \{[^}]*grid-template-columns: auto minmax\(0, 1fr\)/s);
+  });
+
+  it('headlines a football story with the football rather than with a sentence about it', () => {
+    const view = source('views/NewsView.tsx');
+    // A result on the front page is the crests, the shirts and the score the rest
+    // of the game already draws — the same component the match header, half time,
+    // full time and the report use — rather than a plate beside the words.
+    expect(view).toContain('<MatchScoreline game={game} match={match} score={Boolean(result)} />');
+    // And a tie nobody has played is drawn without a score, because
+    // `MatchScoreline` prints the score a match is *currently* at and a drawn tie
+    // handed to it as a result would read as 0–0. The two readers are what keeps
+    // that apart, and they are asked rather than the match field itself.
+    expect(view).toContain('resultForStory(game.matches, item)');
+    expect(view).toContain('fixtureForStory(game.matches, item)');
+    expect(view).toContain('score={Boolean(result)}');
+
+    // A story that has been played opens onto the door into its report, which is
+    // the one thing the paper can offer that the story cannot print.
+    expect(view).toContain('openMatchReport(result.id)');
+
+    // The scoreline itself is the shared one, extended rather than copied: a tie
+    // has a date where the score would be.
+    const scoreline = source('match/MatchScoreline.tsx');
+    expect(scoreline).toContain('matchscore__score--when');
+    expect(scoreline).toContain('formatDayMonth(match.date)');
+    const css = source('styles.css');
+    expect(css).toMatch(/\.matchscore__score--when \{/);
+  });
+
+  it('keeps the paper’s own photograph out of the story’s business', () => {
+    // The lead's band wears a photograph, and the one thing it may never do is
+    // stand in for the story: nothing in this game is photographed, so a picture
+    // over a match report is the paper's own furniture and is never captioned as
+    // a picture of that afternoon.
+    const view = source('views/NewsView.tsx');
+    expect(view).toContain('news-lead__front');
+    // It is a background, not a picture in the document: there is nothing in the
+    // markup a reader could take as depicting the story, which is exactly what
+    // keeps a stand-in photograph from becoming a claim about an afternoon.
+    expect(view).not.toContain('<img');
+    expect(view).not.toContain('figcaption');
+    // The page keeps the board the club already has at the top of it.
+    expect(view).toContain('/photos/inbox-noticeboard.webp');
+    const css = source('styles.css');
+    expect(css).toContain("url('/photos/news-lead.webp')");
+    // And it is washed, like every other band that puts ink on a picture.
+    expect(css).toMatch(/\.news-lead__front \{[^}]*linear-gradient/s);
   });
 });
 
@@ -594,8 +682,15 @@ describe('a person is drawn, and a dialog says what kind of thing it is', () => 
     // drawn in the game's default green, which is a colour no club in the save
     // has. Measured on a club whose colour is #1f6feb: `The game` wore the club's
     // blue and `Preferences`, opened from inside it, wore `rgb(76, 175, 125)`.
+    //
+    // The colours are resolved in a hook now rather than in a `clubStyle` call,
+    // because a club's inks are mixed against the surface they will be read on
+    // and that surface is a different colour in each theme. A hook cannot be
+    // called after the early returns above, so the element that needs one is the
+    // element that has one.
     const dialogs = source('dialogs/AppDialogs.tsx');
-    expect(dialogs).toContain('clubStyle(game.clubs[game.userClubId]!.identity.colours)');
+    expect(dialogs).toContain('<ClubWrapped colours={game.clubs[game.userClubId]!.identity.colours}>');
+    expect(dialogs).toContain('style={useClubColours(colours)}');
     // And the main menu still has no club to take a colour from, which is why
     // the colours are a wrapper around the dialog rather than a second shell.
     expect(dialogs).toContain('if (!game) return open;');
@@ -774,8 +869,12 @@ describe('a conversation is with a man, and he is drawn in it', () => {
     expect(inbox).toContain('<Portrait person={face} size="md" />');
     expect(inbox).toContain('<Portrait person={sender} size="sm" />');
     // The face is added to the words, not swapped for them: a man the save has
-    // forgotten still gets his name printed above his sentence.
-    expect(inbox).toContain('{!message.mine && <p className="bubble__from">');
+    // forgotten still gets his name printed above his sentence, because the name is
+    // handed to the bubble either way and the drawing is the extra.
+    expect(inbox).toContain('from={!message.mine ? message.sender : undefined}');
+    expect(inbox).toContain('face={!message.mine && sender ? <Portrait person={sender} size="sm" /> : undefined}');
+    // And it is the one bubble, shared with the negotiation table, that prints it.
+    expect(source('components/Bubble.tsx')).toContain('{from && <p className="bubble__from">{from}</p>}');
     expect(rule('.inbox__thread-face')?.body).toContain('flex: none');
   });
 
@@ -846,19 +945,24 @@ describe('a conversation is with a man, and he is drawn in it', () => {
     expect(rule('.searchresults__item .portrait')?.body).toContain('width: 28px');
   });
 
-  it('makes a bubble a face and its words, in both places a bubble is drawn', () => {
+  it('makes a bubble a face and its words, in the one rule both screens share', () => {
     // One message, two screens: the inbox thread and the transfer conversation.
     // Both are the same shape — a face on the left, the words taking the rest —
-    // because both are a person saying something.
+    // because both are a person saying something; and because the two of them used
+    // to draw that shape in two vocabularies, there is one rule now rather than one
+    // per screen, which is the audit finding this pins.
     const bubbles = sheet.filter(
       (candidate) => candidate.selector.trim() === '.bubble' && candidate.media === '',
     );
     const defined = bubbles.filter((bubble) => bubble.body.includes('background: var(--panel)'));
-    expect(defined, 'expected a bubble in the inbox and one in the negotiation').toHaveLength(2);
+    expect(defined, 'expected one bubble definition, shared by both screens').toHaveLength(1);
     for (const bubble of defined) {
       expect(bubble.body).toContain('display: flex');
       expect(bubble.body).toContain('align-items: flex-start');
     }
+    // And both screens really render it, so one rule is not one unused rule.
+    expect(source('views/InboxView.tsx')).toContain("from '../components/Bubble'");
+    expect(source('components/NegotiationModal.tsx')).toContain("from './Bubble'");
     // Nothing further down the sheet turns that row back into a block.
     for (const bubble of bubbles) expect(bubble.body).not.toContain('display: block');
     // The drawing is sized by `.portrait` itself, so all the face's wrapper does is

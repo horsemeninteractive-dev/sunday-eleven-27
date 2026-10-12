@@ -186,7 +186,12 @@ export default defineConfig(({ mode }) => ({
   test: {
     environment: 'node',
     globals: true,
-    include: ['src/**/*.test.ts'],
+    // `worker/` is XIAI's endpoint in the cloud, and it is tested by the same
+    // command as everything else: its signature check is the one piece of the
+    // bot that can fail in a way nobody would notice — a request Discord did not
+    // send being answered like one that did — so it is the last thing that
+    // should need a second command to check.
+    include: ['src/**/*.test.ts', 'worker/**/*.test.ts'],
     // `npm test` is the fast check a person runs on every change: the engine
     // batches and the season-loop suites are minutes of football and live in
     // `npm run test:slow` instead. Both halves are named once, in

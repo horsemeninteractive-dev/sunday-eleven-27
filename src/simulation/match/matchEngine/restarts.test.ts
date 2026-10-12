@@ -102,7 +102,7 @@ describe('the pressing rule', () => {
 });
 
 describe('the throw-in', () => {
-  it('is awarded to a named thrower and taken from the touchline', () => {
+  it('is awarded to a named thrower and taken from outside the touchline', () => {
     const { state } = createTestGame('restarts-throw');
     const match = userMatch(state);
     const engine = createMatchEngine(match, envFor(state, match));
@@ -132,8 +132,33 @@ describe('the throw-in', () => {
     const delivery = toDelivery(engine);
     expect(delivery).not.toBeNull();
     const taker = es.players.find((player) => player.playerId === delivery!.takerId)!;
-    // A throw-in is taken from the touchline, by the man named on the record.
-    expect(Math.min(taker.y, 1 - taker.y)).toBeLessThan(0.04);
+    // A throw-in is the one restart taken from *outside* the field of play: the
+    // thrower stands on the ground behind the line with the ball in his hands,
+    // while the spot is on the line he throws it back in from — two places a
+    // stride apart, and both of them the law's own geometry.
+    expect(Math.min(taker.y, 1 - taker.y), `the thrower is on the grass at y=${taker.y}`).toBeLessThan(0);
+    expect(Math.min(delivery!.spot.y, 1 - delivery!.spot.y)).toBeLessThan(0.04);
+    // And over it along the line: he is sent to the spot's own x, and the restart
+    // counts him arrived inside the stride the arrangement allows, so the throw is
+    // taken from the line the ball left rather than a step along it.
+    expect(Math.abs(taker.x - delivery!.spot.x)).toBeLessThan(0.03);
+    expect(
+      Math.hypot(es.ball.x - taker.x, es.ball.y - taker.y),
+      'the ball is not in the hands of the man taking it',
+    ).toBeLessThan(0.02);
+
+    // And the throw comes back in over the line. The crossing is not read as the
+    // ball leaving play again — which would hand the throw straight back to the
+    // other side, off a ball nobody has touched — so no second throw-in is
+    // awarded while it comes in.
+    const throwIns = match.events.filter((candidate) => candidate.type === 'throw-in').length;
+    let backInPlay = false;
+    for (let step = 0; step < 120 && !backInPlay; step += 1) {
+      engine.advance(1 / 30, 1 / 30);
+      backInPlay = es.ball.y > 0 && es.ball.y < 1;
+    }
+    expect(backInPlay, 'the ball never came back in over the touchline').toBe(true);
+    expect(match.events.filter((candidate) => candidate.type === 'throw-in').length).toBe(throwIns);
   });
 });
 

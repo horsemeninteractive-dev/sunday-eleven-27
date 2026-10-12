@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import type { ViewId } from '@/state/gameStore';
-import { MOBILE_MORE_SECTIONS, MOBILE_PRIMARY } from '../navigation';
+import { mobileMoreSectionsFor, mobilePrimaryFor } from '../navigation';
 import { gameActions } from '../hooks';
 import { Glyph } from '../components/icons';
 import { Button } from '../components/primitives';
@@ -18,13 +18,21 @@ export function MobileNav({
   open,
   onOpenChange,
   onNavigate,
+  outOfWork = false,
 }: {
   view: ViewId;
   hasSession: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onNavigate: (view: ViewId) => void;
+  /**
+   * The manager has no club: the phone's five become the screens that still
+   * exist for him, and the More sheet keeps only what he can actually open.
+   */
+  outOfWork?: boolean;
 }) {
+  const primary = mobilePrimaryFor(outOfWork);
+  const moreSections = mobileMoreSectionsFor(outOfWork);
   const [savesOpen, setSavesOpen] = useState(false);
   const [confirmQuit, setConfirmQuit] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -38,7 +46,7 @@ export function MobileNav({
   return (
     <>
       <nav className="tabbar" aria-label="Main">
-        {MOBILE_PRIMARY.map((destination) => {
+        {primary.map((destination) => {
           if (destination.id === 'more') {
             return (
               <button
@@ -80,7 +88,7 @@ export function MobileNav({
                 <span>Return to the match in progress</span>
               </button>
             )}
-            {MOBILE_MORE_SECTIONS.map((group) => (
+            {moreSections.map((group) => (
               <section className="sheet__group" key={group.id}>
                 <h2 className="sheet__label">{group.label}</h2>
                 <ul className="sheet__list">

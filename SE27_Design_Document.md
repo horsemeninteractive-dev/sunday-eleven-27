@@ -292,6 +292,12 @@ The world generates charity matches, six-a-side tournaments, preseason tournamen
 ### 37. Career
 The player can remain at one club, move, apply for jobs, be approached, be sacked, become an assistant, become chairman or return to management. Other managers actively participate in the job market.
 
+**Status note.** The career store (`src/domain/career.ts`, `src/simulation/career.ts`) holds his employment — the club he
+manages now, or nobody — and his history: a spell per club managed, each with its dates and how it ended. Dismissal, a move and
+a club folding under him are three different endings and are kept apart, and none of them costs him the record. Applying for
+posts, the vacancies held for him and the club that takes the place of the one that folded are all in. Becoming an assistant or
+a chairman is not modelled yet.
+
 ### 38. Procedural Generation
 Generation must create coherent histories rather than isolated random entities. Clubs have histories, founders, grounds, sponsors, rivalries, people, achievements and problems. People have relationships, occupations, histories and connections before the player meets them.
 
@@ -308,22 +314,56 @@ The world must not remain frozen around the player.
 season boundary — they age and retire, step down, lose their jobs to a poor
 finish, move to a bigger local club, and are replaced from a pool of men between
 jobs, from within the club, or by a player-manager. **Clubs fold and reform**
-(`src/simulation/clubLifecycle.ts`) when the money runs out, replaced by a new
-club in the same town so the division holds its size. And **squads refresh**
-(`startNextSeason`): a youth intake each summer plus a squad cap that releases
-the oldest, so the league no longer ages in lockstep — the median age settles in
-the mid-twenties instead of rising eight years over fifteen.
+(`src/simulation/clubLifecycle.ts`) when the money runs out, and what comes back
+is either the club itself or a new one in the same town — see §41 — so the
+division holds its size through a fold. And **squads refresh** (`startNextSeason`):
+a youth intake each summer plus a squad cap that releases the oldest, so the league
+no longer ages in lockstep — the median age settles in the mid-twenties instead of
+rising eight years over fifteen.
+
+**A manager now has a career rather than a tenancy.** The career store keeps a
+spell for every run in charge of a club — when it began, when it ended, and what
+ended it (a dismissal, a move, or the club folding under him, which is nobody's
+decision and is kept apart) — and the record outlives unemployment, a sacking and
+the club itself. The player's identity is deliberately *not* the club he is at:
+while he is between jobs there is no club he manages anywhere in the state, and
+the managers' market and the day engine both read that. The same record is what
+the job market judges him by, and a club that folded under him leaves a vacancy in
+its own replacement that a man of his standing can apply for.
 
 What the world still lacks is *buying and selling*: clubs never sign or release
 for football reasons, never react to a rival's strength, and never change how
-they play. Those are the loops that still leave the unattached pool growing and
-ability slowly inflating, and they are the work of §§39–42 — which has to come
-*with* the pyramid rather than after it.
+they play, and they do not judge a manager across a career's worth of results —
+their expectations come from the finish they have just archived, not from the
+record he arrives with. Those are the loops that still leave the unattached pool
+growing and ability slowly inflating, and they are the work of §§39–42 — which has
+to come *with* the pyramid rather than after it.
 
 ### 41. Club Folding and Reform
 Clubs can fold through finances, ground loss, player shortage or organisational failure and can later reform. Former identities remain in the archive.
 
-**Status note.** The financial half is in (`src/simulation/clubLifecycle.ts`): a club in the red goes into administration, a club that cannot get out of it folds and leaves the world, and a newly formed club takes its place in the same town so the division holds its size. Ground loss, player shortage and organisational failure as *causes* of folding are not modelled yet, and the new club reuses the old club's ground and a fresh committee rather than being a reformation of the old identity.
+**Status note.** The financial half is in, and the identity half is in with it (`src/simulation/clubLifecycle.ts`, at the season
+boundary). A club in the red goes into administration — a standing hit, a news item and a warning that the clock is running — and
+its committee's first act is an **appeal** to the town, bounded by what the club is worth to it and spent once per spell, which
+is enough to clear a small debt and no kind of hope at all for a large one. A club that cannot get out of the red inside the
+grace period, or that is in debt beyond anything a committee can survive, folds: its players and committee leave the world, its
+ground falls vacant, and it moves to the archive with `active: false`, its seasons, honours and notable events untouched.
+
+What comes back in its place is decided by what the club actually was, not by a roll — seasons on record and a crowd that has
+not given up — and the two outcomes are kept distinct:
+
+- a **re-formation** keeps the name, the shirts, the ground, the crowd, the rivalries and the standing the club was playing at,
+  and takes none of the debt, the squad, the committee or the trophies;
+- a **successor** is a new club in the same town, named like any other new club, minted at the standard of the rung it steps
+  into, with its own crowd from scratch and no relationships it never had.
+
+Every club minted this way carries a `heritage` record (the club it came from, that club's founding year, whether it is a
+re-formation or a successor, and what came across), which is what the archive and the Club screen read, and which lets the
+managers' job market treat "the club that came back" as a vacancy a dismissed manager can apply for.
+
+Ground loss, player shortage and organisational failure as *causes* of folding are still not modelled — the cycle runs on
+money alone — and mergers remain §42. Club identity, the archive and competition registration are all correct across a fold;
+the caveats are the causes, not the machinery.
 
 ### 42. Mergers
 Mergers preserve relevant histories of both original clubs while creating a distinct resulting club.
@@ -377,7 +417,9 @@ Every table in the game sorts by any of its columns: tapping a heading orders th
 
 **The list a side is picked from opens in the side's own order, and says about a man what the squad screen says.** The picker was sorted by how well each man fitted the shirt being picked, which answers one question well and not the one the manager arrives with — who is in the XI, and where — so its order is now the team sheet's own: the eleven as the shape stands them on the pitch, keeper first, then the substitutes by the job each of them does, then the rest of the squad, with `squadInTeamOrder` in `ui/lineupEditing.ts` the rule that decides it, and every row carrying the portrait, position, condition, form, morale and availability the squad screen's row carries, so a manager reads one row twice rather than learning two. Seven headings over the list sort it by those facts — the same cycle, and now the same two domain ranks (`positionRank` in `domain/positions.ts`, `availabilityRank` in `domain/person.ts`) that the squad table's own headings use, so the two lists cannot drift into two ideas of what order a squad is in — and the third tap on one puts the side's own order back, because an unsorted list here is a list with an answer rather than a list without one. The headings sit above the scrolling pane rather than inside it, so the names move under them; the cost is height, measured at 81px a row in a 1440×900 window and 183px for the same row stacked on a 390px phone, which is about seven names in the pane at once, and that is the price of the roster this screen was asked to be.
 
-**The news screen gives every story a picture of the kind of story it is.** The paper was a column of type — a headline, a paragraph and six colours of label — which is the one thing a paper is not, so every story now carries a drawing of its kind: a match as a pitch seen from above, the squad as three of the men, the club as a covered stand, the league as a cup, the world as a globe, and the money as a note with a stack of coins under it. They are drawn on one 64 by 40 sheet in `ui/components/NewsPlate.tsx` at one stroke weight, with the lead story's copy at 128 by 80 and half the stroke so that it is the same 1.5px line as a card's, and they are keyed by the story's category rather than by its event type, because the category is the fact a story carries and the fact the paper's own filters are made of. Drawn rather than photographed, for the reason the whole interface is drawn: this game draws its faces, its badges, its kits and its pitches, and one photograph among all that ink would read as an advertisement. The pictures are `aria-hidden`, because the kind of story is already written in words in the meta line beside them, and they are written in absolute path commands with every arc drawn across a diameter of its own circle, which is what lets `components/newsPlate.test.ts` measure each one and hold it inside its sheet rather than trusting it — and the same property is how the drawings were read off the real screen one stroke-count at a time, all six of them, the four a career's first three weeks printed itself and the two written into its news to be checked the same way.
+**The news screen gives every story a picture of the kind of story it is.** The paper was a column of type — a headline, a paragraph and six colours of label — which is the one thing a paper is not, so every story now carries a drawing of its kind: a match as a pitch seen from above, the squad as three of the men, the club as a covered stand, the league as a cup, the world as a globe, and the money as a note with a stack of coins under it. They are drawn on one 64 by 40 sheet in `ui/components/NewsPlate.tsx` at one stroke weight, with the lead story's copy at 128 by 80 and half the stroke so that it is the same 1.5px line as a card's, and they are keyed by the event that wrote the story rather than by the column it was filed in, because the column is what the paper's own filters are made of and the event is the one fact a picture can be drawn from, and the six columns are still in the set so that a story from a career saved before the event travelled with it draws exactly what it drew before. Drawn rather than photographed, for the reason the whole interface is drawn: this game draws its faces, its badges, its kits and its pitches, and one photograph among all that ink would read as an advertisement. The pictures are `aria-hidden`, because the kind of story is already written in words in the meta line beside them, and they are written in absolute path commands with every arc drawn across a diameter of its own circle, which is what lets `components/newsPlate.test.ts` measure each one and hold it inside its sheet rather than trusting it — and the same property is how the drawings were read off the real screen one stroke-count at a time, all six of them, the four a career's first three weeks printed itself and the two written into its news to be checked the same way, and the seven added when the set was re-keyed are held to that measurement by the same test rather than by eye. The front page stopped being a list at the same time: one story leads, printed across the width with the paper's own photograph behind it — the lead image that had been sitting in `public/photos/` unused since the noticeboard took the top of the screen — the next two are given a column each with their own opening line showing, which is the whole difference between a story the page is pointing at and a headline in a list, and the rest are still clippings pinned under the day they happened. A story about a match is headlined by the match itself rather than by a generic pitch beside a sentence — the two crests, the two shirts and the score the header, half time, full time and the report were already drawn from — and a tie nobody has played shows the two clubs and the date instead and never a score, because the scoreline draws the score a match is *currently* at, so a drawn tie handed to it as though it were a result would print 0–0 on the front page of a paper about a game nobody has played.
+
+**Home is a desk, and it answers three questions in the order a manager asks them.** The screen was four metric tiles, a wall of decision cards and two grids of results and news, every section at the same weight — the shape of a dashboard, which is a page that shows all of what it knows and leaves the reader to sort it out — and it never said what club it was about: the ground, the nickname and the motto lived on the Clubhouse, and the crest was in the top bar. It reads *where am I* → *what is next* → *what needs me* → *where do we stand* now, and each of those is a different size of object rather than a fourth card of the same size: a band with the crest, the name, the everyday name, the town, the ground it plays on, the line the club says about itself and the manager's own drawn face with his tenure beside it, set on the club's ground photograph; the next fixture printed on the shared fixture sheet with the state of the selection read off the club and the two doors into preparing for it — both of them screens, because the command bar above owns advancing the calendar and a second button here that did the same thing would be a second place to press it — and, with no fixture, the honest reason rather than an empty sheet; one ruled strip of four facts, each one a door into the screen it summarises, which is the difference between a summary and a read-out and the one change this needed from the shared vocabulary (`MetricTile` grew an optional `onClick`, and draws a pressable tile only when it is given one); one genuine decision in front, in a band whose button names what pressing it does, the rest of the model's rows underneath it in the rows the Clubhouse already draws, and the unread post that no system has flagged as a single line rather than as a fifth card; and a run of afternoons rather than a grid of them, each result its own door into the report, with the competition and the day as the small print under it because the report button used to be the thing that fell off the end of a half-width row. The two photographs on the screen are chosen to say two different things — the club's own ground behind the identity band, the matchday picture behind the fixture — and the whole reading of it is decided in `ui/homeBriefing.ts` rather than in the view, for the reason `commandState.ts` and `newsStory.ts` exist: the judgement worth arguing with, that the loudest *decision* leads even when an informational note outweighs it, is settled against typed rows in `homeBriefing.test.ts` before it is settled against a generated career. What matters is still decided in one place — `clubMatters`, which the Clubhouse reads too, so the two screens cannot disagree — and what Home decides is how much of that list to print and which row to put in front.
 
 **The list a side is picked from opens on the heading it was last left on, and that is remembered per career.** The seven headings over the list sorted the squad until the manager walked to another screen and came back, so the reading he had chosen had to be chosen again all day; the list is now built on the heading the career's last tap left it on, and each tap writes the choice down as it is tapped rather than on the way out of the screen, because a screen is left by closing the tab as often as by walking away from it, and the third tap — the side's own order — is written down like the other two, since on this list not being sorted is an answer rather than the absence of one. Where it is kept is the decision: `ui/selectionSort.ts` owns the headings and the one memory of them, in browser storage under `se27.ui.selectionSort.<career>` — the namespace the panel layout already uses — rather than in the career's own file, because this is a reading of a squad rather than a fact about one, so a save handed to somebody else should not arrive carrying the last manager's view of it, and nothing that is only about how a screen looks is worth a save-format version; two careers keep two choices, because two saves usually hold two different squads, and a manager reading one of them by fitness is not necessarily reading the other that way. The headings moved into the same module as the reader for the reason the module exists: a list in one file and a reader in another can disagree about which heading a manager may press, so `SELECTION_SORT_KEYS` sits beside the cleaner that validates what comes back, and the tests hold the two together — every heading offered is one the screen has an accessor for, and every accessor is a heading that can be pressed. A browser that will not remember still gets the screen: no career open, no storage at all, and storage that throws all open the list in the side's own order, and the failure is not reported over a squad list, because the promise is worth less than the list it would be reported over.
 

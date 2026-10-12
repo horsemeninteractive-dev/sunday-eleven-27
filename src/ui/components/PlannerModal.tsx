@@ -22,8 +22,15 @@ export function PlannerModal() {
   const command = useCommandState();
   const fixture = useNextFixture();
   const [selected, setSelected] = useState<ISODate | null>(null);
+  // The calendar opens on the day the club is on, and the season's own first day
+  // is what it falls back to — not a month written into this file, which would
+  // open the planner on a date the career has nothing to do with. A career is the
+  // only thing that can open the planner at all (the shell draws it from the game
+  // itself), so the fallback is only ever the shape `useState` needs before the
+  // first render that matters.
   const [month, setMonth] = useState(() => {
-    const date = toDate(game?.date ?? '2026-09-01');
+    const opening = game?.date ?? game?.season.startDate;
+    const date = opening ? toDate(opening) : new Date(0);
     return { year: date.getUTCFullYear(), month: date.getUTCMonth() };
   });
 

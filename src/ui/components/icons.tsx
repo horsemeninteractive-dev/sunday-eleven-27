@@ -90,7 +90,7 @@ const PATHS: Record<NavIcon, string[]> = {
  * Icons for the interface rather than for a destination: what a table heading
  * is doing with the rows underneath it.
  */
-export type UIGlyphName = 'sort-none' | 'sort-asc' | 'sort-desc' | 'warn';
+export type UIGlyphName = 'sort-none' | 'sort-asc' | 'sort-desc' | 'warn' | 'expand' | 'contract';
 
 const UI_PATHS: Record<UIGlyphName, string[]> = {
   'sort-none': ['M8.6 10.6 12 7.2l3.4 3.4', 'M8.6 13.4 12 16.8l3.4-3.4'],
@@ -100,6 +100,12 @@ const UI_PATHS: Record<UIGlyphName, string[]> = {
   // the selection, small enough to sit in the corner of a pitch without
   // competing with the men standing on it.
   warn: ['M12 4.6 3.4 19.4h17.2z', 'M12 10.4v4.4', 'M12 17.2h.01'],
+  // Two corners of a frame with the brackets opening outward, which is what
+  // "give this the whole screen" looks like on every player there has ever
+  // been; `contract` is the same frame with them turned back in, for the press
+  // that puts the picture back in its place.
+  expand: ['M4 9.2V4h5.2', 'M14.8 4H20v5.2', 'M20 14.8V20h-5.2', 'M9.2 20H4v-5.2'],
+  contract: ['M9.2 4v5.2H4', 'M20 9.2h-5.2V4', 'M14.8 20v-5.2H20', 'M4 14.8h5.2V20'],
 };
 
 function GlyphSvg({ paths, className }: { paths: readonly string[]; className?: string }) {

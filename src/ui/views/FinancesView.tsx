@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { CLUB_STRUCTURE_LABEL, type LedgerEntry } from '@/domain/club';
+import { fundraiserLabel } from '@/domain/fundraising';
 import { competenceLabel } from '@/domain/staff';
 import { formatShortDate } from '@/simulation/calendar';
 import {
@@ -9,7 +10,9 @@ import {
   type OutstandingSub,
 } from '@/simulation/treasurer';
 import { renewalText, sponsorshipSummary, weeklySponsorshipIncome } from '@/simulation/sponsorship';
+import { fundraisingSummary } from '@/simulation/fundraising';
 import { obligationsTotal, upcomingObligations } from '@/simulation/obligations';
+import { upkeepCostFor } from '@/simulation/grounds';
 import { money, moneyShort } from '../format';
 import { gameActions, useGame } from '../hooks';
 import { Button, Callout, PageHeader, Panel, Pill, SortTh } from '../components/primitives';
@@ -22,6 +25,7 @@ import { applySort, type SortAccessors } from '../tableSort';
 type LedgerSortKey = 'date' | 'description' | 'category' | 'amount' | 'balance';
 
 const CATEGORY_LABEL: Record<string, string> = {
+  ground: 'Ground and facilities',
   subs: 'Player subs',
   sponsorship: 'Sponsorship',
   matchday: 'Matchday income',
@@ -121,6 +125,7 @@ export function FinancesView() {
   // The business behind the agreement, where there is one: the name on the
   // board is the business's, so the board itself is drawn from the business.
   const sponsorBusiness = sponsorship.deal ? game.world.businesses[sponsorship.deal.sponsorId] ?? null : null;
+  const fundraising = fundraisingSummary(game, club.id);
   const obligations = upcomingObligations(game, club.id, { weeks: 6, limit: 5 });
   const ledger = finances.ledger.slice().reverse().slice(0, 60);
   const rows = applySort(ledger, sort, LEDGER_SORT);
@@ -128,7 +133,12 @@ export function FinancesView() {
   // sponsor alone — read from the club's actual agreement, not a stored figure,
   // and averaged to a week, since a monthly deal pays on the 28th.
   const weeklyIn = weeklySponsorshipIncome(game, club.id);
-  const weeklyOut = finances.weeklyGroundCost + finances.insurancePerWeek + finances.trainingCostPerWeek;
+  // The ground upkeep is the club's own commitment, held by the ground service
+  // rather than on the club's finances. It is charged on its own Friday, so a
+  // week's outgoings that left it out would understate the balance by exactly
+  // the sum the treasurer is about to be billed.
+  const weeklyOut =
+    finances.weeklyGroundCost + finances.insurancePerWeek + finances.trainingCostPerWeek + upkeepCostFor(game, club.id);
   // Where that week takes the balance, and over how many weeks — the treasurer's
   // own read, so the projection and the tiles above it are the same arithmetic.
   const outlook = seasonOutlook(game, club.id);
@@ -250,6 +260,90 @@ export function FinancesView() {
               insurance and the hall come round every week; referees come with the fixture.
             </p>
           </>
+        )}
+      </Section>
+
+      {/*
+        Fundraising. The club's own money, off its own people, and the one place
+        on this screen where the manager *does* something about the balance
+        rather than reading it. Each night is priced by the same forecast that
+        will settle it, so the number on the button is the number the club banks.
+      */}
+      <Section
+        title="Fundraising"
+        id="fundraising"
+        action={
+          <span className="small muted">
+            {fundraising.availability.remaining} night{fundraising.availability.remaining === 1 ? '' : 's'} left
+            this season
+          </span>
+        }
+      >
+        <p className="muted small">
+          A quiz night, a raffle or a do at the pub. Each one is booked into the diary and settles on the evening it
+          falls, as a single line in the ledger. What it makes depends on the club, the crowd it has been drawing, who
+          runs it and who is behind it.
+        </p>
+
+        {fundraising.pending && (
+          <Callout tone="info">
+            <strong>{fundraising.pending.label}</strong> on {formatShortDate(fundraising.pending.date)} — around{' '}
+            {money(fundraising.pending.forecast.net)} if it goes well, with {fundraising.pending.forecast.turnout}{' '}
+            expected through the door.
+          </Callout>
+        )}
+
+        {fundraising.availability.canOrganise ? (
+          <ul className="tight-list">
+            {fundraising.options.map((option) => (
+              <li key={option.kind}>
+                <div className="row row--wrap">
+                  <strong>{option.label}</strong>
+                  <Pill tone={option.forecast.net >= 120 ? 'ok' : option.forecast.net > 0 ? 'muted' : 'warn'}>
+                    about {money(option.forecast.net)}
+                  </Pill>
+                  <span className="muted small">
+                    {option.forecast.turnout} expected · costs {money(option.forecast.cost)}
+                  </span>
+                </div>
+                <div className="muted small">{option.blurb}</div>
+                <div className="muted small">{option.forecast.notes.join(' · ')}</div>
+                <div className="row row--wrap">
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    onClick={() => gameActions().organiseFundraiser(option.kind)}
+                  >
+                    Book it for {formatShortDate(option.date)}
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          !fundraising.pending && <p className="empty">{fundraising.availability.reason}</p>
+        )}
+
+        {fundraising.recent.length === 0 ? (
+          <p className="empty">The club has not put a night on this season.</p>
+        ) : (
+          <details className="more">
+            <summary>
+              The season's nights · {money(fundraising.seasonTotal)} raised from {fundraising.recent.length}
+            </summary>
+            <ul className="tight-list">
+              {fundraising.recent.map((run) => (
+                <li key={run.id}>
+                  <div className="row row--wrap">
+                    <span className="muted small">{formatShortDate(run.date)}</span>
+                    <strong>{fundraiserLabel(run.kind)}</strong>
+                    <Pill tone={run.net >= 0 ? 'ok' : 'bad'}>{money(run.net)}</Pill>
+                    <span className="muted small">{run.turnout} through the door</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </details>
         )}
       </Section>
 

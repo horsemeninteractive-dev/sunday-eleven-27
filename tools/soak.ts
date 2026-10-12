@@ -27,6 +27,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import {
+  CALENDAR_INVARIANTS,
   formatTrend,
   formatViolations,
   runSoak,
@@ -108,7 +109,14 @@ function reportSummary(result: SoakResult): void {
   const counts = summariseViolations(result.violations);
   const fails = result.violations.filter((item) => item.severity === 'fail').length;
   const warns = result.violations.length - fails;
-  const lines = counts.length === 0 ? ['   none'] : counts.map((row) => `   ${padEnd(row.invariant, 30)} ${row.count}`);
+  // Every invariant in the calendar's own group is named whether or not it fired,
+  // so a clean report says "0" about each of them rather than saying nothing: a
+  // count of zero is a check that ran and held, and a line that is missing is not.
+  const tally = new Map(counts.map((row) => [row.invariant, row.count]));
+  for (const invariant of CALENDAR_INVARIANTS) if (!tally.has(invariant)) tally.set(invariant, 0);
+  const lines = [...tally.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([invariant, count]) => `   ${padEnd(invariant, 30)} ${count}`);
 
   const headline =
     fails === 0

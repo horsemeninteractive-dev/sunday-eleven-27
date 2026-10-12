@@ -2,8 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory } from 'fake-indexeddb';
 import { generateDraft, startGameFromDraft } from '@/simulation/gameSetup';
 import { addDays } from '@/simulation/calendar';
+import { cupRoundMatchday, cupRoundOf } from '@/simulation/cup';
+import { LEAGUE_CUP_ID, PLATE_ID, divisionOf, divisionsOf, leagueCompetitions, registerFixture } from '@/simulation/pyramid';
+import { startNextSeason } from '@/simulation/season';
+import { FOUNDING_PYRAMID_ID } from '@/domain/competition';
 import { GAME_STATE_VERSION, type GameState } from '@/domain/game';
 import type { FaceChoices } from '@/domain/face';
+import type { MatchId } from '@/domain/ids';
 import { bootStore, flushAutosave, useGameStore } from './gameStore';
 import * as idb from './indexedDb';
 import {
@@ -546,8 +551,8 @@ describe('old save versions', () => {
 
     const result = await readMigrated(legacy);
     expect(result.version).toBe(GAME_STATE_VERSION);
-    expect(result.state.pyramid?.tiers).toBe(3);
-    expect(result.state.pyramid?.clubsPerTier).toBe(12);
+    expect(result.state.pyramids[FOUNDING_PYRAMID_ID]?.config.tiers).toBe(3);
+    expect(result.state.pyramids[FOUNDING_PYRAMID_ID]?.config.clubsPerTier).toBe(12);
     // 36 clubs, in three divisions of twelve.
     const leagueClubs = new Set(
       Object.values(result.state.competitions)
@@ -589,6 +594,217 @@ describe('old save versions', () => {
     expect(result.state.managerProfile?.surname).toBeTruthy();
     expect(result.state.training).toBeDefined();
     expect(Array.isArray(result.state.training!.history)).toBe(true);
+  });
+
+  it('gives a save made before round identity the round each cup tie was drawn for', async () => {
+    const state = career('migration-cup-rounds');
+    const legacy = stripToVersion21(state);
+
+    // The Plate as it stands once the main cup has fed it: a drawn opening round
+    // of its own, which is the second competition the migration has to place.
+    const plate = Object.values(legacy.state.competitions).find(
+      (competition) => competition.id === PLATE_ID,
+    )!;
+    const plateTieId = 'tie_plate_drawn' as MatchId;
+    const source = Object.values(legacy.state.matches).find(
+      (match) => Boolean(legacy.state.competitions[match.competitionId]?.cup),
+    )!;
+    const plateTie = {
+      ...source,
+      id: plateTieId,
+      competitionId: PLATE_ID,
+      competitionName: plate.name,
+      matchday: cupRoundMatchday(legacy.state, plate, 2),
+    };
+    legacy.state.matches[plateTieId] = plateTie;
+    registerFixture(legacy.state, PLATE_ID, plateTieId, plateTie.matchday);
+
+    // What each tie was being read as before the field existed: the arithmetic,
+    // which is the fallback `cupRoundOf` still uses for a tie without one.
+    const before = new Map<string, number>();
+    for (const match of Object.values(legacy.state.matches)) {
+      const competition = legacy.state.competitions[match.competitionId];
+      if (!competition?.cup) continue;
+      expect(match.cupRound).toBeUndefined();
+      before.set(match.id, cupRoundOf(legacy.state, competition, match));
+    }
+    expect(before.size).toBeGreaterThan(1);
+    expect([...before.values()].every((round) => round > 0)).toBe(true);
+    expect(before.get(plateTieId)).toBe(2);
+
+    const result = await readMigrated(legacy);
+    expect(result.error).toBeNull();
+    expect(result.version).toBe(GAME_STATE_VERSION);
+
+    // Every cup tie comes back with the round it already had, and nothing else
+    // about it has moved: same date, same competition, same result.
+    for (const [id, round] of before) {
+      const after = result.state.matches[id]!;
+      const original = legacy.state.matches[id]!;
+      expect(after.cupRound).toBe(round);
+      expect(after.competitionId).toBe(original.competitionId);
+      expect(after.date).toBe(original.date);
+      expect(after.matchday).toBe(original.matchday);
+      expect(after.played).toBe(original.played);
+      expect(after.result).toEqual(original.result);
+      expect(after.status).toBe(original.status);
+    }
+    // Both cups are covered, each from its own arithmetic.
+    const cupTieCompetitions = new Set([...before.keys()].map((id) => result.state.matches[id]!.competitionId));
+    expect(cupTieCompetitions.size).toBe(2);
+
+    // And nothing that is not a cup tie is given a round.
+    for (const match of Object.values(result.state.matches)) {
+      if (result.state.competitions[match.competitionId]?.cup) continue;
+      expect(match.cupRound).toBeUndefined();
+    }
+
+    // Loading the same save again is the same answer, not a second back-fill on
+    // top of the first: the round a tie already has is left exactly where it is.
+    const again = await readMigrated(legacy);
+    expect(again.version).toBe(GAME_STATE_VERSION);
+    for (const [id, round] of before) expect(again.state.matches[id]!.cupRound).toBe(round);
+  });
+
+  it('gives a save made before pyramids one region for its towns and one pyramid that owns its ladder', async () => {
+    const legacy = stripToVersion22(career('migration-pyramids'));
+    const before = {
+      divisionIds: leagueCompetitions(legacy.state).map((competition) => competition.id),
+      userDivisionId: divisionOf(legacy.state, legacy.state.userClubId)?.id ?? null,
+      config: { ...legacyConfig(legacy.state) },
+      matches: Object.values(legacy.state.matches).map((match) => ({
+        id: match.id,
+        competitionId: match.competitionId,
+        date: match.date,
+        matchday: match.matchday,
+        played: match.played,
+        status: match.status,
+        homeClubId: match.homeClubId,
+        awayClubId: match.awayClubId,
+        cupRound: match.cupRound,
+      })),
+      townIds: Object.keys(legacy.state.world.towns).sort(),
+    };
+    expect(before.divisionIds.length).toBe(3);
+    expect(before.userDivisionId).not.toBeNull();
+
+    const result = await readMigrated(legacy);
+    expect(result.error).toBeNull();
+    expect(result.version).toBe(GAME_STATE_VERSION);
+
+    // One region, drawn around the towns the county already has, and every town
+    // of the county is in it.
+    const regions = Object.values(result.state.world.regions);
+    expect(regions).toHaveLength(1);
+    expect(result.state.world.regionIds).toEqual([regions[0]!.id]);
+    expect(regions[0]!.name).toBe(result.state.world.regionName);
+    // Its centre is the middle of those towns, not an invented point.
+    const towns = Object.values(result.state.world.towns);
+    const meanX = towns.reduce((sum, town) => sum + town.x, 0) / towns.length;
+    const meanY = towns.reduce((sum, town) => sum + town.y, 0) / towns.length;
+    expect(regions[0]!.centre.x).toBeCloseTo(meanX);
+    expect(regions[0]!.centre.y).toBeCloseTo(meanY);
+    expect(Object.keys(result.state.world.towns).sort()).toEqual(before.townIds);
+    for (const town of towns) expect(town.regionId).toBe(regions[0]!.id);
+
+    // One pyramid, whose id is the prefix every competition in the save already
+    // carries, holding the shape the career was generated with.
+    expect(result.state.pyramidIds).toEqual([FOUNDING_PYRAMID_ID]);
+    const pyramid = result.state.pyramids[FOUNDING_PYRAMID_ID]!;
+    expect(pyramid.id).toBe(FOUNDING_PYRAMID_ID);
+    expect(pyramid.name).toBe(`${result.state.world.regionName} Sunday League`);
+    expect(pyramid.regionId).toBe(regions[0]!.id);
+    expect(pyramid.level).toBe(1);
+    expect(pyramid.config).toEqual(before.config);
+    // It owns the divisions the save had, in the order it had them, and its cups.
+    expect(pyramid.competitionIds).toEqual(before.divisionIds);
+    expect(pyramid.cupIds).toEqual([LEAGUE_CUP_ID, PLATE_ID]);
+    expect(divisionsOf(result.state).map((competition) => competition.id)).toEqual(before.divisionIds);
+    // The old singular shape is gone rather than left beside the pyramid that
+    // now carries it.
+    expect('pyramid' in result.state).toBe(false);
+
+    // Nothing about the football moved: same competitions, same matches, same
+    // division for the manager's club.
+    expect(leagueCompetitions(result.state).map((competition) => competition.id)).toEqual(before.divisionIds);
+    for (const id of before.divisionIds) {
+      expect(result.state.competitions[id]!.clubIds).toEqual(legacy.state.competitions[id]!.clubIds);
+      expect(result.state.competitions[id]!.name).toBe(legacy.state.competitions[id]!.name);
+    }
+    expect(divisionOf(result.state, result.state.userClubId)?.id).toBe(before.userDivisionId);
+    const after = new Map(
+      Object.values(result.state.matches).map((match) => [
+        match.id,
+        {
+          id: match.id,
+          competitionId: match.competitionId,
+          date: match.date,
+          matchday: match.matchday,
+          played: match.played,
+          status: match.status,
+          homeClubId: match.homeClubId,
+          awayClubId: match.awayClubId,
+          cupRound: match.cupRound,
+        },
+      ]),
+    );
+    expect(after.size).toBe(before.matches.length);
+    for (const match of before.matches) expect(after.get(match.id)).toEqual(match);
+
+    // Every club that is playing is in exactly one division, and those divisions
+    // are the ones the pyramid says it owns.
+    const owned = new Set(pyramid.competitionIds);
+    for (const club of Object.values(result.state.clubs)) {
+      if (!club.active) continue;
+      const memberships = leagueCompetitions(result.state).filter((competition) =>
+        competition.clubIds.includes(club.id),
+      );
+      expect(memberships).toHaveLength(1);
+      expect(owned.has(memberships[0]!.id)).toBe(true);
+    }
+
+    // And loading the same career again is the same answer, not a second helping
+    // of regions and pyramids on top of the first.
+    const again = await readMigrated(legacy);
+    expect(again.version).toBe(GAME_STATE_VERSION);
+    expect(Object.keys(again.state.world.regions)).toHaveLength(1);
+    expect(again.state.world.regionIds).toEqual([regions[0]!.id]);
+    expect(again.state.pyramidIds).toEqual([FOUNDING_PYRAMID_ID]);
+    expect(Object.keys(again.state.pyramids)).toHaveLength(1);
+    for (const town of Object.values(again.state.world.towns)) {
+      expect(town.regionId).toBe(regions[0]!.id);
+    }
+  });
+
+  it('plays a migrated career through a season rollover', async () => {
+    const legacy = stripToVersion22(career('migration-rollover'));
+    const result = await readMigrated(legacy);
+    const before = divisionsOf(result.state).map((competition) => competition.id);
+
+    startNextSeason(result.state);
+
+    // The new season was built through the pyramid's own record, and the record
+    // still describes what was written: same ladder, still the only one, and
+    // every club of it in exactly one division.
+    expect(result.state.phase).toBe('season');
+    expect(divisionsOf(result.state).map((competition) => competition.id)).toEqual(before);
+    expect(result.state.pyramidIds).toEqual([FOUNDING_PYRAMID_ID]);
+    expect(result.state.pyramids[FOUNDING_PYRAMID_ID]!.competitionIds).toEqual(before);
+    expect(Object.keys(result.state.world.regions)).toHaveLength(1);
+    for (const competition of divisionsOf(result.state)) {
+      expect(competition.clubIds.length).toBeGreaterThan(0);
+    }
+    for (const club of Object.values(result.state.clubs)) {
+      if (!club.active) continue;
+      const memberships = leagueCompetitions(result.state).filter((competition) =>
+        competition.clubIds.includes(club.id),
+      );
+      expect(memberships).toHaveLength(1);
+    }
+    // The cup is the same competition it always was, drawn for the new season.
+    expect(result.state.phase).toBe('season');
+    expect(Object.keys(result.state.fixtures[LEAGUE_CUP_ID]?.matchdayOf ?? {}).length).toBeGreaterThan(0);
+    expect(result.state.competitions[PLATE_ID]).toBeDefined();
   });
 
   it('rejects a save from a newer game before any migration is attempted', async () => {
@@ -1012,6 +1228,20 @@ async function readMigrated(
 }
 
 /** A career as a version 7 save left it: one league, no cups, no pyramid. */
+/**
+ * Take the pyramid model back out of a career, the way a save written before it
+ * would have been stored: no pyramid records, no pyramid list, no regions, and
+ * no region on any town. What is left is a world described only by the ladder it
+ * is playing — which is exactly what a pre-change save holds.
+ */
+function stripPyramidModel(state: GameState): void {
+  delete (state as { pyramids?: unknown }).pyramids;
+  delete (state as { pyramidIds?: unknown }).pyramidIds;
+  delete (state.world as { regions?: unknown }).regions;
+  delete (state.world as { regionIds?: unknown }).regionIds;
+  for (const town of Object.values(state.world.towns)) delete (town as { regionId?: unknown }).regionId;
+}
+
 function stripToVersion7(state: GameState): { version: number; savedAt: string; state: GameState } {
   const legacy = structuredClone(state);
   const division = Object.values(legacy.competitions).find((competition) => competition.kind === 'league');
@@ -1026,7 +1256,31 @@ function stripToVersion7(state: GameState): { version: number; savedAt: string; 
   }
   delete (legacy as { pyramid?: unknown }).pyramid;
   delete (legacy as { promotionHistory?: unknown }).promotionHistory;
+  stripPyramidModel(legacy);
   return { version: 7, savedAt: new Date().toISOString(), state: legacy };
+}
+
+/**
+ * A save from just before regions and pyramids: the same world, with its ladder
+ * back as one loose configuration and no geography above the towns.
+ */
+function stripToVersion22(state: GameState): { version: number; savedAt: string; state: GameState } {
+  const legacy = structuredClone(state);
+  (legacy as GameState & { pyramid?: LegacyPyramidConfig }).pyramid = {
+    ...legacy.pyramids[FOUNDING_PYRAMID_ID]!.config,
+  };
+  stripPyramidModel(legacy);
+  return { version: 22, savedAt: new Date().toISOString(), state: legacy };
+}
+
+/** The shape the ladder had as a single loose configuration. */
+type LegacyPyramidConfig = GameState['pyramids'][string]['config'];
+
+/** The old singular configuration, read off a save written before pyramids. */
+function legacyConfig(state: GameState): LegacyPyramidConfig {
+  const config = (state as GameState & { pyramid?: LegacyPyramidConfig }).pyramid;
+  if (!config) throw new Error('expected a legacy ladder configuration');
+  return config;
 }
 
 /** A career as a version 8 save left it: a pyramid, but no development curves. */
@@ -1034,4 +1288,14 @@ function stripToVersion8(state: GameState): { version: number; savedAt: string; 
   const legacy = structuredClone(state);
   delete (legacy as { promotionHistory?: unknown }).promotionHistory;
   return { version: 8, savedAt: new Date().toISOString(), state: legacy };
+}
+
+/**
+ * A save from just before round identity: the same world, with the round left
+ * out of every cup tie and the version number to match.
+ */
+function stripToVersion21(state: GameState): { version: number; savedAt: string; state: GameState } {
+  const legacy = structuredClone(state);
+  for (const match of Object.values(legacy.matches)) delete (match as { cupRound?: number }).cupRound;
+  return { version: 21, savedAt: new Date().toISOString(), state: legacy };
 }

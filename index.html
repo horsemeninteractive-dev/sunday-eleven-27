@@ -59,6 +59,12 @@
       type="font/woff2"
       crossorigin
     />
+    <!-- The season, for the same reason and one of its own: the 27 is the very
+         first thing drawn on the first screen, and it is the one piece of type
+         in the game set in a second face — so a swap here would be a numeral
+         changing shape under the manager's eyes a moment after it appeared.
+         Twelve kilobytes, and it is only ever fetched when a 2 or a 7 is set. -->
+    <link rel="preload" href="/fonts/Fake%20Identity.ttf" as="font" type="font/ttf" crossorigin />
     <!-- Launched from a home screen this opens as an app: no browser chrome,
          no address bar, and the title it is given is the short one. -->
     <meta name="mobile-web-app-capable" content="yes" />
@@ -102,7 +108,52 @@
         font-size: 11px;
         color: #5b646c;
       }
+      /* The lights, for the same reason and by the same attribute the
+         stylesheet uses: `data-theme` is set on the document element by the
+         script below, and both palettes are stated here in literals because
+         the stylesheet is still on its way. The same colours are in
+         `styles.css` — a test in `src/ui/theme.test.ts` keeps the two honest —
+         and this block is what stops a light-mode manager watching a near-black
+         page turn over once the bundle lands. */
+      html[data-theme='light'],
+      html[data-theme='light'] body,
+      html[data-theme='light'] #booting {
+        background: #e2e5e9;
+      }
+      html[data-theme='light'] #booting .booting__label {
+        color: #5c6673;
+      }
+      html[data-theme='light'] #booting .booting__note {
+        color: #6d7681;
+      }
     </style>
+
+    <!-- Which way the lights are on, decided before the first paint.
+
+         The preference lives in the browser, the stylesheet that reads it does
+         not arrive until the bundle does, and the placeholder above has to be
+         painted *before* then — so the one thing this page can do for itself is
+         read the answer and write it on the document element. It is the same
+         attribute `applyTheme` writes later, and the same shape of answer: the
+         resolved theme, never `system`, so nothing downstream has a second
+         decision to make. A browser with no storage, or with a preference that
+         is nothing but rubbish in it, opens dark, which is what this game looks
+         like. -->
+    <script>
+      (function () {
+        var theme = 'dark';
+        try {
+          var raw = window.localStorage.getItem('slfm26.preferences');
+          var chosen = raw ? JSON.parse(raw).theme : 'dark';
+          var systemLight =
+            window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+          theme = chosen === 'light' || (chosen === 'system' && systemLight) ? 'light' : 'dark';
+        } catch (error) {
+          theme = 'dark';
+        }
+        document.documentElement.setAttribute('data-theme', theme);
+      })();
+    </script>
   </head>
   <body>
     <!-- Shown until the game has opened its storage and decided what to open.

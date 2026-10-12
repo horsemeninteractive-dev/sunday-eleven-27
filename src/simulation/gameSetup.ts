@@ -1,8 +1,12 @@
-import { DEFAULT_PYRAMID } from '@/domain/competition';
+import { DEFAULT_PYRAMID, FOUNDING_PYRAMID_ID, type Pyramid } from '@/domain/competition';
+import { FOUNDING_REGION_ID } from '@/domain/world';
 import type { GameState, StandingSnapshot } from '@/domain/game';
 import { GAME_STATE_VERSION } from '@/domain/game';
 import { emptyAdminState } from '@/domain/admin';
 import { emptyGovernanceState } from '@/domain/governance';
+import { emptyCareerState } from '@/domain/career';
+import { emptyFacilitiesState } from '@/domain/facilities';
+import { emptyFundraisingState } from '@/domain/fundraising';
 import { emptySponsorshipState } from '@/domain/sponsorship';
 import { seedInitialSponsorship } from './sponsorship';
 import { emptyCommunicationStore } from '@/domain/communication';
@@ -25,6 +29,8 @@ import { buildSeasonStructure, openSeasonRecords } from './seasonStructure';
 import { divisionOf, leagueCompetitions, standingsFor, userCompetition } from './pyramid';
 import { generateReferees, generateWorld, reputationFromQuality } from './generation/worldGenerator';
 import { generateSquad } from './generation/playerGenerator';
+import { drawBeats, generatePress } from './press';
+import { emptyPressState } from '@/domain/press';
 import { generateInitialRelationships, linkManagerToClub } from './generation/relationshipGenerator';
 import { generateUnattachedPlayers } from './generation/unattachedPlayers';
 import { relationshipStore } from './relationships';
@@ -74,15 +80,55 @@ export function firstSundayOfSeptember(year: number): ISODate {
   return toISO(first);
 }
 
+/**
+ * The year a new career begins in.
+ *
+ * One number, because four places were each writing their own: the draft's own
+ * default, the store's call that opens one, and the two screens that tell a
+ * manager what the coming season will make of him — the profile's preview of how
+ * old he will be on the opening day, and the year the club he is founding cannot
+ * have been founded after. A build that moves its opening season should move it
+ * once.
+ */
+export const CAREER_START_YEAR = 2026;
+
+/**
+ * The day a career starts: the Monday pre-season begins.
+ *
+ * `generateDraft` works its whole world out from this date, and the profile
+ * preview asks for it to work out the age the manager will be on that morning,
+ * so the two cannot come to different answers about when the season starts.
+ */
+export function careerSeasonStart(startYear: number = CAREER_START_YEAR): ISODate {
+  return weekStartOf(preSeasonStart(firstSundayOfSeptember(startYear)));
+}
+
+/** The earliest year a club in this county was founded in. */
+export const EARLIEST_FOUNDED_YEAR = 1850;
+
+/**
+ * A founding year the world can hold: no older than the county's own clubs, and
+ * no newer than the season the career begins in.
+ *
+ * The newest year used to be whatever the machine's clock said, which made the
+ * same seed build a different club on a different day — and quietly rewrote a
+ * year the designer had already been shown. A world set in a season keeps that
+ * season's clock and no other, so the bound is the draft's own start year, and
+ * the screen that asks for the year asks this same function what it will take.
+ */
+export function foundedYearWithin(year: number, startYear: number = CAREER_START_YEAR): number {
+  return Math.min(startYear, Math.max(EARLIEST_FOUNDED_YEAR, Math.round(year)));
+}
+
 
 
 /** Generate the world without committing to a club — used by club selection. */
 export function generateDraft(options: NewGameOptions): WorldDraft {
-  const startYear = options.startYear ?? 2026;
+  const startYear = options.startYear ?? CAREER_START_YEAR;
   // Everything the world carries that is dated — who knows whom, who is not
   // playing anywhere — is dated from the day the career begins, which is the
   // start of pre-season rather than the first Sunday of the league.
-  const seasonStart = weekStartOf(preSeasonStart(firstSundayOfSeptember(startYear)));
+  const seasonStart = careerSeasonStart(startYear);
   const generated = generateWorld({ seed: options.seed, seasonStart, currentYear: startYear });
 
   const referees = generateReferees(new Rng(`${options.seed}::referees`), Object.values(generated.world.towns));
@@ -608,7 +654,7 @@ export function applyCustomClub(draft: WorldDraft, design: ClubDesign): ClubId {
     shortName: design.shortName.trim() || design.name.trim().slice(0, 18),
     nickname: design.nickname.trim() || design.shortName.trim() || design.name.trim(),
     motto: design.motto.trim() || club.identity.motto,
-    foundedYear: Math.min(new Date().getUTCFullYear(), Math.max(1850, Math.round(design.foundedYear))),
+    foundedYear: foundedYearWithin(design.foundedYear, draft.startYear),
     colours: { primary: design.primary, secondary: design.secondary },
   };
   // What he drew on the badge, if he drew anything. Anything he left alone is
@@ -702,6 +748,22 @@ export function startGameFromDraft(draft: WorldDraft, options: StartGameOptions)
     customFormations: [],
     admin: emptyAdminState(),
     governance: emptyGovernanceState(),
+    // A career begins in work: the club just chosen, and the first spell in
+    // charge of it written down so his record has a beginning.
+    career: {
+      ...emptyCareerState(),
+      clubId: options.clubId,
+      spells: [{ clubId: options.clubId, from: seasonStart, to: null, ending: null }],
+    },
+    // The county's press is generated once the world it covers exists — see the
+    // end of this function — so a career is born with an empty record and is
+    // filled in on the way out of here.
+    press: emptyPressState(),
+    fundraising: emptyFundraisingState(),
+    // A new career has not been anywhere near the ground's pitch yet: the club
+    // plays on whatever the world gave it, and what it does about that is the
+    // manager's first decision rather than part of the setup.
+    facilities: emptyFacilitiesState(),
     sponsorship: emptySponsorshipState(),
     season: {
       id: seasonId,
@@ -719,7 +781,23 @@ export function startGameFromDraft(draft: WorldDraft, options: StartGameOptions)
     training: emptyTrainingStore(),
     communication: emptyCommunicationStore(),
     competitions: {},
-    pyramid: { ...DEFAULT_PYRAMID },
+    // One pyramid, and it is the founding one: its id is `league`, which is
+    // already the prefix of every competition id this world will write, so the
+    // ladder is the same ladder it has always been. Its divisions and cups are
+    // filled in below, where the season is built — this function is what creates
+    // them, so a list written here would be a guess.
+    pyramids: {
+      [FOUNDING_PYRAMID_ID]: {
+        id: FOUNDING_PYRAMID_ID,
+        name: `${draft.world.regionName} Sunday League`,
+        regionId: draft.world.regionIds[0] ?? FOUNDING_REGION_ID,
+        level: 1,
+        config: { ...DEFAULT_PYRAMID },
+        competitionIds: [],
+        cupIds: [],
+      } satisfies Pyramid,
+    },
+    pyramidIds: [FOUNDING_PYRAMID_ID],
     fixtures: {},
     matches: {},
     userClubId: options.clubId,
@@ -743,6 +821,7 @@ export function startGameFromDraft(draft: WorldDraft, options: StartGameOptions)
     seasonLabel,
     firstLeagueDate,
     divisions,
+    pyramidId: FOUNDING_PYRAMID_ID,
     regionName: draft.world.regionName,
     announceDraws: false,
   });
@@ -826,6 +905,14 @@ export function startGameFromDraft(draft: WorldDraft, options: StartGameOptions)
   // actually happened.
   prepareMatchday(state, 1);
   state.standingHistory.push(...snapshotStandings(state));
+
+  // The county's papers, stations and fanzines, generated from the world that
+  // has just been built: one reporter per paper, each with the clubs nearest
+  // his town as his patch. See `simulation/press.ts` — this is the only place a
+  // county's press comes into existence, and every other route in (a save that
+  // predates it, a world with its record damaged) goes through `ensurePress`.
+  state.press = generatePress(state);
+  if (state.press.journalists.length > 0) drawBeats(state);
 
   return state;
 }

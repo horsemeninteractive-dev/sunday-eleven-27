@@ -1,7 +1,8 @@
+import type { Competition } from '@/domain/competition';
 import type { GameState } from '@/domain/game';
 import type { ClubId } from '@/domain/ids';
 import type { MovementRecord } from './pyramid';
-import { leagueCompetitions, standingsFor } from './pyramid';
+import { divisionsOf, leagueCompetitions, pyramidIdOf, standingsFor } from './pyramid';
 
 /**
  * What a season does to a club's standing.
@@ -108,14 +109,19 @@ function expectedOrder(state: GameState, clubIds: readonly ClubId[]): Map<ClubId
 /**
  * The standing a division's company carries, as the level a promoted club joins.
  *
- * Called with the tier of the division being joined, so `tier` is 1 for a club
- * promoted into the top division — that is a division like any other and the
- * lift applies to it. There is no division above the top, and a club already
- * playing there is never promoted anywhere, so a tier with no division behind it
- * is the only case that has nothing to say.
+ * Called with the division a club is being promoted out of and the tier it is
+ * joining, so `tier` is 1 for a club promoted into the top division — that is a
+ * division like any other and the lift applies to it. There is no division above
+ * the top, and a club already playing there is never promoted anywhere, so a tier
+ * with no division behind it is the only case that has nothing to say.
+ *
+ * The division at that tier is looked for inside the *same pyramid* as the club
+ * being promoted: a step up the ladder stays on the ladder, and a county with a
+ * second pyramid must not lift a club towards the wrong one's company.
  */
-function divisionFloor(state: GameState, tier: number): number | null {
-  const division = leagueCompetitions(state).find((competition) => competition.tier === tier);
+function divisionFloor(state: GameState, from: Competition, tier: number): number | null {
+  const pyramidId = pyramidIdOf(state, from) ?? undefined;
+  const division = divisionsOf(state, pyramidId).find((competition) => competition.tier === tier);
   if (!division || division.clubIds.length === 0) return null;
   const reputations = division.clubIds
     .map((clubId) => state.clubs[clubId]?.reputation)
@@ -167,7 +173,7 @@ export function applySeasonStanding(state: GameState, movements: readonly Moveme
         // A promoted club joins a division, and its standing is lifted towards
         // that division's company: the level it plays at next season is a fact,
         // and the county's opinion of it can only lag so far behind.
-        const floor = divisionFloor(state, competition.tier - 1);
+        const floor = divisionFloor(state, competition, competition.tier - 1);
         if (floor !== null) next = Math.max(next, Math.min(floor, previous + STANDING.maxPromotionRise));
       }
 

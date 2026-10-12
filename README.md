@@ -58,7 +58,10 @@ npm run dev        # http://localhost:5273
 | `npm run discord:plan` | say what the community server's configuration would change, and change nothing |
 | `npm run discord:apply` | make the community server match the specification in `src/platform/discord.ts` |
 | `npm run discord:announce` | post a release from `CHANGELOG.md` into the server's announcements |
-| `npm run xiai` | run the community bot, which answers `/ask` about the game while it is running |
+| `npm run xiai` | run the community bot locally, and register its commands |
+| `npm run xiai:deploy` | deploy the bot's always-on endpoint (a Cloudflare Worker) |
+| `npm run xiai:logs` | watch what the deployed bot answers |
+| `npm run xiai:verify` | check the deployed endpoint from here: is it up, and is Discord pointed at it |
 | `npm test` | the test suite |
 | `npm run soak` | play out long runs and report on them |
 | `npm run benchmark` | time the two match simulation modes, and compare their fingerprints |
@@ -176,22 +179,31 @@ It needs a bot token in `discord.env` (ignored by git, and
 reasoning behind every channel, what a bot cannot do, and what has and has not
 been verified.
 
-The same bot answers questions. `npm run xiai` connects it to Discord and it
-answers `/ask` in the server — from facts written down in
+The same bot answers questions, from facts written down in
 [`src/platform/xiai.ts`](src/platform/xiai.ts), taken from this project's own
 documentation and printed with the file they came from. There is no model
 involved: it cannot invent how the game works, and a question it does not
 recognise gets no answer rather than a confident one.
 
+It answers in the server as an **interactions endpoint** — a Cloudflare Worker
+in [`worker/xiaiEndpoint.ts`](worker/xiaiEndpoint.ts) — so no machine of anybody's has to be
+on for it to reply, and the deployed half holds **no bot token at all**: a
+request is verified against the application's public key, and the answer goes
+back on the interaction's own one-use token. The same code decides what an
+answer is in both places, so the endpoint and the command line cannot disagree.
+
 ```bash
 npm run xiai -- --ask "how long is a season"   # try the knowledge base, no token needed
-npm run xiai -- --check                        # connect to Discord, say who it is, disconnect
-npm run xiai                                    # run the bot
+npm run xiai -- --register                     # register /ask and the message command
+npm run xiai:dev                               # run the endpoint locally
+npm run xiai:deploy                            # put it live (see DISCORD.md)
+npm run xiai:verify                            # check it: the address, the signature, and what Discord is pointed at
 ```
 
-It answers while it is running and not otherwise — the process holds the connection
-open, so a machine that is off is a bot that is quiet — and it only ever reads the
-question somebody typed at it, because it asks Discord for no intents at all.
+`npm run xiai` also still runs the bot as a gateway client, which is how it is
+tried out before anything is deployed. It only ever reads the question somebody
+asked it — or the message it was pointed at — because it asks Discord for **no
+intents at all**.
 
 ## Further reading
 

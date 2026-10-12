@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { ViewId } from '@/state/gameStore';
-import { NAV_SECTIONS, navSectionFor, type NavSection } from '../navigation';
+import { navSectionFor, navSectionsFor, type NavSection } from '../navigation';
 import { useUnreadMessages } from '../hooks';
 import { Glyph } from '../components/icons';
 
@@ -35,12 +35,19 @@ export function SideNav({
   hasSession,
   onNavigate,
   onOpenChange,
+  outOfWork = false,
 }: {
   view: ViewId;
   hasSession: boolean;
   onNavigate: (view: ViewId) => void;
   /** Whether the manager is reading the navigation right now. */
   onOpenChange: (open: boolean) => void;
+  /**
+   * The manager has no club. The sections that were about a club are not drawn,
+   * rather than drawn and silently doing nothing: a destination that leads
+   * nowhere is worse than one that is not offered.
+   */
+  outOfWork?: boolean;
 }) {
   const [pointerInside, setPointerInside] = useState(false);
   const [focusInside, setFocusInside] = useState(false);
@@ -128,9 +135,11 @@ export function SideNav({
 
   // The sections scroll; the pinned ones do not. Splitting on the flag rather
   // than on a hard-coded id keeps the decision where it is explained, in the
-  // navigation model beside every other choice about what sits where.
-  const scrollingSections = NAV_SECTIONS.filter((section) => !section.pinned);
-  const pinnedSections = NAV_SECTIONS.filter((section) => section.pinned);
+  // navigation model beside every other choice about what sits where — and the
+  // model has already asked what the manager's situation leaves him.
+  const sections = navSectionsFor(outOfWork);
+  const scrollingSections = sections.filter((section) => !section.pinned);
+  const pinnedSections = sections.filter((section) => section.pinned);
 
   return (
     <nav

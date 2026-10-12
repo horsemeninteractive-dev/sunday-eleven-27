@@ -6,6 +6,7 @@ import { isPlayer } from '@/domain/person';
 import { daysBetween, formatDayMonth, formatKickOff } from '@/simulation/calendar';
 import { currentScore } from '@/simulation/match/matchEngine';
 import { currentAttention, type ContinueStop } from '@/simulation/day';
+import { isEmployed } from '@/simulation/career';
 import { currentMatchday, matchOpponent, matchVenueLabel, squadAvailability } from '@/simulation/queries';
 import { nextFixtureFor, nextStop } from '@/simulation/schedule';
 import { leagueMatchdayCount } from '@/simulation/timeline';
@@ -64,6 +65,7 @@ export interface CommandAction {
 
 export type CommandPhase =
   | 'season-complete'
+  | 'between-jobs'
   | 'match-live'
   | 'match-finished'
   | 'matchday'
@@ -112,25 +114,61 @@ export function commandStateFor(game: GameState, session: MatchSession | null): 
   };
 
   if (game.phase === 'complete') {
+    // Turning the season over is his button whether or not he has a club: it is
+    // what runs the summer's appointments, and a career that could not press it
+    // would be stuck a day short of the job board for good. It is not his
+    // pre-season, though — there is no squad to bring back — so it does not say
+    // so, and the club's own screens are not offered to a man without one.
+    const outOfWork = !isEmployed(game);
     return {
       phase: 'season-complete',
       eyebrow: 'Season',
       title: `${game.season.label} is over`,
       lines: ['Promotion and relegation are settled elsewhere in the county.'],
-      detail: 'Players get older, the oldest retire, and a fresh fixture list gets drawn up.',
+      detail: outOfWork
+        ? 'The summer is when committees change their minds. Turning the season over is what brings the county’s vacancies out.'
+        : 'Players get older, the oldest retire, and a fresh fixture list gets drawn up.',
       action: {
-        label: 'Start pre-season',
-        short: 'Pre-season',
+        label: outOfWork ? 'Turn the season over' : 'Start pre-season',
+        short: outOfWork ? 'The summer' : 'Pre-season',
         intent: { kind: 'action', action: 'rollover-season' },
         variant: 'primary',
       },
-      secondary: [
-        { label: 'The table', short: 'Table', intent: { kind: 'view', view: 'league' }, variant: 'quiet' },
-        { label: 'The archive', short: 'History', intent: { kind: 'view', view: 'history' }, variant: 'quiet' },
-      ],
+      secondary: outOfWork
+        ? []
+        : [
+            { label: 'The table', short: 'Table', intent: { kind: 'view', view: 'league' }, variant: 'quiet' },
+            { label: 'The archive', short: 'History', intent: { kind: 'view', view: 'history' }, variant: 'quiet' },
+          ],
       progress,
       urgency: 'soon',
       continueHint: 'Nothing left this season',
+    };
+  }
+
+  // Between jobs: there is no club, no fixture and no team to pick. The one
+  // thing the manager can do is move the days on and watch the job board.
+  if (!isEmployed(game)) {
+    const openings = game.career?.openings?.length ?? 0;
+    return {
+      phase: 'between-jobs',
+      eyebrow: 'Between jobs',
+      title: openings > 0 ? `${openings} club${openings === 1 ? '' : 's'} looking for a manager` : 'Waiting for a vacancy',
+      lines: [formatDayMonth(today), `${game.season.label} · matchday ${matchday} of ${matchdays}`],
+      detail: openings > 0
+        ? 'Open the job board on Home and apply before the window closes.'
+        : 'Nothing is available yet. Keep the days moving and keep an eye on the board.',
+      action: {
+        label: 'Continue',
+        short: 'Continue',
+        intent: { kind: 'action', action: 'continue' },
+        variant: 'primary',
+        hint: 'Move the calendar on',
+      },
+      secondary: [],
+      progress,
+      urgency: 'routine',
+      continueHint: 'Continue',
     };
   }
 

@@ -109,6 +109,26 @@ describe('pitch frame', () => {
     expect(pitchPoint(0.25, 0.75, 'portrait')).not.toEqual({ left: 0.25, top: 0.75 });
   });
 
+  it('leaves a point behind a goal line behind it, so that ground can be drawn', () => {
+    // The goals stand off the ends of the pitch and their nets hang behind the
+    // goal lines, over ground the playing surface does not cover — and the
+    // surface is where the renderer places everything, so a ball in the net is a
+    // ball a little past a goal line. It has to come back a little past it.
+    // Clamping to the pitch, which is the tempting "fix" for a stray coordinate,
+    // would put every ball in a goal back on the line and leave the net with
+    // nothing that could ever be drawn in it.
+    expect(pitchPoint(-0.03, 0.5, 'landscape')).toEqual({ left: -0.03, top: 0.5 });
+    expect(pitchPoint(1.03, 0.5, 'landscape')).toEqual({ left: 1.03, top: 0.5 });
+    // Up a portrait screen the same two points are past the away goal line, over
+    // the top of the picture, and past the home goal line, under the foot of it.
+    expect(pitchPoint(1.03, 0.5, 'portrait').top).toBeCloseTo(-0.03, 12);
+    expect(pitchPoint(-0.03, 0.5, 'portrait').top).toBeCloseTo(1.03, 12);
+    // And a point beyond a touchline is outside the pitch on that side, which is
+    // the ground beside the pitch rather than the ground behind a goal.
+    expect(pitchPoint(0.5, -0.03, 'landscape').top).toBeCloseTo(-0.03, 12);
+    expect(pitchPoint(0.5, 1.03, 'portrait').left).toBeCloseTo(1.03, 12);
+  });
+
   it('points a man the way the picture draws him running', () => {
     // The invariant the whole file exists for, checked the long way round: the
     // heading `facingIn` names and the heading the drawn positions actually give

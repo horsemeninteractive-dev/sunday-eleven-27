@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { CLUB_STRUCTURE_LABEL, type Club } from '@/domain/club';
 import type { GameState } from '@/domain/game';
 import { isPlayer } from '@/domain/person';
+import { managingClubId } from '@/simulation/career';
 import { leaguePosition, squadAverageAge } from '@/simulation/queries';
 import { useGame } from '../hooks';
 import { moneyShort } from '../format';
@@ -53,9 +54,15 @@ export function WorldView() {
   const [query, setQuery] = useState('');
   const [townId, setTownId] = useState('');
   const [limit, setLimit] = useState(12);
+  // The businesses are a directory as well, and the list has to stop somewhere:
+  // where it stopped is said on the screen, the way the club list says its own.
+  const [businessLimit, setBusinessLimit] = useState(24);
   const [sort, setSort] = useRememberedSort('world', game?.saveId ?? null, clubSort(game));
   if (!game) return null;
 
+  // The club he manages, which is nobody's while he is between jobs: the world
+  // is still readable, but it does not mark a club as his when it is not.
+  const myClubId = managingClubId(game);
   const towns = Object.values(game.world.towns);
   const clubs = Object.values(game.clubs);
   const grounds = Object.values(game.world.grounds);
@@ -80,7 +87,7 @@ export function WorldView() {
 
       <Section title={`${game.world.regionName}, ${game.world.countyName}`}>
         <div className="row row--wrap"><label className="field"><span className="field__label">Find a club</span><input className="input" type="search" value={query} onChange={(event) => { setQuery(event.target.value); setLimit(12); }} placeholder="Club or nickname" /></label><label className="field"><span className="field__label">Town or village</span><select className="input" value={townId} onChange={(event) => { setTownId(event.target.value); setLimit(12); }}><option value="">Every town</option>{towns.map((town) => <option key={town.id} value={town.id}>{town.name}</option>)}</select></label></div>
-        <ul className="club-directory">{visibleClubs.slice(0, limit).map((club) => <li key={club.id}><ClubBadge club={club} size={44} /><div className="club-directory__text"><ClubLink clubId={club.id}>{club.identity.name}</ClubLink><span className="small muted">{game.world.towns[club.townId]?.name} · {club.identity.nickname}{club.id === game.userClubId ? ' · Your club' : ''}</span><span className="small muted">{game.world.grounds[club.groundId]?.name}</span></div></li>)}</ul>
+        <ul className="club-directory">{visibleClubs.slice(0, limit).map((club) => <li key={club.id}><ClubBadge club={club} size={44} /><div className="club-directory__text"><ClubLink clubId={club.id}>{club.identity.name}</ClubLink><span className="small muted">{game.world.towns[club.townId]?.name} · {club.identity.nickname}{club.id === myClubId ? ' · Your club' : ''}</span><span className="small muted">{game.world.grounds[club.groundId]?.name}</span></div></li>)}</ul>
         {visibleClubs.length > limit && <button type="button" className="btn btn--ghost" onClick={() => setLimit((value) => value + 12)}>More local clubs · {limit} of {visibleClubs.length} shown</button>}
         {visibleClubs.length === 0 && <p className="empty">No local clubs match that search. Try another name or town.</p>}
       </Section>
@@ -171,12 +178,12 @@ export function WorldView() {
               return (
                 <tr
                   key={club.id}
-                  className={club.id === game.userClubId ? ' table__row--mine' : undefined}
+                  className={club.id === myClubId ? ' table__row--mine' : undefined}
                 >
                   <td>
                     <span className="swatch" style={{ background: club.identity.colours.primary }} />
                     <ClubLink clubId={club.id}>{club.identity.name}</ClubLink>
-                    {club.id === game.userClubId && <Pill tone="accent">yours</Pill>}
+                    {club.id === myClubId && <Pill tone="accent">yours</Pill>}
                     <div className="muted small">{club.identity.nickname}</div><button type="button" className="link" onClick={() => setClubId(club.id)}>Compare {club.identity.shortName}</button>
                   </td>
                   <td data-label="Town">{game.world.towns[club.townId]?.name}</td>
@@ -276,7 +283,7 @@ export function WorldView() {
         <summary className="small muted">Pubs, businesses and sponsorship</summary>
       <Panel>
         <ul className="tight-list">
-          {businesses.slice(0, 24).map((business) => (
+          {businesses.slice(0, businessLimit).map((business) => (
             <li key={business.id}>
               <div className="row row--wrap">
                 {/* Every business in the world wears its own mark, whether or
@@ -294,6 +301,11 @@ export function WorldView() {
             </li>
           ))}
         </ul>
+        {businesses.length > businessLimit && (
+          <button type="button" className="btn btn--ghost" onClick={() => setBusinessLimit((value) => value + 24)}>
+            More businesses · {businessLimit} of {businesses.length} shown
+          </button>
+        )}
       </Panel>
       </details>
 

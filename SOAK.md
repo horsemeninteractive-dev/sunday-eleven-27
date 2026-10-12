@@ -68,6 +68,60 @@ that cannot field a side, attributes off the 1–20 scale, a save that does not
 round-trip, the clock going backwards, the archive written twice, a fixture or
 performance pointing at a club, ground or person that has gone.
 
+The club lifecycle has its own set (`checkLifecycle`), because the links it
+leaves across the years are exactly the ones a single-season test cannot see:
+
+- `heritage-predecessor-exists` — a club's `heritage` names a club that is still
+  in the world, and that club has stopped playing. History pointing at nothing is
+  history that has been deleted by accident.
+- `heritage-one-successor` — one club folds once and one club forms in its place.
+  Two clubs naming the same predecessor means a season boundary was processed
+  twice and minted a duplicate: a second club in the same town, on the same
+  ground, in the same division.
+- `folded-stands-aside` — a folded club keeps its record and loses its place. An
+  inactive club still listed in a division is a fixture waiting to be scheduled
+  for a club that no longer exists.
+- `administration-bounded` — a club may be in the red for the grace period and no
+  longer. A live club still in administration after it is a fold that never
+  happened.
+- `employer-exists`, `employer-still-playing` — every official's club is in the
+  world and is still playing. A man left at a folded club is a fold that left
+  somebody behind.
+- `career-record-keeps`, `career-spells-exist`, `unemployed-has-no-club`,
+  `employment-agrees` — the manager's record only grows, every spell names a club
+  that is in the world, there is no club he manages while he is between jobs, and
+  the club the career names while he is in work is the club the world has him at.
+
+The calendar and competition checks have a set of their own
+(`checkCalendarIntegrity`), because what they look for only goes wrong in a
+season somebody has actually played:
+
+- `cup-decided` — every cup that began the season reached a winner. Read at the
+  close of a season, so "began" is a competition that drew at least one round, or
+  has clubs in it, or has moved past round one; a competition that was never
+  drawn — the Plate, for most of the season — is not stuck, it has not started.
+  It catches a bracket marked complete that crowns nobody, a cup that drew a
+  round and never reached a final, and a cup that was closed up by the round
+  arithmetic while a round of its own plan had no ties at all.
+- `cup-round-has-date` — every cup tie still to be played has a usable date,
+  inside the season and no later than the rearrangement deadline, and every round
+  drawn is numbered on a matchday the calendar actually has. A round whose slot
+  the calendar dropped is a round that can never be drawn, which is how a cup ends
+  a season with no winner. Played, abandoned and replaced records are history and
+  are not read: a tie that has been rearranged has one live fixture, and that is
+  the one checked.
+- `every-fixture-in-a-competition` — every fixture is in a competition the world
+  has, is on that competition's fixture list, and is filed under the matchday it
+  is actually played on; every match on a list is a match in the world; no match
+  is on two competitions' lists. A postponed tie is deliberately two records on
+  one matchday, which is not treated as a duplicate. Friendlies are skipped by
+  name, because they are the one competition the world deliberately does not
+  carry.
+
+These three are named in the report's summary even when they are clean, so a run
+that says nothing about them is one that checked them rather than one that never
+ran them.
+
 Warnings (`warn`) mean the world is drifting in a way the *design* has not yet
 decided about — a negative balance nobody reacts to, a social link to somebody
 who has left. The report prints the failures first, then the warnings, and caps
@@ -77,7 +131,11 @@ each invariant at a handful of examples (the full list is in the JSON).
 
 - **trend** — one row a season across the numbers that matter: squad size,
   ability, age, money, the unattached pool, goals, cards, injuries, days, and
-  postponements. A drift is a lean across rows, not a footnote.
+  postponements. A drift is a lean across rows, not a footnote. The lifecycle
+  has its own columns beside them — `folded` (clubs in the archive), `admin`
+  (clubs in the red and inside the grace period), `reformed` and `new` (clubs
+  playing on that came back as themselves, and clubs minted in a folded club's
+  place) and `career` (distinct clubs on the manager's record).
 - **drift** — season one against the last season, as a sentence. This is the
   headline: what changed over the run.
 - **violations** — every invariant that broke, worst first.
@@ -357,3 +415,85 @@ season-boundary suites pass on the new world. The fifteen-season soak was **not*
 re-run for this phase: `npm run benchmark` is what caught the one real problem here
 (an opening instruction mix that took the watched engine to 25 shots a match against
 the background model's 17) and what measured the answer to it.
+
+---
+
+## The club lifecycle and the manager's career, measured over ten seasons
+
+This phase gave the world reformation, the committee's appeal and a career record
+that crosses clubs, so the soak was extended with the `checkLifecycle` invariants
+and the `admin`, `reformed`, `new` and `career` columns, and run for **ten seasons
+on both established seeds** (`soak-evolution`, a fresh seed, and `soak-scratch`,
+the seed every earlier section of this file was measured on, both taking over
+club 3 where the earlier runs did). Ten seasons rather than fifteen because a
+fold needs three seasons of administration to arrive, so the cycle is exercised
+well inside ten, and 442–451 s is a run that can be repeated while working.
+
+**Both runs close every season** — 357 days in almost all of them, with a couple
+of 364s and one 371 where a rearrangement spilled past the calendar — hold the
+ladder at 36 clubs in 12/12/12, keep squads inside 20–30, and report no
+`heritage-*`, `folded-stands-aside`, `administration-bounded`, `employer-*` or
+`career-*` failure at any season. The lifecycle works: clubs go into the red,
+some recover after the appeal, some fold, and what comes back is a re-formation
+or a new club — the `reformed` and `new` columns read 3 and 3 by season ten on
+`soak-evolution` and 5 and 4 on `soak-scratch`, against 8 and 16 clubs in the
+archive. The `red` column peaks at 11 clubs (of 36) in `soak-scratch`'s opening
+seasons and eases to 3–4 by season ten, which is the appeal doing what it was
+added to do: a club in trouble gets a way out rather than a countdown.
+
+**The appeal slowed the churn rather than stopping it.** On `soak-scratch` — the
+one seed with a before-and-after — folds went from **29–33 over fifteen seasons**
+(≈2 a season, the finding this file was last written around) to **16 over ten**
+(1.6 a season), and clubs in the red from 96–112 warnings to 60. On
+`soak-evolution` the same cycle is quieter still: 8 folds and 44 red-club warnings.
+The difference between the two seeds (0.8 and 1.6 folds a season) is the spread
+the world has when nothing else about it changes, and it is worth remembering
+before reading anything into a single run.
+
+**What the two lifecycle defects were, and how they were measured.** Four
+failures on `soak-evolution`'s first ten-season run, all of them new-code:
+
+- `club-staff-exists` (2): a man promoted from the committee's own roster kept the
+  post he had left — the club's assistant slot went on naming him — and when the
+  managers' market retired him at 68 and deleted him from the world, the club was
+  left pointing at nobody. Found four seasons after a re-formed club was minted.
+  Fixed at both ends: a promotion vacates the posts the man was holding, and a
+  manager who leaves the world takes every committee post with him. Failures:
+  2 → 0. Regression test: `managers.test.ts`.
+- `tier-stratification` (2): the top two divisions closed to within the
+  separation the pyramid is meant to hold (division 1 at 10.88 against division 2
+  at 10.72 in season ten, against a band of 1.5% of the top rung's ability). The
+  cause was this phase's own rung rule: a replacement takes the median standing of
+  the division it enters, and a **re-formation** was being re-rolled the same way
+  — so every fold of a club that stood above or below its rung's middle pulled
+  that rung towards the middle, and a rung that churns most is dragged furthest.
+  A re-formation now keeps the standing the club actually had (it is the same
+  club, on the same pitch, with the same crowd), and a genuinely new club still
+  takes the rung's standard. On the same seed and season count, the top-two gap
+  goes from 0.16 to 0.27 — 0.27, 0.29, 0.31, 0.32, 0.36 across the seasons where
+  it had been closing — and the run reports no failure at all. Regression test:
+  `clubLifecycle.test.ts`.
+
+| run | failures | of which | warnings | folds |
+| --- | --- | --- | --- | --- |
+| `soak-evolution`, 10 seasons, before | 4 | `club-staff-exists` 2, `tier-stratification` 2 | 36 | 7 |
+| `soak-evolution`, 10 seasons, after | 0 | — | 44 | 8 |
+| `soak-scratch`, 10 seasons | 1 | `unattached-pool-holds` 1 | 60 | 16 |
+
+The one failure left on `soak-scratch` is the pool's opening size — the known
+finding above, and not this phase's: season one is generated with 74 unattached
+men and every summer after it settles the pool at 44–54, so the third season is
+read at −40% against a reference the world never returns to. Nothing in the
+lifecycle touches it. It is still the outstanding generation decision in this
+file.
+
+**And what the soak cannot yet measure about the career.** The `career` column
+reads 1 in every season of both runs, because the player's own manager is still
+held out of the market by design (`protectedManagerIds`): the county's AI managers
+move between clubs (the `mgrpool` column and `managers.ts`'s own tests cover that)
+and the player's *club* can fold under him, but nothing in the soak takes the
+player himself to a second club. The multi-club career — spells across clubs, a
+dismissal, unemployment, reappointment — is covered by
+`src/simulation/career.test.ts` rather than by a long run, and the invariant is
+there so that the day the market is allowed to move him, a lost spell is a
+failure rather than a footnote.

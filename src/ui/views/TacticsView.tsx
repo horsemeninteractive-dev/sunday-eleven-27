@@ -19,13 +19,14 @@ import { FORMATION_IDS, getFormation } from '@/domain/positions';
 import { PITCH_LABEL, WEATHER_LABEL } from '@/domain/match';
 import { isPlayer } from '@/domain/person';
 import { formatDate, formatKickOff } from '@/simulation/calendar';
+import { oppositionDossier } from '@/simulation/intelligence/opposition';
 import { matchOpponent } from '@/simulation/queries';
-import { clubStyle } from '@/simulation/ai/style';
 import { gameActions, useGame, useNextFixture, useSquad } from '../hooks';
 import { applyFormation } from '../lineupEditing';
 import { Button, PageHeader, Panel, Pill } from '../components/primitives';
-import { Section, TileGrid } from '../components/hierarchy';
 import { FormationBoard } from '../components/FormationBoard';
+import { OppositionReport } from '../components/OppositionReport';
+import { PitchBadge, pitchVerdict } from '../match/PitchBadge';
 import { Tabs } from '../components/Tabs';
 
 /**
@@ -47,6 +48,13 @@ export function TacticsView() {
   const tactics: Tactics = club.tactics;
   const isHome = fixture ? fixture.homeClubId === club.id : true;
   const opponent = fixture ? game.clubs[matchOpponent(fixture, club.id)] : undefined;
+  // What the club knows about them, read once and used twice: the line in the
+  // caption and the report under the board. A manager sets his side up from the
+  // same reading the screen prints, rather than from a second guess at it.
+  const dossier = opponent ? oppositionDossier(game, opponent.id) : null;
+  // The surface this week, read once: the badge and the line under it are the
+  // same verdict, so they cannot disagree about what the pitch will do.
+  const pitch = fixture ? pitchVerdict(fixture.conditions) : null;
 
   const set = (patch: Partial<Tactics>) => {
     const next = { ...tactics, ...patch };
@@ -67,6 +75,11 @@ export function TacticsView() {
         return sum + (isPlayer(person) ? person.fitness : 0);
       }, 0) / positions.length
     : 0;
+
+  // What the current setup buys and costs. A plain, balanced side buys nothing and
+  // pays for nothing, so the list can honestly be empty — which is why the block
+  // says so rather than leaving a heading over nothing.
+  const effects = effectsFor(tactics);
 
   const suitWarnings = [
     tactics.pressing === 'high' && averageFitness < 75
@@ -125,14 +138,20 @@ export function TacticsView() {
               <span>
                 {formatDate(fixture.date)} · kick-off {formatKickOff(fixture.kickOff)}
               </span>
-              <span>
+              <span className="tactics-caption__conditions">
+                <PitchBadge conditions={fixture.conditions} className="pitch-badge--inline" />
                 {PITCH_LABEL[fixture.conditions.pitch]} pitch · {WEATHER_LABEL[fixture.conditions.weather].toLowerCase()}, {fixture.conditions.temperatureC}°C
               </span>
+              {/* What the surface will do to the football, on the screen where
+                  the football is being chosen: a deep line is a decision *for* a
+                  heavy pitch, and this is what says whether the pitch is one. */}
+              {pitch && <span className={`muted small pitch-note pitch-note--${pitch.tone}`}>{pitch.notes.join(' · ')}</span>}
               {/* One line on the opposition, and the same line every week: how
-                  they play is derived from the club, so it is a fact about them
-                  rather than a guess, and it is what tells a manager whether
-                  this is a day to sit in or a day to have a go. */}
-              {opponent && <span>Their game: {clubStyle(opponent).label.toLowerCase()}</span>}
+                  they play comes from the club's own instructions, so it is a
+                  fact about them rather than a guess, and it is what tells a
+                  manager whether this is a day to sit in or a day to have a
+                  go. The full report sits under the board. */}
+              {dossier && <span>Their game: {dossier.plan.label.toLowerCase()}</span>}
             </>
           ) : (
             <span>Nothing in the diary yet — the next fixture will appear here.</span>
@@ -205,19 +224,36 @@ export function TacticsView() {
           </TacticsZone>}
         </div>
         </Tabs>
+        {/* What the instructions ask of the team, on the panel where they are set:
+            the consequence of a choice belongs beside the choice. This used to be a
+            closed disclosure at the foot of the screen, which made the numbers that
+            say whether a setup works the one thing on the screen nobody opened. */}
+        <div className="tactics-effects" role="group" aria-label="What this asks of the team">
+          <h3 className="subhead">What this asks of the team</h3>
+          {effects.length > 0 ? (
+            <ul className="tactics-effects__list">
+              {effects.map((effect) => (
+                <li className="tactics-effects__item" key={effect.label}>
+                  <span className={`tactics-effects__label tone tone--${effect.tone}`}>{effect.arrow} {effect.label}</span>
+                  <span className="tactics-effects__note muted small">{effect.note}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="tactics-effects__empty muted small">
+              A plain setup buys nothing and pays for nothing. Every change you make above shows what it asks of them here.
+            </p>
+          )}
+        </div>
       </Panel>
       </div>
 
-      <details className="more"><summary>What these instructions ask of the team</summary><Section title="Tactical effects">
-        <TileGrid min={200}>
-          {effectsFor(tactics).map((effect) => (
-            <div className="tile" key={effect.label}>
-              <span className={`metric__value tone tone--${effect.tone}`}>{effect.arrow} {effect.label}</span>
-              <span className="metric__note">{effect.note}</span>
-            </div>
-          ))}
-        </TileGrid>
-      </Section></details>
+      {/* The preparation itself: what the club has on the side it is playing,
+          with the detail behind every line and the honest answer when there is
+          almost nothing. It sits between the instructions and the read on your
+          own XI because that is the order the afternoon works in — how they
+          play, then what you ask of your own lot. */}
+      {dossier && <OppositionReport dossier={dossier} />}
 
       <Panel title="Does this suit the players you have?" subtitle="A quick read on your likely XI">
         <div className="row row--wrap">

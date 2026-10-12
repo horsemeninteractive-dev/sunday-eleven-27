@@ -2,7 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './ui/App';
 import { bootStore, flushAutosave, useGameStore } from './state/gameStore';
-import { applyMotion, loadPreferences } from './state/preferences';
+import { applyMotion, applyTheme, loadPreferences } from './state/preferences';
 import { initialise, resumeSlot } from './state/persistence';
 import { onSuspend } from './platform/lifecycle';
 import { startNativeShell } from './platform/native';
@@ -10,15 +10,29 @@ import { startDesktopShell } from './platform/desktop';
 import { captureInstallPrompt, startServiceWorker } from './pwa';
 import './ui/styles.css';
 
-// Reduced motion is settled before the first paint, not after it: the stylesheet
+// Two decisions are settled before the first paint, not after it, and both of
+// them because of what the first frame would otherwise show: the stylesheet
 // decides what to animate from one attribute on the page, and a stripe that has
-// already started drifting before the preference is read is a stripe that had
-// to be stopped. If the manager is following his system, changes to it are
-// followed too, while he plays.
+// already started drifting before the preference is read is a stripe that had to
+// be stopped; and it decides the whole palette from another, so a light-mode
+// manager would be handed a near-black page and watch it turn over. If the
+// manager is following either system setting, changes to it are followed too,
+// while he plays.
+//
+// `index.html` has already set the theme from the same preference, before the
+// bundle arrived — see the placeholder there. This is the same answer written
+// again, which is what keeps the two in step when nobody is looking at a flash.
 applyMotion();
+applyTheme();
 if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
   window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', () => {
     if (loadPreferences().motion === 'system') applyMotion('system');
+  });
+  // A theme the manager has *chosen* is not asked about again, and one he is
+  // following is answered as it changes. The attribute is what the stylesheet
+  // reads, so this is the whole of the switch.
+  window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => {
+    if (loadPreferences().theme === 'system') applyTheme('system');
   });
 }
 

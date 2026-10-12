@@ -1,0 +1,47 @@
+# XIAI, the community bot, as a Discord interactions endpoint.
+#
+# This is a second, separate thing from the website: `tools/release.ts` deploys
+# the game to Cloudflare Pages with `wrangler pages deploy`, and this is a Worker
+# of its own with no assets, no bindings, no cron and no build step. Keeping the
+# two configs apart is why this file is here rather than in the repository root —
+# a `wrangler.toml` at the top would be read by the Pages deploy too, and the one
+# thing this must never do is get between a release and the site it publishes.
+#
+#     npx wrangler dev   --config worker/wrangler.toml      # locally, with .dev.vars
+#     npx wrangler deploy --config worker/wrangler.toml     # the live bot
+#
+# What has to be set before it answers anything, none of it in this file:
+#
+#   DISCORD_PUBLIC_KEY      Developer Portal → your application → General
+#                           Information → Public Key. Sixty-four hex characters.
+#                           It is *not* a secret — it is the verification half of
+#                           the pair — but it belongs to one Discord application,
+#                           so it goes in `worker/.dev.vars` (ignored by git) for
+#                           local runs and in a Worker secret for the live one.
+#                           There is deliberately no bot token anywhere near
+#                           this: verifying a signature and answering an
+#                           interaction both need nothing else.
+#
+#   XIAI_FEEDBACK_WEBHOOK   optional. A channel webhook the vote buttons report
+#                           to. Unset is a supported state: a vote is still
+#                           acknowledged, it just goes no further.
+#
+# Then set the same URL in the Developer Portal — Interactions Endpoint URL —
+# where Discord checks it by sending a PING, and `/ask` answers with no machine
+# of yours involved at all.
+
+name = "xiai"
+main = "index.ts"
+
+# The date the endpoint is written against. Nothing here is exotic — fetch,
+# crypto.subtle, TextEncoder — but the date is how Workers knows which behaviour
+# of a moving runtime to hold still, and a deploy without one is a deploy that
+# changes meaning on somebody else's schedule.
+compatibility_date = "2026-10-11"
+
+# Logs, from the dashboard as well as from `wrangler tail`. The Workflow is a
+# bot that answers without a person watching, so the record of what it answered
+# and what it refused is the only way to find out that it has started answering
+# the wrong question.
+[observability]
+enabled = true

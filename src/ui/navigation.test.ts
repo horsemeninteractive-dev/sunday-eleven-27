@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { NAV_SECTIONS, navSectionFor, NAV_LEAVES } from './navigation';
+import {
+  isAvailableOutOfWork,
+  mobileMoreSectionsFor,
+  mobilePrimaryFor,
+  navSectionFor,
+  navSectionsFor,
+  NAV_LEAVES,
+  NAV_SECTIONS,
+} from './navigation';
 
 /**
  * The shape of the sidebar.
@@ -90,6 +98,43 @@ describe('the sidebar reads top to bottom', () => {
     expect(pinned.map((section) => section.id)).toEqual(['inbox']);
     expect(pinned[0]!.direct).toBe(true);
     expect(pinned[0]!.leaves).toHaveLength(1);
+  });
+
+  it('draws only the screens that still exist for a manager between jobs', () => {
+    // A sacked manager has no squad to pick and no books to answer for. The
+    // sections that were about a club are not drawn at all, and everything that
+    // is left is a screen he can actually open — the list and the router read
+    // the same rule, so the sidebar cannot offer a destination the shell would
+    // refuse him.
+    const sections = navSectionsFor(true);
+    // The Club section stays, holding the one thing in it that is not about a
+    // club: the local paper. Everything it used to keep company with — the
+    // clubhouse, the staff, the books, the honours — has gone.
+    expect(sections.map((section) => section.label)).toEqual(['Home', 'Manager', 'Messages', 'Club', 'World']);
+    const leaves = sections.flatMap((section) => section.leaves.map((leaf) => leaf.id));
+    expect(leaves.sort()).toEqual(['dashboard', 'inbox', 'manager', 'news', 'world'].sort());
+    for (const leaf of leaves) expect(isAvailableOutOfWork(leaf)).toBe(true);
+    // The club screens are the ones that went: nothing about a club he has left.
+    for (const gone of ['squad', 'team', 'tactics', 'fixtures', 'finances', 'staff', 'club', 'history', 'training', 'recruitment', 'league', 'cup'] as const) {
+      expect(isAvailableOutOfWork(gone)).toBe(false);
+    }
+    // Employed, the sidebar is exactly what it always was.
+    expect(navSectionsFor(false)).toBe(NAV_SECTIONS);
+  });
+
+  it('keeps the phone\'s messages and the world, and drops the squad', () => {
+    expect(mobilePrimaryFor(true).map((destination) => destination.id)).toEqual([
+      'dashboard',
+      'inbox',
+      'world',
+      'more',
+    ]);
+    const more = mobileMoreSectionsFor(true).flatMap((section) => section.leaves.map((leaf) => leaf.id));
+    expect(more.sort()).toEqual(['manager', 'news']);
+    // The wider sheet still holds everything for a manager with a club.
+    expect(mobileMoreSectionsFor(false).flatMap((section) => section.leaves)).toHaveLength(
+      NAV_LEAVES.filter((leaf) => !mobilePrimaryFor(false).some((destination) => destination.id === leaf.id)).length,
+    );
   });
 
   it('still reaches every destination exactly once', () => {

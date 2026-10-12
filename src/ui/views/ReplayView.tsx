@@ -11,6 +11,7 @@ import { matchSecondsPerRealSecond } from '../matchPace';
 import { minuteLabel } from '../matchFeed';
 import { MatchIncidentBanner } from '../match/MatchIncidentBanner';
 import { MatchStatsStrip } from '../match/MatchStats';
+import { MatchTimeline, matchLengthMinutes, replayTimelineMarks } from '../match/MatchTimeline';
 import { matchTeamColours } from '../kit';
 import { TeamSheet } from '../match/TeamSheet';
 import { Button } from '../components/primitives';
@@ -59,6 +60,9 @@ export function ReplayView() {
     [game, match],
   );
   const replay = useMemo(() => (match ? buildReplay(match) : null), [match]);
+  // The afternoon's incidents, placed on the replay's own clock: exactly where a
+  // press has to take the playhead, so the rail and the scrub agree.
+  const railMarks = useMemo(() => (match && replay ? replayTimelineMarks(replay, match) : []), [match, replay]);
 
   const [seconds, setSeconds] = useState(0);
   const [playing, setPlaying] = useState(true);
@@ -203,6 +207,23 @@ export function ReplayView() {
         </div>
 
         <div className="replaybar">
+          {railMarks.length > 0 && (
+            <MatchTimeline
+              marks={railMarks}
+              minute={Math.round(frame.minute)}
+              length={matchLengthMinutes(match)}
+              progress={replay.duration > 0 ? seconds / replay.duration : 0}
+              homeColour={strips?.home.primary}
+              awayColour={strips?.away.primary}
+              label="Replay timeline"
+              onJump={(mark) => {
+                // The clock stops where the manager asked to look, because a
+                // replay that keeps running is a replay he has to chase.
+                setPlaying(false);
+                setSeconds(Math.round(mark.fraction * replay.duration));
+              }}
+            />
+          )}
           <div className="replaybar__line">
             <span className="muted small">{minute}&#39;</span>
             <span className="replaybar__text">{frame.cue?.text ?? 'Waiting for the first whistle…'}</span>

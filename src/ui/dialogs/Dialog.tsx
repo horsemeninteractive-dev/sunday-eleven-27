@@ -1,7 +1,5 @@
 import { useId, useRef, type ReactNode } from 'react';
-import { useGameStore } from '@/state/gameStore';
-import { Button } from '../components/primitives';
-import { useModalTarget, useModal } from '../components/useModal';
+import { useModal } from '../components/useModal';
 
 /**
  * What kind of thing a dialog is holding.
@@ -33,8 +31,6 @@ export function Dialog({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const titleId = useId();
-  const error = useGameStore((state) => state.error);
-  const top = useModalTarget();
   useModal(ref, onClose);
   return (
     <div className={`overlay ${className}`} data-modal={kind}>
@@ -51,7 +47,10 @@ export function Dialog({
             <button type="button" className="overlay__close" aria-label={`Close ${title.toLowerCase()}`} onClick={onClose}>✕</button>
           </div>
         </header>
-        <div className="overlay__body" tabIndex={0} role="region" aria-label={`${title} content`}>{error && top === ref.current && <div className="callout callout--bad" role="alert"><span>{error}</span><Button variant="ghost" size="sm" onClick={() => useGameStore.setState({ error: null })}>Dismiss</Button></div>}{children}</div>
+        {/* The body, and only the body's own content: a failure raised while this
+            dialog is open is announced by `GlobalFeedback`, which draws it once,
+            in here, for every surface on the screen. */}
+        <div className="overlay__body" tabIndex={0} role="region" aria-label={`${title} content`}>{children}</div>
         {footer && <footer className="overlay__foot">{footer}</footer>}
       </div>
     </div>

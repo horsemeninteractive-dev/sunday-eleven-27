@@ -293,3 +293,65 @@ What is left is the calendar doing its own job: pick the matchday in the month g
 
 - The manager's own window: the geometry above is measured in a headless browser at four sizes; the visual read at their size is theirs.
 - A phone in landscape, and a real finger rather than a mouse pointer at phone sizes.
+
+
+## Fifth pass — the reported polish items
+
+Nine items were reported against four screens. None of them is a behaviour change: every one is a state being legible that was already being drawn. No simulation, domain, state or save file was touched.
+
+| Reported item | What changed | Evidence (measured in the running game) |
+| --- | --- | --- |
+| The chosen team talk used a subtle border and should be distinctly filled | `.choice--on` is `background: var(--club)` with `--club-flat-ink`, the same treatment the chosen tab, chip and segmented item wear, and it is restated in the state-painted-last block after every surface layer that could repaint it | Choosing **Focused** on the matchday card measured `background rgb(31, 111, 235)`, ink `rgb(255, 255, 255)`, edge the club's own colour, against unchanged buttons at `rgb(24, 29, 35)` with a hairline edge. Exactly one talk and one warm-up carried the fill |
+| The warm-up buttons should show the trade-off, not two sentences underneath | `warmUpEffects()` on the button reads `warmUpEnergyDelta` and `warmUpFamiliarityDelta` — the numbers the simulation applies — so the words cannot drift from the mechanics | The four buttons carry **Light — Fresher legs**, **Normal — No change**, **Intense — Heavier legs**, **Tactical rehearsal — Heavier legs · Sharper shape**. On the chosen button they take the fill's ink rather than a status tone |
+| "Look around" blends into the background and should be a secondary ghost button with a lighter outline | `.btn--ghost` gets its own edge instead of the sheet's divider hairline; a test pins it brighter than `--line` and still well below a filled button | `Look around` measured edge `rgb(76, 87, 96)` beside a filled **Kick off** (`rgb(31, 111, 235)`). The hairline it used to wear is `#232a31` — 1.25:1 on a panel against 2.46:1 for the new edge |
+| The four squad-need cards should be scannable: progress bars and colour-coded badges on all four | One tone drives the tile, the badge and the bar (`needVerdictTone`), one function names the verdict (`needVerdictLabel`, asserted to appear exactly once in the view), and every card is drawn the same way | Four cards, each with a bar and a badge: **1/2 Light** amber with the bar at 100%, **5/5**, **6/7 Alright** neutral at 83.3%, **2/4 Light** at 75%. The green **Well covered** state was probed in the live page: `rgb(79, 179, 124)` on both edge and ink |
+| The recruitment action buttons should point at the next logical step | `nextRecruitmentStep()` — the dressing room, then the five-a-side, then the afternoon and its money, with a session that has men waiting on it leading everything. Exactly one button is primary; when the day's routes are spent, none is | **Ask the lads for names** was primary; after pressing it, it became a disabled ghost ("Asked today") and **Look in at five-a-side** took the primary fill. The step order and the four call sites are unit-tested |
+| The profile's secondary details (Condition, Availability, Deal, Subs) need more contrast | The fact label is `font-weight: 600` at `--text-dim` beside a value in full ink, with a little more air in the row | Both are rows of the profile's own facts grid, and every `dt` in it measured `font-weight 600` |
+| The pitch map should carry a text tag rather than needing a hover | The key prints the roles **in words** — `Natural — Goalkeeper`, `Can fill in — …` — with the roles he cannot play kept as a count and named in full in its title | Live: `Natural Goalkeeper`, `Not suited 11 roles` (title listing all eleven: Striker, Centre back, …). The pitch dots keep their codes |
+| The Continue button should be distinct, and emphatic when the action is due | Its edge is the club's own ink (a black hairline on a dark club's shirt is not an edge), and the due state adds a 2px rule along its foot in `--club-text`. Deliberately **not** an animation: this sheet loops nothing, and a button blinking in the corner of the eye is one the manager learns to ignore | While the clock was only advancing: `border rgb(16, 26, 20)`, `box-shadow: none`. On Sunday 2 August, with the day's action due: `box-shadow: rgb(74, 138, 237) 0px -2px 0px 0px inset` |
+| The breadcrumb bar is subtle and should be easier to read | The bar it rides in gets the padding; the trail itself takes full ink at the same size as body copy, and the page you are on is the same size in heavier weight | `.app__footer` measured `padding: 9px 12px`, crumb ink `rgb(228, 232, 236)` at `14px`, the current page at `700` |
+
+### One claim withdrawn, because it was measured false
+
+The facts grid's minimum column was first changed from 240px to 190px on the stated grounds that 240 left a profile's own panel with room for only one column. Measured in the profile: the panel is **556px** of column, which fits two 240px tracks and their 16px gap (496px) comfortably, laying out two 270px pairs — so the screens in question were already two to a row and the change bought nothing there. It is reverted. What was actually wrong was the label's weight, and that is what the pass fixes; the sheet's comment now states the arithmetic it depends on instead of a story about it.
+
+### Verification run after this pass
+
+- `npm run typecheck`: clean.
+- `npm test`: **87 files, 1149 tests, all passing.** `src/ui/uiTuning.test.ts` is 28 of them — 9 new contracts in a `the reported polish items` block: the chosen fill and its restatement after the surfaces, the warm-up words derived from the simulation's own deltas, the ghost edge measured against the sheet's hairline, one gauge and one badge on every need card with the verdict named once, the four next-step call sites, the fact label's weight, the position key in words (rendered from a real player), the Continue button's edge and its non-animated due state, and the breadcrumb bar's room and ink.
+- Driven in the running game on the dev server, in an isolated incognito career so no existing save was touched: create a club → Recruitment → **Get the word out** → Continue through to matchday → the pre-match card → the assistant picks the XI → a player profile. Every number in the table above is `getComputedStyle` read off those screens, and the Recruitment screen and the dashboard were also read as screenshots.
+
+### Still not verified, from this pass
+
+- The automated browser probes the earlier passes cite are not in this workspace (`.freebuff/ui-test/` is gone), so this pass is measured by computed style and screenshot rather than by a rerun of `contrast.mjs` or `audit.mjs`. Nothing here re-measures the whole sheet's text/surface contrast; the earlier sweeps' figures are for the code as it was before this pass.
+- A **Well covered** (green) badge was not reachable on the test squad, so that tone was probed by re-classing the badge in the live page rather than by finding a club that has one.
+- The phone's own breadcrumb trail keeps its compact `3px` padding by design — it is a fixed strip over the page and its clearance is budgeted in `.app__main` — so the extra room is the desktop bar's and the phone is claimed only for the ink and the size, which are now the same at both.
+- Tablet and landscape widths for the four screens above: measured at 1440×900 and at the manager's 1280×800, not in between.
+
+
+## Sixth pass — the surface, the shortcut and the local paper
+
+Three items were reported. Two are new things the game did not have; the third changes what a screen is made of, without adding a system to it.
+
+| Reported item | What changed | Evidence (measured in the running game) |
+| --- | --- | --- |
+| Pitch quality should be a dynamic graphic badge, not a word in grey, and should flag the tactical implication | New `src/ui/match/PitchBadge.tsx`: a drawn patch of pitch with the day's condition on it — mower stripes on a good one, a bald patch on a worn one, clods on a muddy one, standing water, frost — beside the word, with one line under it saying what the surface does to the football. Both the drawing's colour and the sentence come from `conditionEffects()`, the function the engine itself uses to turn a surface into an error rate, a fatigue rate and an injury rate | On the matchday card the badge measures **48×30**, green (`--ok`, `rgb(79, 179, 124)`) for a `Good` pitch, with `Good` beside it and `A fair surface for a game` spanning the fact row. On the tactics screen, where the football is actually chosen, the same badge is shown at **32×20 with a 1.5px stroke** and the same sentence under the conditions line. Six conditions are six drawings and six different verdicts, unit-tested against the engine's numbers |
+| A global `Ctrl`/`Cmd`+`K` for the search box | The command bar's search owns the combination on a desktop; the phone's own search button owns it on a phone, opening the dialog it already had. Each registers its own listener and claims the key only when its own control is laid out (`offsetParent`), so neither needs to know a breakpoint width. The default is stopped, and the cap is written inside the field, because a key nobody knows about is a key nobody presses | Desktop: `Ctrl K` focused the search input in a real browser (the cap measures **45×23**, 7px inside the field, with 58px of right padding reserved for it). Phone at 390×844: the desktop field is not laid out, and the same key opened the search dialog; inside that dialog the cap is `display: none` and the field's padding is untouched |
+| News should read as local paper — clippings cut out and pinned up, matching the club's noticeboard | A day of the paper is a **board** (`--bg-2`, hairline-bordered) with its date pinned to it and that day's **clippings** under it: each story is a sheet of paper (`--panel-2`) sitting a fraction of a degree off square, with a strip of tape across the top, no two hanging the same way; the open one takes the club's own 3px edge. The paper is its own layer, isolated behind the words, so a headline is never rotated with its sheet. The screen's own header photograph is now the noticeboard the club's messages are pinned to | Measured at 1440: one board with **14px/16px/20px** of padding, two clippings; each sheet `rgb(24, 29, 35)` on the board's `rgb(13, 15, 18)`, rotated **−0.5°** (and **+0.55°** on the even ones), with a **42×13** tape at −1.6°; `isolation: isolate` on the sheet; the header image resolves to `/photos/inbox-noticeboard.webp`; the lead's masthead rule is `--line` |
+
+### What the tests caught, and what was changed for it
+
+The badge's notes are thresholds, and the first draft set the "the ball will bobble" tier at `passControlPenalty ≥ 0.04`. A test asking the weather question — *is a good pitch in a downpour still a good pitch to pass on?* — read `A fair surface for a game` off it, because heavy rain adds only 0.03. The tier is 0.03 now, which is where the engine's own weather term lands, and the test asserts the note is present *because* `conditionEffects` returned a penalty rather than because a string was expected. A badge that called a wet afternoon dry would have been the exact failure this feature exists to prevent.
+
+### Verification run after this pass
+
+- `npm run typecheck`: clean.
+- `npm test`: **88 files, 1157 tests, all passing.** New: `src/ui/match/pitchBadge.test.ts` (6 tests — six conditions, six drawings; the notes equivalent to the engine's numbers for every pitch; weather folded into the same arithmetic; the 1.5px line; the summary line) and two contracts in `src/ui/uiTuning.test.ts` (the shortcut, and the board the clippings are pinned to).
+- Driven in the running game on the dev server, in separate incognito careers so no existing save and no other tab was touched: create a club → News → `Ctrl`+`K` on a desktop and at 390×844 → Continue through to matchday → the assistant picks the XI → the matchday card → the tactics screen.
+
+### Still not verified, from this pass
+
+- Only the `ok` tone of the badge was seen on a real screen: a pre-season fixture in July is played on a good pitch. The six drawings and the other two tones are asserted from the rendered markup and the engine's numbers, not photographed on a card.
+- The `⌘K` spelling of the cap is read from `navigator.platform`; the browser available here is Windows, so the Mac glyph is asserted by the code path rather than seen.
+- The News screen was measured and read as a screenshot at 1440 only; its clippings at 390 are not re-measured (the phone check in this pass was the search shortcut).
+- No photograph was added for the clippings: the sheet's existing rule — a game that draws its faces, badges and kits does not put one photograph among them — is why this is ink and edges rather than paper texture and a pinboard image.

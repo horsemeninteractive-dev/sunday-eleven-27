@@ -4,6 +4,9 @@ import type { Side } from '@/domain/matchState';
 import type { PlayerId } from '@/domain/ids';
 import { formationSlots, type PositionCode } from '@/domain/positions';
 import { sampleRecording } from '@/domain/matchRecording';
+// The ground's own reading of the pitch, for the same reason the teams are read
+// here: it is a fact about the afternoon that no renderer can work out.
+import { matchSurfaceFor } from '@/simulation/grounds';
 import type { MatchRenderState, RenderTeam } from './renderContract';
 import { signalOfEvent, type MatchSignal } from './matchSignals';
 
@@ -479,7 +482,14 @@ export function buildMatchRenderState(match: Match, game: GameState, cursor?: Ma
       ball: cursor.ball ?? restingBall(cursor.focus.x, cursor.focus.y),
       actions: [],
       celebration: null,
+      // A replay has no dead ball to report. The record says where the ball was
+      // and whether it was out of play, and never who was standing over it: the
+      // taker is a decision the engine took, not a position it wrote down. Null
+      // rather than the nearest man to the ball, which would be the picture
+      // deciding football.
+      restart: () => null,
       teams,
+      surface: matchSurfaceFor(game, match),
       incidents: match.incidents,
       signals,
       revision: revealedEvents.length,
@@ -503,7 +513,12 @@ export function buildMatchRenderState(match: Match, game: GameState, cursor?: Ma
     ball: restingBall(point.x, point.y),
     actions: [],
     celebration: null,
+    // Nothing is being restarted in a match with no continuous state: before
+    // kick-off the ball has never been out of play, and in a save old enough to
+    // have no field there is no dead ball to name either (see the replay above).
+    restart: () => null,
     teams,
+    surface: matchSurfaceFor(game, match),
     incidents: match.incidents,
     signals,
     revision: match.events.length,

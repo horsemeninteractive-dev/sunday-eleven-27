@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { StandingRow } from '@/domain/club';
 import type { GameState } from '@/domain/game';
 import type { Match } from '@/domain/match';
@@ -7,6 +7,8 @@ import { currentMatchday, squadOf, standings as computeTable, userClub } from '@
 import { eventsOn, nextFixtureFor, upcomingEvents } from '@/simulation/schedule';
 import type { ScheduledEvent } from '@/domain/events';
 import { useGameStore } from '@/state/gameStore';
+import { resolveTheme } from '@/state/preferences';
+import { clubStyle, type ClubColours } from './colour';
 import { inboxUnread } from './inboxState';
 
 /**
@@ -89,4 +91,44 @@ export function useSelectedPlayer(): Player | null {
 export function useUnreadMessages(): number {
   const game = useGame();
   return useMemo(() => (game ? inboxUnread(game) : 0), [game]);
+}
+
+/**
+ * Which way the page is lit, as a component sees it.
+ *
+ * The stylesheet reads the decision off the document rather than being told it,
+ * so almost nothing in the game has to ask this question — CSS answers for the
+ * whole palette from one attribute. The one thing that does need it is a club's
+ * colours: `clubStyle` makes the club's *text* ink readable against the surface
+ * it will be written on, and that surface is a different colour in each theme.
+ *
+ * It is worked out here rather than read back off the document so that a
+ * component cannot be a frame behind the attribute — the theme and the colours
+ * on the same render are the same answer to the same question.
+ */
+export function useTheme(): 'dark' | 'light' {
+  const preference = useGameStore((state) => state.preferences.theme);
+  const [systemIsLight, setSystemIsLight] = useState(
+    () => typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia('(prefers-color-scheme: light)').matches
+      : false,
+  );
+
+  // The system's answer is only consulted when the manager has not given one of
+  // his own, but it is watched either way: a choice changed from 'system' has to
+  // find the current answer, not the one from when the page opened.
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const query = window.matchMedia('(prefers-color-scheme: light)');
+    const listener = () => setSystemIsLight(query.matches);
+    query.addEventListener('change', listener);
+    return () => query.removeEventListener('change', listener);
+  }, []);
+
+  return resolveTheme(preference, systemIsLight);
+}
+
+/** A club's colours, resolved for the theme the game is currently lit by. */
+export function useClubColours(colours: ClubColours): Record<string, string> {
+  return clubStyle(colours, useTheme());
 }

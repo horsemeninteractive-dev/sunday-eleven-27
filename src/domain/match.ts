@@ -1,4 +1,5 @@
 import type { ClubId, CompetitionId, GroundId, ISODate, MatchId, PersonId, PlayerId, SeasonId } from './ids';
+import type { GroundSurface } from './world';
 import type { PositionCode } from './positions';
 import type { Tactics } from './tactics';
 import type { MatchRecording } from './matchRecording';
@@ -387,6 +388,42 @@ export interface MatchConditions {
 }
 
 /**
+ * The grass an afternoon is played on, as the ground itself reads.
+ *
+ * `MatchConditions` is what the *day* does to the surface — it is rolled from the
+ * weather and the ground's drainage and quality when the fixture is prepared, and
+ * it is what the engine charges a passing penalty for and what the league reads
+ * before a club goes up. This is the other half of the same fact, and the half a
+ * picture needs: the ground's own reading of itself. What the surface *is* (a
+ * cinder pitch is not grass, a 3G pitch never goes bald), how much grass is on it
+ * (the 1-20 the club's own work moves), and how far into its next point of wear
+ * it has been played — nought while somebody is looking after it.
+ *
+ * The two are deliberately not merged. A condition is a verdict on one afternoon
+ * — 'worn', 'muddy' — and a hundred afternoons share one. `quality` moves in
+ * steps of three when a job is commissioned, whether or not the weather ever
+ * makes a difference to the verdict, and `scuff` moves every home fixture and is
+ * reset by the £9 a week. A picture drawn from the verdict alone would show the
+ * same pitch all winter and would never show a club that had paid to improve it.
+ */
+export interface MatchSurface {
+  surface: GroundSurface;
+  /** The day's verdict on the surface, as the engine read it. */
+  condition: PitchCondition;
+  /** The ground's own grass, 1-20 — the number the club's own work moves. */
+  quality: number;
+  /**
+   * How far into its next point of wear the pitch is, 0..1.
+   *
+   * Nought while the club is paying for the ground to be looked after: a pitch
+   * that is cut, marked and rolled every week is a pitch that looks looked after.
+   * Otherwise it is the football played since the last point came off it, as a
+   * fraction of the fixtures a point costs.
+   */
+  scuff: number;
+}
+
+/**
  * How many players a side is built for, and the fewest it may field.
  *
  * Eleven is the shape a lineup is drawn for, but a side does not need all
@@ -396,6 +433,17 @@ export interface MatchConditions {
  */
 export const FULL_SIDE = 11;
 export const MIN_SIDE = 7;
+
+/**
+ * How many substitutes a side may name.
+ *
+ * The bench is not a law of the match — the engine does not care who is sitting
+ * on it — but it is a rule of the side: the selection validator refuses a sixth
+ * name, and the team sheet counts the places in its own heading. Both have to
+ * answer with the same number, so it is named once, beside the two sizes the
+ * same validator works to.
+ */
+export const BENCH_SIZE = 5;
 
 /** The score a side that cannot field a team forfeits the fixture by. */
 export const FORFEIT_GOALS = 3;
@@ -469,6 +517,20 @@ export interface Match {
    * of a league match is unchanged by this field existing.
    */
   knockout?: boolean;
+  /**
+   * Which round of its cup this tie was drawn for, counting from one.
+   *
+   * The round used to be read back out of the matchday number — a cup round is
+   * numbered above the league's matchdays, with an offset per competition — and
+   * that only works while every round has a matchday number of its own. Two cups
+   * sharing one Sunday would share one number, and the round read out of it would
+   * be the other competition's.
+   *
+   * Optional, and absent on every league match, on a friendly, and on every cup
+   * tie saved before the field existed: {@link cupRoundOf} falls back to the old
+   * arithmetic for those, which is the answer that save was already being given.
+   */
+  cupRound?: number;
   conditions: MatchConditions;
   refereeId: PersonId | null;
   lineups: { home: MatchLineup; away: MatchLineup };
@@ -586,6 +648,22 @@ export interface Match {
   replacedByMatchId: MatchId | null;
   /** Whether the morning-of-the-game phone calls have already been made. */
   lateCallMade: boolean;
+  /**
+   * Whether this afternoon's consequences *off* the pitch have been worked out:
+   * what it did to the two clubs' relationship and to their two crowds.
+   *
+   * Kept on the fixture for the same reason `lateCallMade` is. A result can be
+   * settled by more than one route — the day loop simulates the whole division,
+   * the manager's own match can be watched, sent to the bench or left to the
+   * clock — and none of those routes may count the same afternoon twice. The
+   * flag is set by the first of them and makes the others no-ops.
+   *
+   * Absent on a fixture written before this existed, and absent means "not yet":
+   * an unplayed fixture rarely needs it and a played one is never settled again,
+   * so nothing has to be filled in — and staying absent is what keeps a save
+   * round trip an identity for a career that never had the field.
+   */
+  aftermathNoted?: boolean;
 
   /**
    * Which simulation decided this fixture.

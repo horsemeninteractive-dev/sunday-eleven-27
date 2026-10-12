@@ -1,4 +1,4 @@
-import { FULL_SIDE, MIN_SIDE, type BenchSlot, type LineupSlot } from '@/domain/match';
+import { BENCH_SIZE, FULL_SIDE, MIN_SIDE, type BenchSlot, type LineupSlot } from '@/domain/match';
 import type { Player } from '@/domain/person';
 import { formationSlots, positionalSimilarity, POSITIONS, type FormationId, type FormationSlot, type PositionCode } from '@/domain/positions';
 import { defaultRoleFor, roleProfile, type Role } from '@/simulation/match/roles';
@@ -317,8 +317,8 @@ export function validateLineup(
   if (bench.length === 0) {
     problems.push({ severity: 'warning', message: 'No substitutes named. A late injury would leave you short.' });
   }
-  if (bench.length > 5) {
-    problems.push({ severity: 'error', message: 'You can only name five substitutes.' });
+  if (bench.length > BENCH_SIZE) {
+    problems.push({ severity: 'error', message: `You can only name ${BENCH_SIZE} substitutes.` });
   }
   if (!starting.some((slot) => slot.position === 'GK')) {
     problems.push({ severity: 'error', message: 'No goalkeeper selected.' });

@@ -6,9 +6,12 @@ import type { TownId } from '@/domain/ids';
 import { isPlayer } from '@/domain/person';
 import type { PositionGroup } from '@/domain/positions';
 import {
+  CAREER_START_YEAR,
+  EARLIEST_FOUNDED_YEAR,
   backingGrant,
   CLUB_BACKINGS,
   displacedClubId,
+  foundedYearWithin,
   MAX_SQUAD_SIZE,
   MIN_SQUAD_SIZE,
   reputationFromAbility,
@@ -38,6 +41,15 @@ const GROUP_LABEL: Record<PositionGroup, string> = {
   FWD: 'Forwards',
 };
 const SQUAD_SIZES = Array.from({ length: MAX_SQUAD_SIZE - MIN_SQUAD_SIZE + 1 }, (_, index) => MIN_SQUAD_SIZE + index);
+
+/**
+ * The shortest name the league will register.
+ *
+ * Named once because it is the enable-state of two buttons, the check behind
+ * them and the sentence under the form: four readings of one rule, which is how
+ * a screen comes to offer to register a club it will then refuse.
+ */
+const MIN_CLUB_NAME_LENGTH = 3;
 
 /**
  * The badge, and the three decisions it is made of.
@@ -230,9 +242,12 @@ export function CreateClubView() {
 
   if (!draft || !replaced) return null;
 
+  const named = name.trim().length >= MIN_CLUB_NAME_LENGTH;
+  const canRegister = affordable && named && Boolean(townId);
+
   const submit = () => {
-    if (name.trim().length < 3) {
-      setError('A club needs a name of at least three characters.');
+    if (!named) {
+      setError(`A club needs a name of at least ${MIN_CLUB_NAME_LENGTH} characters.`);
       return;
     }
     if (!townId) {
@@ -248,7 +263,7 @@ export function CreateClubView() {
       shortName,
       nickname,
       motto,
-      foundedYear,
+      foundedYear: declaredFoundedYear,
       primary,
       secondary,
       structure,
@@ -264,11 +279,16 @@ export function CreateClubView() {
   };
 
   const colours = { primary, secondary };
+  // The year the club will actually be founded in, read through the world's own
+  // rule rather than taken from the box: a year too old or too new is adjusted by
+  // the career when it builds the club, and the drawing the manager is looking at
+  // has to be the same answer, or the preview is a promise the club breaks.
+  const declaredFoundedYear = foundedYearWithin(foundedYear, CAREER_START_YEAR);
   // The badge is drawn from a club, so the design is shown as the club it would
   // become: the same shape the game will give it the moment it exists.
   const previewClub = {
     ...replaced,
-    identity: { ...replaced.identity, name: name.trim() || replaced.identity.name, shortName, nickname, motto, foundedYear, colours },
+    identity: { ...replaced.identity, name: name.trim() || replaced.identity.name, shortName, nickname, motto, foundedYear: declaredFoundedYear, colours },
     badge,
   };
 
@@ -289,7 +309,7 @@ export function CreateClubView() {
         photo="/photos/create-club-crest.webp"
         subtitle={`${draft.leagueName} · seed “${draft.seed}”. Your club takes the place of ${replaced.identity.name}.`}
         actions={
-          <><Button variant="ghost" onClick={() => gameActions().abandonDraft()}>Back</Button><Button variant="primary" onClick={submit} disabled={!affordable || name.trim().length < 3 || !townId}>Register {name.trim() || 'your club'}</Button></>
+          <><Button variant="ghost" onClick={() => gameActions().abandonDraft()}>Back</Button><Button variant="primary" onClick={submit} disabled={!canRegister}>Register {name.trim() || 'your club'}</Button></>
         }
       />
 
@@ -321,8 +341,8 @@ export function CreateClubView() {
               <input
                 className="input"
                 type="number"
-                min={1850}
-                max={2026}
+                min={EARLIEST_FOUNDED_YEAR}
+                max={CAREER_START_YEAR}
                 value={foundedYear}
                 onChange={(e) => setFoundedYear(Number(e.target.value))}
               />
@@ -350,7 +370,7 @@ export function CreateClubView() {
             <select className="input" value={townId} onChange={(e) => setTownId(e.target.value)}>
               {towns.map((town) => (
                 <option key={town.id} value={town.id}>
-                  {town.name} ({town.population.toLocaleString()})
+                  {town.name} ({town.population.toLocaleString('en-GB')})
                 </option>
               ))}
             </select>
@@ -580,7 +600,7 @@ export function CreateClubView() {
       </div>
 
       <div className="create-club__submit">
-        <Button variant="primary" onClick={submit} disabled={!affordable || name.trim().length < 3 || !townId}>
+        <Button variant="primary" onClick={submit} disabled={!canRegister}>
           Take charge of {name.trim() || 'your club'}
         </Button>
         {!affordable && (
@@ -589,7 +609,11 @@ export function CreateClubView() {
             cheaper standard.
           </p>
         )}
-        {name.trim().length < 3 && <p className="small muted">Give the club a name of at least three characters to register.</p>}
+        {!named && (
+          <p className="small muted">
+            Give the club a name of at least {MIN_CLUB_NAME_LENGTH} characters to register.
+          </p>
+        )}
         {affordable && error && <p className="tone tone--bad small" role="alert">{error}</p>}
       </div>
     </div>

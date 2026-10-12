@@ -37,6 +37,7 @@ export const ProfileView = view(() => import('./views/ProfileView'), 'ProfileVie
 export const ClubSelectView = view(() => import('./views/ClubSelectView'), 'ClubSelectView');
 export const CreateClubView = view(() => import('./views/CreateClubView'), 'CreateClubView');
 export const DashboardView = view(() => import('./views/DashboardView'), 'DashboardView');
+export const BetweenJobsView = view(() => import('./views/BetweenJobsView'), 'BetweenJobsView');
 export const ManagerView = view(() => import('./views/ManagerView'), 'ManagerView');
 export const SquadView = view(() => import('./views/SquadView'), 'SquadView');
 export const TeamSelectionView = view(() => import('./views/TeamSelectionView'), 'TeamSelectionView');

@@ -9,6 +9,7 @@ import {
   type ScheduleState,
   type ScheduledEvent,
 } from '@/domain/events';
+import { GROUND_UPKEEP, RECURRING_UPKEEP_ID } from '@/domain/facilities';
 import { addDays, daysBetween, formatDayMonth, toDate } from './calendar';
 import { rollMatchConditions } from './matchday';
 import { nextId } from './ids';
@@ -474,7 +475,7 @@ export function recurringEvents(state: GameState): RecurringEvent[] {
   // are collected, the pitch is paid for and training happens in July too.
   const startsOn = weekStartOf(state.season.startDate);
 
-  return [
+  const rules: RecurringEvent[] = [
     {
       id: 'rec_training',
       kind: 'training',
@@ -513,6 +514,43 @@ export function recurringEvents(state: GameState): RecurringEvent[] {
       endsOn: last,
     },
   ];
+
+  // The ground upkeep is not a date the calendar has, it is one a club takes on:
+  // the rule exists while somebody is paying to have the pitch looked after, and
+  // stops existing when they stop. It runs past the last Sunday on purpose — a
+  // groundsman is paid in June as well — and it is the one recurring cost that
+  // is nobody else's business but the club's own.
+  if (groundUpkeepCommitted(state)) {
+    rules.push({
+      id: RECURRING_UPKEEP_ID,
+      kind: 'ground',
+      priority: 'informational',
+      source: 'club',
+      title: `${GROUND_UPKEEP.label} paid`,
+      detail: GROUND_UPKEEP.detail,
+      frequency: 'weekly',
+      weekday: GROUND_UPKEEP.weekday,
+      startsOn,
+      endsOn: null,
+      time: null,
+    });
+  }
+
+  return rules;
+}
+
+/**
+ * Whether any club in this career has taken on the ground upkeep.
+ *
+ * Read from the record rather than assumed, so the rule the calendar publishes
+ * and the charge the ground service makes are decided by the same fact — and so
+ * that a career with nobody paying it does not carry a weekly event about work
+ * that is not being done.
+ */
+function groundUpkeepCommitted(state: GameState): boolean {
+  const upkeep = state.facilities?.upkeep;
+  if (!upkeep) return false;
+  return Object.values(upkeep).some((on) => on === true);
 }
 
 /** Does a repeating commitment fall on this date? */

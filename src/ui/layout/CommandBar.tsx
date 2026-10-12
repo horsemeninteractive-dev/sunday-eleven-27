@@ -5,15 +5,15 @@ import { currentMatchday, formOf, leaguePosition } from '@/simulation/queries';
 import { leagueMatchdayCount } from '@/simulation/timeline';
 import type { CommandState } from '../commandState';
 import { runCommand } from '../commandActions';
-import { clubStyle } from '../colour';
+import { useClubColours } from '../hooks';
 import { ClubBadge } from '../components/Badge';
 import { Glyph } from '../components/icons';
 import { Button, FormPips } from '../components/primitives';
 import { UtilityMenu } from './UtilityMenu';
 
-/** The club's colours, resolved for this game. */
-function colours(game: GameState): Record<string, string> {
-  return clubStyle(game.clubs[game.userClubId]!.identity.colours);
+/** The club's colours, resolved for this game and for the theme in force. */
+function useColours(game: GameState): Record<string, string> {
+  return useClubColours(game.clubs[game.userClubId]!.identity.colours);
 }
 
 function ClubIdentity({ game, onNavigate }: { game: GameState; onNavigate: (view: ViewId) => void }) {
@@ -81,8 +81,9 @@ export function DesktopHeader({
   command: CommandState;
   onNavigate: (view: ViewId) => void;
 }) {
+  const colours = useColours(game);
   return (
-    <header className="topbar" style={colours(game)}>
+    <header className="topbar" style={colours}>
       <div className="topbar__row">
         <ClubIdentity game={game} onNavigate={onNavigate} />
         <ProgressMeta game={game} />
@@ -132,8 +133,9 @@ export function CommandBarRow({ command, compact = false }: { command: CommandSt
 export function MobileHeader({ game, onNavigate }: { game: GameState; onNavigate: (view: ViewId) => void }) {
   const club = game.clubs[game.userClubId]!;
   const position = leaguePosition(game, club.id);
+  const colours = useColours(game);
   return (
-    <header className="mobilebar" style={colours(game)}>
+    <header className="mobilebar" style={colours}>
       <button type="button" className="mobilebar__club" onClick={() => onNavigate('dashboard')}>
         <span className="clubmark__crest clubmark__crest--sm">
           <ClubBadge club={club} size={22} />

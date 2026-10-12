@@ -1,9 +1,7 @@
 import { useMemo, useState } from 'react';
 import { MANAGER_PERSON_ID } from '@/domain/communication';
 import { ageOn, isManagerProfileComplete, MAX_MANAGER_AGE, MIN_MANAGER_AGE, type ManagerProfile } from '@/domain/manager';
-import { firstSundayOfSeptember } from '@/simulation/gameSetup';
-import { preSeasonStart } from '@/simulation/calendar';
-import { weekStartOf } from '@/simulation/timeline';
+import { careerSeasonStart } from '@/simulation/gameSetup';
 import { MIN_SEED_LENGTH, pickSuggestedSeeds, rollSeed, seedIsUsable } from '@/simulation/generation/seeds';
 import { useGameStore } from '@/state/gameStore';
 import { listProfiles } from '@/state/managerProfiles';
@@ -21,7 +19,6 @@ import { randomFaceChoices, rolledFaceChoices, type FaceSubject } from '../face'
  * the next one. Between the two, four worlds are never the whole offer.
  */
 const SUGGESTIONS_SHOWN = 9;
-const START_YEAR = 2026;
 
 /**
  * How old the face is drawn as before a birthday has been typed.
@@ -54,10 +51,11 @@ export function ProfileView() {
   // something that has to keep up with what is typed.
   const [saved] = useState(() => listProfiles());
 
-  const seasonStart = useMemo(
-    () => weekStartOf(preSeasonStart(firstSundayOfSeptember(START_YEAR))),
-    [],
-  );
+  // The morning the career will actually begin, asked of the simulation that
+  // will open it rather than worked out again here: the face on the screen is
+  // drawn for the age he will be that day, and a preview that disagreed with the
+  // career about the date would draw him the wrong age.
+  const seasonStart = useMemo(() => careerSeasonStart(), []);
 
   if (!profile) return null;
 
@@ -103,8 +101,11 @@ export function ProfileView() {
       return;
     }
     const trimmed = seed.trim();
-    if (trimmed.length < 3) {
-      setError('Give the world a seed of at least three characters.');
+    // The same test the button above is enabled by, rather than a third reading
+    // of it: a rule written into the copy of one file and the check of another
+    // is how a button comes to be disabled for a seed it would have accepted.
+    if (!seedIsUsable(trimmed)) {
+      setError(`Give the world a seed of at least ${MIN_SEED_LENGTH} characters.`);
       return;
     }
     gameActions().createDraft(trimmed);

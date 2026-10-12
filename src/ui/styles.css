@@ -46,6 +46,17 @@
    bar wears the club's shirt, so --club-ink is chosen across the stripes that
    shirt is made of, while --club-flat-ink is chosen for the colour painted
    flat — a button, a chip, a badge — where it always clears 4.5:1.
+
+   The lights.
+
+   The palette below is the one this game was drawn in — near-black, six
+   surfaces, ten inks — and it is what every rule in this sheet is written
+   against. There is a second palette, at the foot of the sheet, for the manager
+   who would rather play with the lights on; it does not repaint anything
+   itself, it redefines these tokens, and the sheet does the rest. Where a rule
+   below *cannot* be a token — a photograph, the grass, a chalked line, a
+   fixed yellow card — it says so in a comment, and the light block leaves it
+   alone on purpose.
    ========================================================================== */
 
 /* The face.
@@ -117,6 +128,39 @@
     U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
+/* The season.
+
+   Fake Identity is not the game's face — Archivo is — it is the face of the
+   three characters standing beside the wordmark, and it is declared here for the
+   same reason the Archivo files are: the mark is the first thing drawn on the
+   first screen, and a numeral fetched from anywhere but `public/fonts` is a
+   numeral that is missing when the game is opened on a train.
+
+   A plain TrueType rather than the woff2 the rest of the sheet uses, because it
+   is one static face of 12.8 KB used by three characters and nothing else; the
+   compression a second format would buy is smaller than the risk of the two
+   files drifting apart.
+
+   `unicode-range` is the two digits the mark is made of. The range is load
+   bearing in both directions: the browser fetches this file only when a 2 or a 7
+   is actually set in it, and any other character asked of the family falls back
+   to Archivo rather than drawing nothing at all.
+
+   One weight, and it is 400 on purpose. The face is drawn a full em tall — see
+   the year's own rule below — so asking the browser for a bold would smear a
+   false one out of the outline rather than thicken a real one.
+
+   It has no licence file beside it in `public/fonts/` yet. Archivo has one and
+   this face should have one before the game is published. */
+@font-face {
+  font-family: 'Fake Identity';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/Fake%20Identity.ttf') format('truetype');
+  unicode-range: U+0032, U+0037;
+}
+
 :root {
   /* Tell the browser this is a dark UI: it stops form controls, scrollbars and
      focus rings arriving in system-white and looking like holes in the page. */
@@ -141,6 +185,9 @@
   --text: #e4e8ec;
   --text-dim: #93a0ac;
   --text-faint: #98a3aa;
+  /* The strongest ink there is, which is white here and black there: the one
+     place the sheet wants more than --text is a hover that must not be subtle. */
+  --text-bright: #fff;
 
   /* Status */
   --accent: #4caf7d;
@@ -149,6 +196,13 @@
   --bad: #ed8178;
   --ok: #4fb37c;
   --info: #4a90d9;
+  /* Two inks that are not status but are read the same way: what a goal and a
+     whistle are announced in. Amber and blue here, and both are a shade that
+     only exists against the dark; each has its own darker end for the light
+     theme rather than being spent on --warn and --info, which are the tones of
+     a warning and of information and say something else on the same row. */
+  --goal-ink: #ffd666;
+  --whistle-ink: #7cc4ff;
 
   /* Club identity — replaced per club at runtime */
   --club: #4caf7d;
@@ -169,6 +223,23 @@
      rather than as a piece of the operating system left lying on it. */
   --scroll-thumb: rgba(255, 255, 255, 0.16);
   --scroll-thumb-hover: rgba(255, 255, 255, 0.3);
+
+  /* The one wash that has to change *direction* with the lights.
+
+     Everything raised in this game is its own tone plus a little of this: an
+     inset hairline along a head, a tile's glaze, the paper the news is pinned
+     to, the twinkle of a goal announcement. Here it is white, because a surface
+     is lifted out of the dark by light falling on it. With the lights on a lift
+     is not white — white on a pale panel is nothing at all — it is a *shade*:
+     the same idea, the same alphas, the other direction. Hence a channel triple
+     rather than a colour, so one token can be read by `rgba()` as either.
+
+     Two tokens rather than one, because a hover is not a lift: `--raise` and
+     `--line-hover` are the two tones a control moves to when the pointer is
+     over it, and they are a step away from `--panel` in each palette. */
+  --lift: 255, 255, 255;
+  --raise: #262e36;
+  --line-hover: #2f3941;
 
   /* Space */
   --s1: 4px;
@@ -638,7 +709,10 @@ h1[tabindex='-1']:focus {
   justify-content: space-between;
   gap: var(--s3);
   flex: 0 0 auto;
-  padding: var(--s1) var(--s3);
+  /* A little more room than the bar had: the trail is where a manager looks to
+     find out where he is after following a link, and on one line of 13px ink it
+     was the least readable strip in the frame. */
+  padding: 9px var(--s3);
   border-top: 1px solid var(--line);
   background: var(--bg-2);
 }
@@ -663,14 +737,16 @@ h1[tabindex='-1']:focus {
   border: none;
   padding: 0;
   font: inherit;
-  font-size: var(--fs-sm);
-  color: var(--text-faint);
+  font-size: var(--fs-base);
+  color: var(--text);
   cursor: pointer;
   text-decoration: none;
   white-space: nowrap;
 }
+/* The trail is full ink now, so hovering it has to say something else: it goes
+   to the brightest ink in the sheet and underlines. */
 .breadcrumbs__crumb:hover {
-  color: var(--text);
+  color: var(--text-bright);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
@@ -680,11 +756,11 @@ h1[tabindex='-1']:focus {
 }
 .breadcrumbs__separator {
   color: var(--text-faint);
-  opacity: 0.55;
+  opacity: 0.8;
 }
 /* The page you are on is not a way of leaving it. */
 .breadcrumbs__here {
-  font-size: var(--fs-sm);
+  font-size: var(--fs-base);
   font-weight: 700;
   white-space: nowrap;
 }
@@ -925,6 +1001,36 @@ h1[tabindex='-1']:focus {
   font: inherit;
   font-size: var(--fs-sm);
 }
+/* The right-hand padding is the key cap's room, so a club or a man typed in
+   here never runs underneath it. Only the command bar's field carries the cap:
+   the phone opens this same box inside a dialog, where a key cap in the field
+   would be a hint about a keyboard the phone has not got. */
+.topbar .topbar__search input {
+  padding-right: 58px;
+}
+.topbar__search-key {
+  display: none;
+}
+/* The shortcut, written on the cap it is pressed on. Deliberately not coloured:
+   it is a hint on the club's own bar, where the ink is the club's ink. */
+.topbar .topbar__search-key {
+  display: block;
+  position: absolute;
+  right: 7px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 2px 5px;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.22);
+  font-family: inherit;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  opacity: 0.75;
+  pointer-events: none;
+}
 .topbar__search input::placeholder {
   color: currentColor;
   opacity: 0.6;
@@ -1022,7 +1128,10 @@ h1[tabindex='-1']:focus {
   align-items: center;
   gap: var(--s2);
   background: rgba(0, 0, 0, 0.28);
-  border: 1px solid rgba(0, 0, 0, 0.35);
+  /* An edge in the club's own ink, which is the colour chosen to be legible
+     against the club's colour: the button read as a smudge of the bar before,
+     because a black hairline drawn on a dark club's shirt is not an edge. */
+  border: 1px solid var(--club-ink);
   color: inherit;
   font-weight: 700;
   font-size: var(--fs-sm);
@@ -1045,10 +1154,21 @@ h1[tabindex='-1']:focus {
   opacity: 0.5;
   cursor: not-allowed;
 }
+/* The day's action is due — a match to play, a decision to make — and this is
+   the one button in the game asking to be pressed now. It keeps its near-black
+   fill, measured legible with white ink whatever colour the club plays in, and
+   takes a 2px rule along its foot in the club's own colour: the same foot tone
+   uses on a metric tile, and `--club-text` because that is the club's colour
+   lightened for a dark surface.
+
+   Deliberately **not** an animation. This sheet loops nothing — motion here is
+   spent on what the manager just did — and a button blinking in the corner of
+   the eye for a week of game time is a button he learns to ignore. */
 .continue-btn--solid {
   background: rgba(0, 0, 0, 0.82);
   color: #fff;
   border-color: rgba(0, 0, 0, 0.9);
+  box-shadow: inset 0 -2px 0 var(--club-text);
 }
 .topbar__tools {
   display: flex;
@@ -1867,8 +1987,8 @@ h1[tabindex='-1']:focus {
   transition: background 100ms ease, border-color 100ms ease;
 }
 .btn:hover:not(:disabled) {
-  background: #262e36;
-  border-color: #2f3941;
+  background: var(--raise);
+  border-color: var(--line-hover);
 }
 .btn--sm {
   padding: 5px 9px;
@@ -1969,7 +2089,7 @@ select.input {
 }
 .tab:hover {
   color: var(--text);
-  border-color: #2f3941;
+  border-color: var(--line-hover);
 }
 .tab--active {
   background: var(--club-wash);
@@ -2857,6 +2977,13 @@ select.input {
 
 /* Facts ------------------------------------------------------------------- */
 
+/* Key and value, two to a row where a row is wide enough for two.
+
+   Measured in the player profile: the facts panel is 556px of column, so it
+   lays out two 270px pairs and Condition/Injury, Availability/Age and Deal/Subs
+   sit side by side, with the hairline under each pair separating one fact from
+   the next. The min track is what decides that: two 240px tracks and their gap
+   need 496px, and below that the panel folds to one pair per row. */
 .facts {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -2868,11 +2995,16 @@ select.input {
   justify-content: space-between;
   gap: var(--s3);
   border-bottom: 1px solid var(--line-soft);
-  padding: 5px 0;
+  padding: 6px 0;
   font-size: var(--fs-base);
 }
+/* The label of a fact is not decoration: it is half of what the row says, and
+   beside a bold value in full ink it read as grey dust — 13px of --text-dim at
+   the weight of body copy. Weight rather than colour, so the value still wins
+   the row and the label is legible without competing with it. */
 .facts dt {
   color: var(--text-dim);
+  font-weight: 600;
 }
 .facts dd {
   margin: 0;
@@ -2938,17 +3070,21 @@ select.input {
   background-size: cover;
   background-repeat: no-repeat;
 }
-/* Home's next match: the one thing the manager came for, set on the same
-   ground photograph the pre-game screens wear. The wash is heavier at the foot
-   so the fixture card and its actions stay legible over the image. */
+/* Home's next match: the one thing the manager came for, printed on the same
+   fixture sheet the rest of the game prints one on. The photograph is the
+   matchday one rather than the club's own ground, because the band above it now
+   carries the ground: two pictures on one screen have to be saying two different
+   things, and "there is a game" and "this is where we play" are those two. The
+   wash is heavier at the foot so the fixture sheet and its actions stay legible
+   over the image. */
 .home-hero {
   position: relative;
   padding: 18px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background-color: #0d2617;
-  background-image: linear-gradient(180deg, rgba(8, 9, 11, 0.35), rgba(8, 9, 11, 0.9)), url('/photos/prospect-park-sunday.webp');
-  background-position: center 42%;
+  background-image: linear-gradient(180deg, rgba(8, 9, 11, 0.2), rgba(8, 9, 11, 0.86)), url('/photos/stadium-matchday.webp');
+  background-position: center 38%;
   background-size: cover;
 }
 .home-hero__eyebrow {
@@ -2958,6 +3094,265 @@ select.input {
   letter-spacing: var(--tracking-letterpress);
   text-transform: uppercase;
   color: var(--club-text);
+}
+
+/* With no fixture to print, the hero says why rather than showing an empty
+   sheet: 3px of the club's edge and the club's own line, no card and no
+   photograph competing with a sentence that is the whole content. */
+.home-hero__none {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+}
+.home-hero__none-title {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: 650;
+}
+
+/* --- The club band: who the manager is working for -----------------------
+
+   Home had no club on it at all. It opened on a fixture between two names, and
+   the ground, the nickname and the motto the club was founded with lived on two
+   other screens — so the one screen a manager looks at every day never said
+   where he was. The band is the club read as a place: the crest at the size the
+   clubhouse gives it, the name the club is actually called, what everybody calls
+   it, the town and the ground it plays on, the line it says about itself, and the
+   man picking the team.
+
+   The photograph is the ground itself, and it wears the wash the hero wears, so
+   the two bands read as two parts of one screen rather than as two posters. It is
+   not a page header: the week strip sits above it, which is the compromise this
+   screen already made, and a band that names the club is not a title block
+   repeating the name of the screen.
+
+   `minmax(0, 1fr)` on the text column and `min-width: 0` inside it are the whole
+   of the long-name handling: a club called Upper Whaltree Working Men's Club
+   wraps inside its own band instead of pushing the manager off the right edge. */
+.home-club {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--club);
+  background-color: #0d2617;
+  background-image: linear-gradient(180deg, rgba(8, 9, 11, 0.38), rgba(8, 9, 11, 0.9)), url('/photos/prospect-park-sunday.webp');
+  background-position: center 45%;
+  background-size: cover;
+}
+.home-club__crest {
+  display: block;
+}
+.home-club__crest .badge {
+  filter: drop-shadow(0 6px 16px rgba(0, 0, 0, 0.55));
+}
+.home-club__text {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.home-club__name {
+  margin: 0;
+  font-size: var(--fs-xl);
+  font-weight: 700;
+  line-height: 1.15;
+  text-wrap: balance;
+}
+.home-club__line,
+.home-club__motto {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+.home-club__motto {
+  font-style: italic;
+}
+.home-club__doors {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-top: 8px;
+}
+/* The face in charge, drawn the way every person in the game is drawn, and the
+   two facts that date the band: how long he has been here, and where in the
+   season it is. */
+.home-club__manager {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.home-club__portrait {
+  display: grid;
+  place-items: center;
+  flex: none;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(var(--lift), 0.047), rgba(0, 0, 0, 0.24));
+  border: 1px solid var(--line);
+}
+.home-club__portrait .portrait {
+  width: 52px;
+  height: 59px;
+}
+.home-club__portrait .glyph {
+  width: 30px;
+  height: 36px;
+  stroke-width: 1.2;
+}
+.home-club__manager-text {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.home-club__manager-name {
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+/* --- The one decision in front -------------------------------------------
+
+   One matter, at the size of a decision rather than the size of a tile: the
+   model's own word for how loud it is, the thing itself, one line of what it
+   means, and a button that names what pressing it does. The left edge is the
+   tone — the same 3px edge a chosen control and an open story wear — so an
+   emergency and a note from the secretary are told apart before either is read. */
+.home-lead {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 18px;
+  margin-bottom: 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line);
+}
+.home-lead--bad {
+  border-left-color: var(--bad);
+}
+.home-lead--warn {
+  border-left-color: var(--warn);
+}
+.home-lead--info {
+  border-left-color: var(--info);
+}
+.home-lead__text {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.home-lead__label {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.home-lead--bad .home-lead__label {
+  color: var(--bad);
+}
+.home-lead--warn .home-lead__label {
+  color: var(--warn);
+}
+.home-lead__title {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  line-height: 1.2;
+}
+.home-lead__detail {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+
+/* The post that is not asking for anything: one line at the foot of the section,
+   under its own rule, so it reads as an aside rather than as a fifth matter. */
+.home-waiting {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+  margin: 14px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-soft);
+}
+
+/* --- A run of results -----------------------------------------------------
+
+   Five afternoons are a sequence, and a sequence is a list: the mark the
+   afternoon earned, the score, who it was against and where, and the door into
+   the report — with the competition and the day under them as the small print.
+   Two lines rather than one, and placed rather than wrapped: on a half-width
+   panel the report button used to be the thing that fell off the end of the row
+   and landed on a line of its own, which reads as a button that belongs to
+   nothing. The score is tabular so five of them line up down the column, and no
+   part of the row is ever hidden — a result is not the place to lose the
+   competition it was played in. */
+.home-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.home-result {
+  display: grid;
+  grid-template-columns: auto minmax(3.4ch, auto) minmax(0, 1fr) auto;
+  grid-template-areas:
+    'mark score who action'
+    '.    when  when when';
+  align-items: center;
+  gap: 2px 12px;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.home-result:last-child {
+  border-bottom: 0;
+}
+.home-result > .pip {
+  grid-area: mark;
+}
+.home-result__score {
+  grid-area: score;
+  min-width: 3.4ch;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.home-result__who {
+  grid-area: who;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.home-result__when {
+  grid-area: when;
+}
+.home-result > .btn {
+  grid-area: action;
+}
+
+@media (max-width: 860px) {
+  .home-club {
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 14px;
+    padding: 14px;
+  }
+  .home-club__manager {
+    grid-column: 1 / -1;
+  }
+  .home-club__name {
+    font-size: var(--fs-lg);
+  }
+  .home-lead {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+    padding: 14px;
+  }
 }
 /* The drifting stripe, as the game wears it: the pre-game ground and the
    command bar of a club are the same two boxes (see StripeField). The fade is
@@ -3129,17 +3524,41 @@ html[data-motion='reduced'] .stripefield__bands {
   flex: 0 0 auto;
 }
 .brand__year {
-  /* Caps stand about 0.71em tall, so two lines of words stand 1.71 words tall
-     and the year is set at 2.41 words to be exactly as tall as both of them.
+  /* The season is the one thing in the game set in a face of its own, and the
+     size below is the whole reason the face could change at all.
+
+     Caps stand about 0.71em tall in Archivo, so two lines of words stand 1.71
+     words tall. Fake Identity draws its digits a full em tall — read off the
+     file rather than assumed: `sCapHeight` is 1024 of 1024 units, and the
+     outlines agree, both digits spanning 0 to 1024 — so the year is set at
+     **1.71** words and stands exactly as tall as both of them. The figure was
+     2.41 words while the year was Archivo's own digits, which are 0.71em: the
+     rule was never "two and a half times the word", it was "as tall as the two
+     words", and the multiplier is what that costs in whichever face is used.
+
      It is dropped by exactly one line box — that is one word-size, because the
      words are set at line-height 1 — so the digits stand on the second line's
-     baseline rather than the first. Neither of those depends on the font's
-     metrics: the digits' feet meet ELEVEN's feet, and their heads reach
-     SUNDAY's. line-height 0 keeps the enormous line box out of the layout, so
-     the pair of them still stand only as tall as the two words. */
-  font-size: calc(var(--brand-word) * 2.41);
-  font-weight: 800;
-  letter-spacing: -0.03em;
+     baseline rather than the first. Neither the drop nor the alignment depends
+     on the font's metrics: the digits' feet meet ELEVEN's feet, and their heads
+     reach SUNDAY's. line-height 0 keeps the enormous line box out of the layout,
+     so the pair of them still stand only as tall as the two words. */
+  font-family: 'Fake Identity', var(--font);
+  font-size: calc(var(--brand-word) * 1.71);
+  /* The face's one weight. It is a display numeral cut a full em tall, so there
+     is no bold to ask for and nothing to lean over it. */
+  font-weight: 400;
+  /* The air between the season's two digits, and it is the two numbers added
+     together rather than tracked in by eye. Fake Identity draws each digit 640
+     units wide inside a 713-unit advance, so the face's own gap between a 2 and
+     a 7 is the 73 units of right bearing the first one carries — 0.071em of the
+     year's own em, which at the mark's size is about 7px and reads as the two
+     digits touching. This adds 0.07em on top, and measured on the page it puts
+     the two inks 11px apart at the mark's largest against 4px before — the same
+     airiness the words above it are spread with.
+
+     The sheet used to subtract 0.03em here, which was right for Archivo's own
+     digits and is why the pair looked cramped the moment the face changed. */
+  letter-spacing: 0.07em;
   line-height: 0;
   transform: translateY(var(--brand-word));
   color: var(--accent);
@@ -3255,7 +3674,7 @@ html[data-motion='reduced'] .start__menu > * {
   color: var(--text);
   background: rgba(11, 18, 14, 0.74);
   border: 1px solid var(--line);
-  border-left: 3px solid rgba(255, 255, 255, 0.16);
+  border-left: 3px solid rgba(var(--lift), 0.16);
   cursor: pointer;
   backdrop-filter: blur(8px);
   transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
@@ -3279,8 +3698,8 @@ html[data-motion='reduced'] .start__menu > * {
   width: 44px;
   height: 44px;
   color: var(--accent);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(var(--lift), 0.14);
+  background: rgba(var(--lift), 0.03);
 }
 .menucard__badge .glyph {
   width: 22px;
@@ -3391,7 +3810,7 @@ html[data-motion='reduced'] .start__menu > * {
 }
 .utilitycard:hover {
   background: rgba(17, 27, 21, 0.86);
-  border-color: rgba(255, 255, 255, 0.22);
+  border-color: rgba(var(--lift), 0.22);
 }
 .utilitycard:focus-visible {
   outline: 2px solid var(--accent);
@@ -3857,7 +4276,7 @@ html[data-motion='reduced'] .firstboot__skip {
   color: var(--text-faint);
 }
 .choice--on .choice__detail {
-  color: var(--text-dim);
+  color: var(--club-flat-ink);
 }
 .pref-row {
   display: flex;
@@ -4326,11 +4745,152 @@ html[data-motion='reduced'] .firstboot__skip {
   border: 1px solid var(--line);
   overflow: hidden;
 }
+/* The picture is a pitch *and the ground around it*.
+
+   The playing surface does not fill the box the renderer was handed, because the
+   box is a picture: it is whatever a phone, a tablet or a maximised window has
+   left over, and no pitch was ever that shape. So the grass is inset inside it
+   and what is left over is ground — which is where the goals stand, since a net
+   hangs behind a goal line rather than on the pitch, and where a throw-in is
+   taken from, since a thrower stands off the touchline rather than on it.
+
+   The strip is the same on all four sides, and it is a real width rather than a
+   hairline: a man is a dot that has to fit in it, and the thrower is drawn a
+   stride off the line with the ball in his hands. It is a percentage of the box,
+   so the ground grows and shrinks with the picture, and it is read by nothing but
+   `.pitch__surface` and the goals hung off it. */
 .pitch--live {
   aspect-ratio: 16 / 10;
+  --pitch-margin-x: 5%;
+  --pitch-margin-y: 5%;
+  background: linear-gradient(180deg, #10241a, #0a1811);
 }
 .pitch--static {
   min-height: 320px;
+}
+/* The playing surface: the grass and the lines painted on it, inset inside the
+   box so that there is ground around it. Everything placed by coordinates — the
+   men, the ball — is placed inside this element, in its own space, so a point
+   outside the pitch is drawn on the ground beyond it rather than clipped at the
+   line. Nothing here is `overflow: hidden`, and that is the point: a net behind a
+   goal line is exactly a thing drawn outside the surface. The preparation pitches
+   have no surface, so their markings still run to the edge of their own box. */
+/* The two colours the grass is mixed from, and the ink its mown bands are drawn
+   at. All three are read rather than written here: the renderer hands over what
+   the ground is like this afternoon (`ui/match/pitchSurface.ts`, off the match's
+   own surface) and the tone rules below are the mixing. The defaults are the
+   ordinary Sunday the sheet has always drawn, which is what a pitch with no
+   surface handed to it — a preparation board — still gets. */
+.pitch__surface {
+  position: absolute;
+  inset: var(--pitch-margin-y, 0) var(--pitch-margin-x, 0);
+  --grass-top: #1b3527;
+  --grass-bottom: #142a1e;
+  background:
+    repeating-linear-gradient(180deg, rgba(255, 255, 255, var(--mow-ink, 0.02)) 0 26px, transparent 26px 52px),
+    linear-gradient(180deg, var(--grass-top), var(--grass-bottom));
+  border: 1px solid rgba(var(--lift), 0.22);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.35),
+    0 14px 34px rgba(0, 0, 0, 0.34);
+}
+/* What the ground is like, as the colour of the grass.
+
+   Eight surfaces, and each is a decision rather than a shade of the last one: a
+   lush pitch is greener and lighter than a fair one because there is more grass
+   on it, a thin one is drier and yellower because the grass has gone, a heavy one
+   is brown-green because it is half mud, standing water greys the field off, and
+   frost makes it paler and colder than any grass is. Artificial and cinder are
+   the two surfaces that are *not* grass at all, so they are their own colours and
+   are given no bald patches — a 3G pitch has no grass to lose and a cinder one
+   never had any.
+
+   The renderer names the tone: `data-surface` comes off `MatchSurface` — the
+   day's verdict first, then the kind of surface, and only then the verdict among
+   grass (see `surfaceToneOf`). Nothing here decides anything; a manager looking
+   at a heavy pitch is looking at the engine's own reading of the ground. */
+.pitch[data-surface='lush'] .pitch__surface {
+  --grass-top: #245f3b;
+  --grass-bottom: #194c2d;
+}
+.pitch[data-surface='fair'] .pitch__surface {
+  --grass-top: #1e4a30;
+  --grass-bottom: #163a26;
+}
+.pitch[data-surface='thin'] .pitch__surface {
+  --grass-top: #3c4b2b;
+  --grass-bottom: #2a3520;
+}
+.pitch[data-surface='heavy'] .pitch__surface {
+  --grass-top: #46401f;
+  --grass-bottom: #2f2b16;
+}
+.pitch[data-surface='flooded'] .pitch__surface {
+  --grass-top: #2f3b3c;
+  --grass-bottom: #212c2c;
+}
+.pitch[data-surface='frozen'] .pitch__surface {
+  --grass-top: #3d4f4a;
+  --grass-bottom: #2c3b38;
+}
+.pitch[data-surface='artificial'] .pitch__surface {
+  --grass-top: #266043;
+  --grass-bottom: #1d4b35;
+}
+.pitch[data-surface='cinder'] .pitch__surface {
+  --grass-top: #4b453a;
+  --grass-bottom: #37332b;
+}
+/* What has happened to the grass, painted on it.
+
+   Soft-edged rather than drawn, and that is the one place in this game where a
+   soft edge is right: everything else is ink on a sheet, but the grass is the one
+   thing here that is *painted*, and a patch of grass that has gone does not have
+   an outline. They sit under the markings, the men and the ball — see the
+   renderer — because a mud patch is a state of the pitch, not a thing standing on
+   it. */
+.pitch__patch {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+}
+/* Grass gone to soil: the goalmouth in February, the centre spot by Christmas. */
+.pitch__patch--bare {
+  background: radial-gradient(closest-side, rgba(96, 88, 50, 0.42), rgba(96, 88, 50, 0));
+}
+/* Poached mud, which is darker, browner and further gone than bare grass. */
+.pitch__patch--mud {
+  background: radial-gradient(closest-side, rgba(48, 33, 18, 0.68), rgba(48, 33, 18, 0));
+}
+/* Water lying on it, with the sky in it: the only mark on a pitch that is
+   lighter than the grass rather than darker. */
+.pitch__patch--water {
+  background: radial-gradient(closest-side, rgba(150, 186, 200, 0.4), rgba(150, 186, 200, 0));
+}
+/* Frost, which is white in the hollows and nothing on the crowns. */
+.pitch__patch--frost {
+  background: radial-gradient(closest-side, rgba(212, 234, 240, 0.34), rgba(212, 234, 240, 0));
+}
+/* The corner arcs: the quarter circle the laws strike from each corner, and the
+   one marking on the pitch that is *about* its corners rather than about its
+   ends. Four rings, each centred exactly on a corner of the surface, so only the
+   quarter lying on the grass is ever painted — the rest of every ring falls
+   outside the box and is clipped by it. That is the whole trick of drawing them:
+   a ring on a corner needs no turning, so the same four layers are right in both
+   frames, which is more than can be said for anything else in this stylesheet. */
+.pitch__surface::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-repeat: no-repeat;
+  background-size: 26px 26px;
+  background-image:
+    radial-gradient(circle at 0 0, transparent 0 8px, rgba(255, 255, 255, 0.18) 8px 9px, transparent 9px),
+    radial-gradient(circle at 100% 0, transparent 0 8px, rgba(255, 255, 255, 0.18) 8px 9px, transparent 9px),
+    radial-gradient(circle at 0 100%, transparent 0 8px, rgba(255, 255, 255, 0.18) 8px 9px, transparent 9px),
+    radial-gradient(circle at 100% 100%, transparent 0 8px, rgba(255, 255, 255, 0.18) 8px 9px, transparent 9px);
+  background-position: 0 0, 100% 0, 0 100%, 100% 100%;
 }
 .pitch__halfway {
   position: absolute;
@@ -4364,6 +4924,75 @@ html[data-motion='reduced'] .firstboot__skip {
 .pitch__box--right {
   right: 0;
   border-right: none;
+}
+/* The goals and their nets.
+
+   A goal is the one piece of a football pitch that is not on it: the mouth is on
+   the goal line and the net hangs behind, over ground the playing surface does not
+   cover. So they are hung off the surface — their geometry is football's own, the
+   mouth about a tenth of the width of the pitch, the net a short way behind the
+   line — and drawn *out* of it, which the surface allows because it clips nothing.
+   The edge on the pitch is the bright one: two posts and the bar are what a
+   manager reads at a glance, and the mesh behind them is texture. */
+.pitch__goal {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  /* The depth of the net as a fraction of the length of the pitch, and the mouth
+     as a fraction of its width (7.32m across a 68m-wide pitch). */
+  width: 4.5%;
+  height: 11%;
+  background:
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.13) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.13) 0 1px, transparent 1px 4px);
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  pointer-events: none;
+}
+.pitch__goal--left {
+  left: -4.5%;
+  border-right: 1px solid rgba(255, 255, 255, 0.55);
+}
+.pitch__goal--right {
+  right: -4.5%;
+  border-left: 1px solid rgba(255, 255, 255, 0.55);
+}
+/* The four corner flags, planted in the ground just outside the corners.
+
+   A flag is the one piece of a football ground that stands off the pitch at all
+   four of its corners, which is exactly what the ground around the playing
+   surface is for — and it is what a corner is: the ball is placed on the arc
+   under the flag. Seen from above, what a flag is worth drawing is the cloth:
+   the pole is a few centimetres across, so it is the fleck at the top of it that
+   reads. A small diamond set on the corner, half on the grass and half on the
+   ground, is that fleck.
+
+   They are named by the corner of the *picture* rather than of the pitch, and
+   need no rule per frame: the surface is inset by the same margins either way
+   round, so the four corners of the picture are the four corners of the pitch. */
+.pitch__flag {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  transform: rotate(45deg);
+  background: rgba(255, 255, 255, 0.5);
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.3);
+  pointer-events: none;
+}
+.pitch__flag--tl {
+  left: -5px;
+  top: -5px;
+}
+.pitch__flag--tr {
+  right: -5px;
+  top: -5px;
+}
+.pitch__flag--bl {
+  left: -5px;
+  bottom: -5px;
+}
+.pitch__flag--br {
+  right: -5px;
+  bottom: -5px;
 }
 .pitch__player {
   position: absolute;
@@ -4444,10 +5073,13 @@ html[data-motion='reduced'] .firstboot__skip {
     0 0 0 3px rgba(255, 214, 102, 0.95),
     0 0 16px rgba(255, 214, 102, 0.65);
 }
+/* The wash of a goal falls on the grass rather than on the ground around it: the
+   celebration belongs to the pitch, and the boxing of the picture is not part of
+   the afternoon. */
 .matchpitch[data-celebrating='true']::after {
   content: '';
   position: absolute;
-  inset: 0;
+  inset: var(--pitch-margin-y, 0) var(--pitch-margin-x, 0);
   pointer-events: none;
   background: radial-gradient(circle at 50% 46%, rgba(255, 214, 102, 0.18), transparent 68%);
   animation: pitch-celebrate 1.2s ease-in-out infinite alternate;
@@ -4502,6 +5134,31 @@ html[data-motion='reduced'] .matchpitch[data-celebrating='true']::after {
 .pitch__dot--keeper .pitch__dot-ball {
   border-color: rgba(255, 255, 255, 0.75);
 }
+/* The man over a dead ball.
+
+   A throw-in is the one moment the picture is allowed to say *who*: the ball is
+   not being played by anybody, so nothing marks it as anybody's, and a ball on a
+   line with twenty-two anonymous men around it is not a throw-in — it is a ball
+   on a line. The taker wears a ring of his own, is named like a keeper, and
+   stands with the ball drawn at his feet. */
+.pitch__dot--taker .pitch__dot-ball {
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.6),
+    0 0 0 5px rgba(255, 255, 255, 0.2);
+}
+/* The one man drawn off the bottom of the pitch wears his name above his head.
+
+   A dot's name hangs under it, which is right for twenty-one of the twenty-two:
+   they are on the grass. The thrower is not — he stands on the ground beyond the
+   touchline with the ball in his hands — and on a short picture the name would be
+   the part of him that went off the bottom of the box. So the name is moved over
+   the ball: a dot is the ball (twenty pixels) with the name directly under it, so
+   lifting the name by its own height and the ball's puts it directly above, and a
+   transform moves it without laying anything out — the ball stays exactly where
+   every other dot's ball is, on the mark. */
+.pitch__dot[data-label='up'] .pitch__dot-name {
+  transform: translateY(calc(-100% - 20px));
+}
 /* A little notch showing which way he is actually travelling, from the
    simulation's own velocity — an idle player at rest simply has none. */
 .pitch__dot-face {
@@ -4553,6 +5210,41 @@ html[data-motion='reduced'] .matchpitch[data-celebrating='true']::after {
 .pitch__ball[data-status='loose'] {
   opacity: 0.72;
   box-shadow: 0 0 4px rgba(255, 255, 255, 0.45);
+}
+/* The ball out of play: the one state in which nobody is playing it.
+
+   It is still drawn where the simulation says it is, which for a dead ball is
+   not always on the grass — a throw-in leaves it in the thrower's hands on the
+   ground behind the line — so a dead ball is dimmer than a loose one and nothing
+   else about it is drawn. The spot it is played from is a mark of its own, below. */
+.pitch__ball[data-status='out-of-play'] {
+  opacity: 0.62;
+  box-shadow: none;
+}
+/* The spot a dead ball is played from: chalked on the grass, at the engine's own
+   spot, for as long as a restart is being taken.
+
+   This is the mark the picture would once have drawn around the ball, and it is
+   a mark of its own now because for a throw-in the ball and the spot are two
+   different places: the ball is in the thrower's hands, off the pitch, and this
+   is the point on the line it comes back in from. For every other restart the
+   two coincide and the ring is drawn round the ball exactly as it always was.
+   Where it goes back into play is the engine's own spot, not the picture's. */
+.pitch__spot {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 50%;
+  pointer-events: none;
+}
+/* A throw-in is chalked rather than ringed, because it is the one restart taken
+   from off the pitch: a dashed mark says a place it is put back into play from
+   rather than something standing on the grass. */
+.pitch__spot[data-kind='throw-in'] {
+  border-style: dashed;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.14);
 }
 /* Which way the manager's side is attacking, as the box is currently drawn.
    The renderer names the direction rather than the side, because the same
@@ -4606,9 +5298,10 @@ html[data-motion='reduced'] .matchpitch[data-celebrating='true']::after {
    same turn: the renderer writes their `left`/`top` itself. What is left for the
    stylesheet is the pitch they are drawn on — the halfway line, the circle, the
    two penalty areas and the arrow that says which way the manager's side is
-   going. Every one of them turns with the picture, because markings that stayed
-   landscape under men who did not would be a second frame drawn over the first,
-   and the two would disagree at every kick-off.
+   going — and the two goals, and the ground they stand on, which is the two
+   margins the grass is inset by. Every one of them turns with the picture,
+   because markings that stayed landscape under men who did not would be a second
+   frame drawn over the first, and the two would disagree at every kick-off.
 
    `.pitch[data-shape='portrait']` is deliberately the same picture
    `.pitch--preparation` has drawn since the first day, arrived at from the other
@@ -4624,6 +5317,12 @@ html[data-motion='reduced'] .matchpitch[data-celebrating='true']::after {
   width: 100%;
   height: 1px;
 }
+/* The ground does not come round with the picture, and that is a change worth
+   naming. It used to be a wide strip at the ends and a hairline at the sides, so
+   the two margins swapped when the pitch was turned to stand a whole net inside
+   the box. The sides now need ground of their own — off the touchline is where a
+   thrower stands — so the strip is the same width all the way round, and a
+   picture that turns has nothing to swap. */
 /* Wider than it is in a landscape pitch, because here the circle is a fraction
    of the width of the *pitch* rather than of its length. */
 .pitch[data-shape='portrait'] .pitch__circle {
@@ -4647,6 +5346,29 @@ html[data-motion='reduced'] .matchpitch[data-celebrating='true']::after {
   top: 0;
   border: 1px solid rgba(255, 255, 255, 0.13);
   border-top: none;
+}
+/* The goals come round with the pitch, because they are part of the same picture
+   rather than a second drawing of their own: the home goal stays at the x = 0 end,
+   which is the foot of a portrait screen, and the away goal at the top. Each net
+   hangs behind its own goal line — up and down the screen now — and the bright
+   edge is the one lying on the pitch. */
+.pitch[data-shape='portrait'] .pitch__goal {
+  left: 50%;
+  right: auto;
+  top: auto;
+  transform: translateX(-50%);
+  width: 11%;
+  height: 4.5%;
+}
+.pitch[data-shape='portrait'] .pitch__goal--left {
+  bottom: -4.5%;
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  border-top: 1px solid rgba(255, 255, 255, 0.55);
+}
+.pitch[data-shape='portrait'] .pitch__goal--right {
+  top: -4.5%;
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.55);
 }
 
 /* Matchday: a takeover screen, not a page --------------------------------- */
@@ -4873,10 +5595,10 @@ html[data-motion='reduced'] .matchpitch[data-celebrating='true']::after {
   color: var(--text-faint);
 }
 .incident--goal .incident__kind {
-  color: #ffd666;
+  color: var(--goal-ink);
 }
 .incident--whistle .incident__kind {
-  color: #7cc4ff;
+  color: var(--whistle-ink);
 }
 .incident--danger .incident__kind {
   color: var(--warn);
@@ -5274,13 +5996,13 @@ html[data-motion='reduced'] .incident {
     background-color: transparent;
   }
   18% {
-    background-color: rgba(255, 255, 255, 0.26);
+    background-color: rgba(var(--lift), 0.26);
   }
   46% {
     background-color: transparent;
   }
   66% {
-    background-color: rgba(255, 255, 255, 0.15);
+    background-color: rgba(var(--lift), 0.15);
   }
   100% {
     background-color: transparent;
@@ -5752,6 +6474,80 @@ html[data-motion='reduced'] .incident {
 .briefing__facts dd {
   margin: 0;
 }
+
+/* The surface, drawn, beside the word for it.
+
+   32 units shown at 48px is 1.5, so this drawing is made of the same 1.5px line
+   as the news plates and every other picture in the game — one weight of ink,
+   whatever the picture is of. The colour is the verdict the note underneath
+   carries: green for a surface that wants the ball played on it, amber for one
+   that will make it bobble, and the sheet's own alarm red only for the two
+   surfaces a league calls a game off for. */
+.briefing__pitch {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+.pitch-badge {
+  width: 48px;
+  height: 30px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: var(--text-dim);
+}
+.pitch-badge--ok {
+  color: var(--ok);
+}
+.pitch-badge--warn {
+  color: var(--warn);
+}
+.pitch-badge--bad {
+  color: var(--bad);
+}
+/* Under the tactics board the drawing sits in a line of 13px text, so it is
+   shown at its own 32 units — and the stroke goes up with it, because a line
+   has to land on the screen at 1.5px whatever size the picture is drawn at.
+   (The news plates do the same in the other direction: twice the size, half the
+   weight.) The verdict colours are the badge's own. */
+.pitch-badge--inline {
+  width: 32px;
+  height: 20px;
+  stroke-width: 1.5;
+}
+.tactics-caption__conditions {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.pitch-note--warn {
+  color: var(--warn);
+}
+.pitch-note--bad {
+  color: var(--bad);
+}
+.briefing__pitch-word {
+  font-weight: 600;
+}
+/* What the surface does to the afternoon: one line, in the tone of the drawing,
+   spanning the row of facts because it is about all of them. Measured against
+   the card's own surface, --warn is 7.9:1 and --bad 6.9:1 — both clear of the
+   4.5 a 12px line needs. */
+.briefing__pitch-note {
+  grid-column: 1 / -1;
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+}
+.briefing__pitch-note--warn {
+  color: var(--warn);
+}
+.briefing__pitch-note--bad {
+  color: var(--bad);
+}
 .briefing__block {
   display: flex;
   flex-direction: column;
@@ -5797,15 +6593,61 @@ html[data-motion='reduced'] .incident {
 .choice:hover {
   color: var(--text);
 }
+/* The chosen one is **filled**, not merely edged. A 1px border in the club's
+   colour was the whole of the selected state, and on a row of six team talks —
+   or four warm-ups — it left the manager reading borders to find the one he had
+   already picked. The fill is flat and in the club's own colour, which is the
+   same treatment the chosen tab, chip and segmented item wear, and the ink is
+   `--club-flat-ink`: the colour chosen against a *flat club fill* rather than
+   against the page. "State is painted last", near the end of this sheet,
+   restates it after every surface layer that could otherwise repaint it. */
 .choice--on {
   border-color: var(--club);
-  background: var(--panel-3);
-  color: var(--text);
+  background: var(--club);
+  color: var(--club-flat-ink);
 }
 .choice--compact {
   align-items: center;
   padding: 5px 8px;
   font-size: var(--fs-sm);
+}
+
+/* What a warm-up costs and what it buys, on the button itself.
+
+   The trade-off *is* the decision — fresh legs against a sharper shape, or a
+   harder session that leaves them heavier for the first twenty minutes — and it
+   was only ever in the two sentences underneath, so choosing between four
+   buttons meant reading four paragraphs. Each button now carries its own effect
+   in one short line, read from the same numbers the simulation applies
+   (`warmUpEnergyDelta`, `warmUpFamiliarityDelta`), so the words cannot drift
+   from the mechanics. */
+.choice__effects {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0 var(--s2);
+  margin-top: 3px;
+}
+.choice__effect {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.choice__effect--ok {
+  color: var(--ok);
+}
+.choice__effect--warn {
+  color: var(--warn);
+}
+.choice__effect--accent {
+  color: var(--club-text);
+}
+/* On the chosen button the tone colours would be four inks fighting a solid
+   club fill, and none of them was chosen for that surface: the effects take the
+   fill's own ink there, and the words still say which way each one goes. */
+.choice--on .choice__effect {
+  color: var(--club-flat-ink);
 }
 
 /* Half time and full time: the two moments the match stops for the manager. */
@@ -6612,34 +7454,9 @@ html[data-motion='reduced'] .incident {
   flex-direction: column;
   gap: var(--s2);
 }
-/* A face beside the words, which is the same message bubble the inbox draws —
-   see the note on `.bubble__face` there for why a Sunday League thread carries
-   one at all. */
-.bubble {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--s2);
-  padding: var(--s2) var(--s3);
-  border: 1px solid var(--line);
-  background: var(--panel);
-  font-size: var(--fs-base);
-}
-.bubble--them {
-  border-left: 3px solid var(--line);
-}
-.bubble--you {
-  border-left: 3px solid var(--club);
-  margin-left: 12%;
-}
-.bubble__who {
-  display: block;
-  font-size: var(--fs-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.09em;
-  color: var(--text-faint);
-  font-weight: 700;
-  margin-bottom: 2px;
-}
+/* The bubbles in this transcript are the inbox's own: one component
+   (`components/Bubble.tsx`) and one vocabulary for both screens, described where
+   the rules live, under "A message". */
 
 /* Empty states ------------------------------------------------------------ */
 
@@ -8039,7 +8856,6 @@ html[data-motion='reduced'] *::after {
 .inbox__list .page-head, .inbox__thread-head, .inbox__reply, .inbox__footnote { flex: 0 0 auto; }
 .inbox__reply { max-height: 35%; overflow-y: auto; }
 .inbox__log > div { flex: 0 0 auto; display: flex; flex-direction: column; }
-.inbox__log .bubble--mine { align-self: flex-end; }
 
 .inbox__row {
   display: flex;
@@ -8336,6 +9152,14 @@ html[data-motion='reduced'] *::after {
 
 /* --- A message ---------------------------------------------------------- */
 
+/* Two screens draw a sentence: the inbox thread and the negotiation table. They
+   used to draw it as two vocabularies — `bubble--mine` here and `bubble--you`
+   there, meaning the same thing — which is how a thread and a transcript drift
+   into looking like two parts of two different games. Both now render
+   `components/Bubble.tsx`, so these rules are the whole vocabulary: `--mine` is
+   the manager's own words, `--them` is everybody else's, and the face is only
+   ever on somebody else's. */
+
 /* Lightweight on purpose: a face for whoever said it, a name above the words, a
    time underneath, and a left or right alignment. No ticks, no reaction counts —
    a Sunday League thread is a handful of sentences, and the chrome should cost
@@ -8361,6 +9185,12 @@ html[data-motion='reduced'] *::after {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--panel);
+  font-size: var(--fs-base);
+}
+/* The other side of the conversation wears a neutral edge, so a thread reads in
+   two directions at a glance rather than by alignment alone. */
+.bubble--them {
+  border-left: 3px solid var(--line);
 }
 
 /* The face, and the words beside it. The drawing is sized by `.portrait` itself,
@@ -8539,6 +9369,14 @@ html[data-motion='reduced'] *::after {
 
 /* Football workspaces: the shape and the people lead, detail stays available. */
 .tactics-workspace { display: grid; grid-template-columns: minmax(300px, .85fr) minmax(0, 1.15fr); gap: 24px; align-items: start; }
+/* What the instructions ask of the team, under the instructions themselves: the
+   consequence of a choice, in the same panel as the choice. */
+.tactics-effects { border-top: 1px solid var(--line-soft); margin-top: 2px; padding-top: 12px; }
+.tactics-effects .subhead { margin: 0 0 8px; }
+.tactics-effects__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.tactics-effects__item { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px var(--s2); align-items: baseline; }
+.tactics-effects__label { font-weight: 600; }
+.tactics-effects__note { min-width: 0; }
 .tactics-instructions .tactics { display: flex; flex-direction: column; gap: 18px; }
 .tactics-instructions { align-self: start; }
 .tactics-instructions .tactics-zone { min-width: 0; }
@@ -8707,7 +9545,7 @@ html[data-motion='reduced'] .pitch--preparation .pitch__player { transition: non
    cut the top off a face; it is a rectangle with a rule round it now, and the
    portrait inside it is the same chip every list uses, so there is one portrait
    frame in the game rather than two. */
-.manager-identity__portrait { display: grid; place-items: center; flex: none; overflow: hidden; background: linear-gradient(180deg, rgba(255, 255, 255, 0.047), rgba(0, 0, 0, 0.2)); border: 1px solid var(--line); border-radius: var(--radius); }
+.manager-identity__portrait { display: grid; place-items: center; flex: none; overflow: hidden; background: linear-gradient(180deg, rgba(var(--lift), 0.047), rgba(0, 0, 0, 0.2)); border: 1px solid var(--line); border-radius: var(--radius); }
 .manager-identity__portrait .portrait { width: 88px; height: 100px; border-radius: 0; background: none; box-shadow: none; }
 .manager-identity__portrait .glyph { width: 64px; height: 80px; stroke-width: 1; }
 .manager-job { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
@@ -8830,6 +9668,12 @@ button.chip { cursor: pointer; min-width: 36px; }
 .choice-help { color: var(--text-dim); font-size: var(--fs-sm); margin-top: 8px; }
 .matchbar__drawer:focus { outline: none; }
 .global-feedback { position: fixed; right: calc(var(--safe-right) + 16px); top: calc(var(--safe-top) + 16px); z-index: 90; max-width: min(560px, calc(100vw - 32px)); box-shadow: var(--shadow-float); }
+/* With a surface in front, the one banner is a strip of that surface: it belongs
+   to the dialog that raised it rather than floating over it, and a fixed banner
+   inside a panel would be measured against the panel's entry animation and
+   against the window a moment later. Same banner, same Dismiss, whichever of the
+   two places the screen happens to be. */
+.global-feedback--in-modal { position: static; flex: 0 0 auto; max-width: none; box-shadow: none; }
 .loading-screen { padding: 24px; color: var(--text-dim); }
 /* A person is drawn: his face, and the shirt of whoever he plays for.
 
@@ -9129,7 +9973,12 @@ html[data-motion='reduced'] { scroll-behavior: auto; }
   .fixture-card__side--home, .fixture-card__side--away { justify-content: center; }
   .fixture-card__foot { padding-inline: 12px; }
   .fixture-card__foot .row { width: 100%; }
-  .fixture-card__foot .btn { flex: 1; }
+  /* The buttons keep the width their labels need. `flex: 1` on all three
+     controls squeezed them into one row and wrapped "Pick the team" across
+     three lines; the state of the XI takes a line of its own above them
+     instead, and the two doors stay one press wide. */
+  .fixture-card__foot .row > :not(.btn) { flex: 1 1 100%; }
+  .fixture-card__foot .btn { flex: 0 0 auto; }
 }
 .profile-content > .overlay__body, .profile-content > .profilehead { padding: 0; }
 .profile-content .overlay__body { overflow: visible; }
@@ -9208,7 +10057,7 @@ html[data-motion='reduced'] { scroll-behavior: auto; }
     /* The mark's own stripe angle, at an opacity that reads as paper rather
        than as a pattern. Fixed, so the texture does not slide under the text
        while the manager scrolls. */
-    repeating-linear-gradient(112deg, rgba(255, 255, 255, 0.014) 0 64px, transparent 64px 128px),
+    repeating-linear-gradient(112deg, rgba(var(--lift), 0.014) 0 64px, transparent 64px 128px),
     var(--bg);
   background-attachment: scroll, local, scroll;
 }
@@ -9230,7 +10079,7 @@ html[data-motion='reduced'] { scroll-behavior: auto; }
 
 .panel {
   background: linear-gradient(178deg, var(--panel-2) 0%, var(--panel) 62%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  box-shadow: inset 0 1px 0 rgba(var(--lift), 0.035);
 }
 
 /* A head is a band, so it is painted edge to edge or not at all.
@@ -9244,7 +10093,7 @@ html[data-motion='reduced'] { scroll-behavior: auto; }
    primary panel. The inset rule is what makes a head read as a head. */
 .panel__head {
   background: linear-gradient(180deg, var(--panel-3), var(--panel-2));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03), inset 0 -1px 0 var(--line);
+  box-shadow: inset 0 1px 0 rgba(var(--lift), 0.03), inset 0 -1px 0 var(--line);
 }
 
 /* A primary panel is the one decision on the screen, so its head is the one
@@ -9339,12 +10188,12 @@ html[data-motion='reduced'] { scroll-behavior: auto; }
 /* --- The summary strip: one ruled band, not four floating cards --------- */
 
 .tile-grid:has(> .metric-tile) {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.022), transparent);
+  background: linear-gradient(180deg, rgba(var(--lift), 0.022), transparent);
 }
 
 .metric-tile {
   position: relative;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.016), transparent 70%);
+  background: linear-gradient(180deg, rgba(var(--lift), 0.016), transparent 70%);
 }
 
 /* Tone is the one thing a metric is allowed to shout about, and it says it with
@@ -9367,11 +10216,56 @@ html[data-motion='reduced'] { scroll-behavior: auto; }
 .metric-tile.tile--bad::after { background: var(--bad); }
 .metric-tile.tile--accent::after { background: var(--club); }
 
+/* A squad need, made scannable.
+
+   "3/6 · Light" on four cards is four numbers and four words to read. The bar
+   says the depth behind the number — available out of the registered bodies in
+   that part of the pitch — and the badge says the verdict in colour, so the four
+   cards can be compared by looking along them. Both are the same shape on every
+   card, which is what makes them comparable at all. */
+.need-gauge {
+  display: block;
+  margin-top: 8px;
+}
+.need-gauge .meter {
+  display: block;
+  width: 100%;
+  height: 6px;
+  margin-right: 0;
+}
+.need-badge {
+  display: inline-block;
+  margin-top: 7px;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.need-badge--ok {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+.need-badge--warn {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+/* "Alright": said plainly, in the sheet's ordinary hairline, because a middle
+   verdict is not news and must not be dressed as either of the other two. */
+.need-badge--default {
+  border-color: var(--line);
+  color: var(--text-dim);
+}
+
 /* --- Plain tiles and empty states --------------------------------------- */
 
 .tile {
   background: linear-gradient(178deg, var(--panel-2) 0%, var(--panel) 70%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  box-shadow: inset 0 1px 0 rgba(var(--lift), 0.03);
 }
 
 /* An empty state is a box with nothing in it, which is exactly the kind of
@@ -9382,7 +10276,7 @@ html[data-motion='reduced'] { scroll-behavior: auto; }
 .empty-state {
   border: 1px dashed var(--line);
   border-radius: var(--radius);
-  background: rgba(255, 255, 255, 0.012);
+  background: rgba(var(--lift), 0.012);
 }
 
 /* --- Tables: a head that reads as a head -------------------------------- */
@@ -9393,7 +10287,7 @@ html[data-motion='reduced'] { scroll-behavior: auto; }
 }
 
 .table tbody tr:nth-child(even) {
-  background: rgba(255, 255, 255, 0.014);
+  background: rgba(var(--lift), 0.014);
 }
 
 .table--clickable tbody tr:hover {
@@ -9407,7 +10301,7 @@ html[data-motion='reduced'] { scroll-behavior: auto; }
 .chip:not(.chip--on),
 .segmented__item:not(.segmented__item--active),
 .tab:not(.tab--active) {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent);
+  background: linear-gradient(180deg, rgba(var(--lift), 0.03), transparent);
   border: 1px solid var(--line-soft);
 }
 
@@ -9415,7 +10309,7 @@ html[data-motion='reduced'] { scroll-behavior: auto; }
 .segmented__item:hover:not(.segmented__item--active),
 .tab:hover:not(.tab--active) {
   border-color: var(--line);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.055), transparent);
+  background: linear-gradient(180deg, rgba(var(--lift), 0.055), transparent);
 }
 
 .chip--on,
@@ -9426,16 +10320,33 @@ html[data-motion='reduced'] { scroll-behavior: auto; }
 
 .btn--primary {
   background: var(--club);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  box-shadow: inset 0 1px 0 rgba(var(--lift), 0.16);
 }
 
 .btn--default,
 .btn--ghost {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent);
+  background: linear-gradient(180deg, rgba(var(--lift), 0.035), transparent);
 }
 
 .btn--default {
   border: 1px solid var(--line);
+}
+
+/* A secondary action has to be *seen* to be secondary.
+
+   The ghost button carries the same hairline as every divider in this sheet —
+   `--line`, #232a31 on a #12161a panel, about 1.2:1 — so "Look around" beside a
+   filled "Kick off", or "Look in at five-a-side" beside a primary button, read
+   as a patch of background with words in it rather than as a control. The edge
+   is a lighter grey now (#4c5760, about 2.4:1) and the label keeps the full ink
+   it always had. It is still nowhere near the fill a default or a primary button
+   carries, so the hierarchy it exists to express is unchanged. */
+.btn--ghost {
+  border-color: #4c5760;
+  color: var(--text);
+}
+.btn--ghost:hover:not(:disabled) {
+  border-color: #5f6b76;
 }
 
 /* --- Disclosures: a shelf rather than a stripe -------------------------- */
@@ -9626,6 +10537,14 @@ html[data-motion='reduced'] { scroll-behavior: auto; }
   color: var(--club-flat-ink);
 }
 
+/* The chosen team talk, warm-up or preference, which the control layer's
+   surface gradient would otherwise repaint grey. */
+.choice--on {
+  background: var(--club);
+  border-color: var(--club);
+  color: var(--club-flat-ink);
+}
+
 .tile--selected {
   background: var(--club-wash);
   border-color: var(--club);
@@ -9769,24 +10688,166 @@ html[data-motion='reduced'] { scroll-behavior: auto; }
   }
 }
 
+/* The front page. The sheet is flush to its own edges and the padding has moved
+   inside it, because the story now opens with a band across its full width — the
+   paper's own photograph with the story's own marks on it — and a photograph
+   inset by 20px inside a bordered card is a photograph with a frame around the
+   frame. */
 .news-lead {
   display: grid;
-  gap: 10px;
-  padding: 20px;
+  gap: 0;
+  padding: 0;
   background: var(--panel);
   border: 1px solid var(--line);
   border-left: 3px solid var(--club);
 }
 
+/* The band across the top of the lead.
+
+   What is drawn on it is the story's own mark rather than a generic picture of
+   the kind of story it is: the crests, the shirts and the score for a result, the
+   two clubs and the date for a tie nobody has played, and a drawing from the
+   sheet for anything that is not a match at all. The photograph underneath is the
+   paper's own — washed, decorative, and never captioned as a picture of the
+   story, because nothing in this game is photographed and a goalmouth standing in
+   for one particular afternoon would be the paper claiming to know something it
+   does not.
+
+   The wash is the one `.home-hero` uses over the ground photograph, for the same
+   reason: ink and thin lines have to survive it. */
+.news-lead__front {
+  display: grid;
+  align-content: end;
+  min-height: 168px;
+  padding: 18px;
+  background-color: #0d2617;
+  background-image: linear-gradient(180deg, rgba(8, 9, 11, 0.35), rgba(8, 9, 11, 0.92)), url('/photos/news-lead.webp');
+  background-position: center 45%;
+  background-size: cover;
+  border-bottom: 1px solid var(--line);
+}
+
+/* The mark sits on the photograph rather than on the panel, so it is measured
+   against that: full ink, because a drawing at `--text-dim` over a picture is a
+   drawing nobody can see. */
+.news-lead__front .news-plate {
+  color: var(--text);
+}
+
+/* A tie nobody has played has a date where the score would be, at the size a date
+   is set at rather than the size a result is. */
+.matchscore__score--when {
+  font-size: var(--fs-base);
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+
+.news-lead__copy {
+  display: grid;
+  gap: 10px;
+  padding: 18px 20px 20px;
+}
+
+/* The kind of story, in the paper's own voice. It is the one word on the kicker
+   that says what a story *is* — Signed, Called off, Cup draw — so it carries the
+   club's own ink and the rest of the line stays quiet. */
+.news-kind {
+  color: var(--club-text);
+}
+
+/* The second tier.
+
+   Two columns of the same paper, twice the width of a clipping and with the
+   story's opening line showing: the paragraph is the whole difference between a
+   story the page is pointing at and a headline in a list. Below the breakpoint it
+   is one column, which is the composition rather than a squeezed version of it. */
+.news-features {
+  display: grid;
+  gap: 18px;
+}
+
+@media (min-width: 720px) {
+  .news-features {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.news-story--feature {
+  padding: 16px 18px 20px;
+}
+
+/* Halfway between the clipping's picture and the lead's: the feature is a bigger
+   piece of paper, so its drawing is bigger, and the line is redrawn at the weight
+   that keeps the stroke the same on the page. */
+.news-plate--feature {
+  width: 96px;
+  height: 60px;
+  stroke-width: 1;
+}
+
+.news-story__standfirst {
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+}
+
+/* A phone has one column and a shorter lead: the band is the front page's
+   introduction, not most of the screen. */
+@media (max-width: 600px) {
+  .news-lead__front {
+    min-height: 132px;
+    padding: 14px;
+  }
+
+  .news-lead__copy {
+    padding: 14px 16px 16px;
+  }
+
+  .news-plate--feature {
+    width: 72px;
+    height: 45px;
+  }
+}
+
+/* The front page keeps the one piece of typography a paper has that a card does
+   not: a rule under the line that names it and dates it. */
 .news-lead__meta {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--s2);
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
   font-size: var(--fs-xs);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   font-weight: 700;
+}
+
+/* The line under a headline that says who wrote it.
+
+   The quietest thing in a story: smaller than the body, dimmer than the kicker
+   above it, and set in italic the way a byline is on a real page. It is also the
+   one that carries a name the manager is learning, which is why it is set to be
+   read rather than to be noticed. */
+.news-byline {
+  display: block;
+  font-size: var(--fs-xs);
+  letter-spacing: 0.02em;
+  font-style: italic;
+  color: var(--text-faint);
+}
+
+/* A claim on the club screen, set the way the paper set it: in its own voice,
+   and visibly not one of the club's own facts. The indent and the left rule are
+   what make a quoted sentence read as quoted rather than as something the screen
+   is asserting. */
+.press-claim__claim {
+  margin: 4px 0 6px;
+  padding-left: var(--s3);
+  border-left: 2px solid var(--line);
+  font-size: var(--fs-base);
+  line-height: 1.45;
 }
 
 .news-lead__headline {
@@ -9832,9 +10893,31 @@ html[data-motion='reduced'] { scroll-behavior: auto; }
   background: var(--line);
 }
 
+/* The board, and the clippings pinned to it.
+
+   The feed was cards in a grid, which is how a website holds many things of the
+   same kind. A local paper is not a website: it is paper, cut out and put up,
+   and all of the difference is in the edges — a sheet that is not quite square,
+   a strip of tape across the top of it, and a surface underneath for it to sit
+   on. Nothing here is photographed and nothing is drawn in: it is the same ink
+   and the same two greys the rest of the sheet is made of, arranged differently,
+   which is the rule this game keeps for everything it does not have a picture
+   of (see the news plates above).
+
+   The paper is its own layer rather than a rotation of the card, so a fraction
+   of a degree off square is a fraction of a degree off square for the sheet and
+   not for a single line of a headline. `isolation` is what keeps that layer
+   behind the words: without it the negative-z sheet would paint behind the
+   board's own background and vanish into it. */
+.news-board {
+  padding: 14px 16px 20px;
+  background: var(--bg-2);
+  border: 1px solid var(--line-soft);
+}
+
 .news-feed {
   display: grid;
-  gap: 14px;
+  gap: 18px;
 }
 
 @media (min-width: 900px) {
@@ -9844,15 +10927,48 @@ html[data-motion='reduced'] { scroll-behavior: auto; }
 }
 
 .news-story {
+  position: relative;
+  isolation: isolate;
   padding: 14px 16px;
-  background: var(--panel);
+  background: none;
+  border: 0;
+}
+.news-story::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--panel-2);
   border: 1px solid var(--line);
   border-left: 3px solid var(--line);
+  transform: rotate(-0.5deg);
 }
-
-.news-story[open] {
+/* Hand-driven, so no two sheets hang the same way. */
+.news-story:nth-child(even)::before {
+  transform: rotate(0.55deg);
+}
+/* Tape, not a pin: tape is what is in the drawer in a clubhouse. */
+.news-story::after {
+  content: '';
+  position: absolute;
+  top: -7px;
+  left: 50%;
+  width: 42px;
+  height: 13px;
+  transform: translateX(-50%) rotate(-1.6deg);
+  background: rgba(var(--lift), 0.07);
+  border: 1px solid rgba(var(--lift), 0.1);
+  pointer-events: none;
+}
+/* The one that is open is the one being read: it comes forward onto the board
+   and takes the club's own 3px edge, the same edge a chosen control wears. */
+.news-story[open]::before {
   border-left-color: var(--club);
-  background: var(--panel-2);
+  background: var(--panel);
+}
+.news-story[open]::after {
+  background: var(--club-wash);
+  border-color: var(--club-soft);
 }
 
 .news-story > summary {
@@ -11228,4 +12344,1092 @@ html[data-motion='reduced'] .team-selection__aside { transition: none; }
 @media (max-width: 760px) {
   .weekstrip__head { flex-wrap: wrap; }
   .weekstrip__remaining { margin-left: 0; }
+}
+
+/* Between jobs ------------------------------------------------------------- */
+/* One screen, and it is not a club screen: the job board and the record. It
+   borrows the ordinary panel and list rules and adds only what is new — a row
+   with a crest, the words and an action. */
+
+.topbar__club--static {
+  cursor: default;
+}
+
+.jobboard,
+.spellbook {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.jobboard__row,
+.spellbook__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 4px;
+  border-bottom: 1px solid var(--hairline, rgba(var(--lift), 0.08));
+}
+
+.jobboard__row:last-child,
+.spellbook__row:last-child {
+  border-bottom: none;
+}
+
+.jobboard__body,
+.spellbook__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.jobboard__name {
+  font-weight: 650;
+}
+
+.jobboard__action {
+  flex: 0 0 auto;
+}
+
+/* A line of short facts beside each other rather than the stacked grid `.facts`
+   draws on its own: a manager's spell at a club, and the ground he stands on.
+   It wraps, because both of those live inside a panel and a panel clips what
+   does not fit — five facts on a phone were losing their last two to the edge
+   of the card rather than moving onto a second line. */
+.facts--inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin: 4px 0 0;
+}
+
+/* ==========================================================================
+   The afternoon on a rail, and the bench on the pitch
+   --------------------------------------------------------------------------
+   Two things the manager does during a match, and both of them are the same
+   idea: a match is a *record with a shape*, and the shape is something he can
+   put his hand on. The rail is the shape of the ninety minutes — a goal has a
+   place in the afternoon, not only a minute — and the board is the shape of the
+   change he wants to make, drawn on the same grass the eleven are standing on.
+   ========================================================================== */
+
+.mtl {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  width: 100%;
+}
+
+.mtl__rail {
+  position: relative;
+  height: 22px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+}
+
+/* The interval, marked once and quietly: every match has one, and it is where
+   the rail's own scale changes meaning. */
+.mtl__halfway {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  left: 50%;
+  width: 1px;
+  background: var(--line);
+}
+
+.mtl__played {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: var(--radius-pill) 0 0 var(--radius-pill);
+  /* A flat tint, not a gradient: the club colour fills what it tints, so the
+     part of the afternoon that has been played reads the same at any width. */
+  background: var(--club-wash);
+}
+
+.mtl__now {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--text);
+  border-radius: 1px;
+}
+
+.mtl__mark {
+  position: absolute;
+  top: 50%;
+  width: 11px;
+  height: 11px;
+  margin: -5.5px 0 0 -5.5px;
+  padding: 0;
+  border: 1px solid var(--bg);
+  border-radius: 50%;
+  background: var(--text-dim);
+  cursor: pointer;
+}
+
+.mtl__mark:disabled {
+  cursor: default;
+}
+
+.mtl__mark:hover,
+.mtl__mark:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+/* The three shapes of an incident: a goal is the loudest thing on the rail, a
+   card is a small flat mark, an injury is hollow because it is the one mark that
+   is not football. */
+.mtl__mark--goal {
+  width: 15px;
+  height: 15px;
+  margin: -7.5px 0 0 -7.5px;
+  background: var(--text);
+  box-shadow: 0 0 0 3px var(--club-wash);
+}
+
+.mtl__mark--miss {
+  width: 15px;
+  height: 15px;
+  margin: -7.5px 0 0 -7.5px;
+  background: transparent;
+  border: 2px dashed var(--text-dim);
+}
+
+.mtl__mark--card {
+  width: 8px;
+  height: 13px;
+  margin: -6.5px 0 0 -4px;
+  border-radius: 1px;
+  background: var(--warn);
+}
+
+.mtl__mark--injury {
+  background: transparent;
+  border: 2px solid var(--bad);
+}
+
+.mtl__mark--substitution {
+  background: var(--ok);
+}
+
+.mtl__mark--whistle {
+  width: 5px;
+  height: 13px;
+  margin: -6.5px 0 0 -2.5px;
+  border-radius: 1px;
+  background: var(--line);
+}
+
+.mtl__scale {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 2px;
+}
+
+/* Where the rail lives on each screen: a band of its own under the pitch of a
+   live match, and the top of the replay transport, above the scrub it shares a
+   scale with. */
+.matchday__rail {
+  flex: 0 0 auto;
+  padding: var(--s1) var(--s3) 0;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+}
+
+.replaybar .mtl {
+  padding-bottom: var(--s1);
+}
+
+/* The line the rail sent the manager to, so he can see which one he asked for
+   without having to remember the minute. */
+.transcript__row--found {
+  background: var(--club-wash);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .transcript__row--found {
+    animation: transcript-found 2400ms ease-out 1;
+  }
+}
+
+@keyframes transcript-found {
+  0% {
+    background: var(--club-soft);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+/* --- The bench, on the pitch ------------------------------------------- */
+
+/* The board is a workspace, not a list: the eleven stand where they stand and
+   the bench is beside them, so a change is one movement from one to the other
+   rather than a scroll and a select. In the drawer it takes the room it needs —
+   a pitch a manager cannot read is not a pitch — and the bench list scrolls
+   inside itself when there are more substitutes than fit. */
+.matchbar__drawer:has(.subboard) {
+  max-height: 56vh;
+  /* Room under the grass for the keeper, who is drawn on his own line at the
+     foot of the pitch and whose name hangs below it. */
+  padding-bottom: 26px;
+}
+
+/* One height for the whole board, so the pitch, the bench and the sentence
+   under them are all inside the drawer at once. The shapes are drawn in
+   percentages of the box, so the pitch reads at whatever height this gives it —
+   and a change the manager cannot see the end of is a change he will not make. */
+.subboard {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(190px, 240px);
+  gap: var(--s3);
+  align-items: stretch;
+  /* A little short of what the drawer would hold, because the keeper is drawn
+     on his own line at the very bottom and his name hangs below it. */
+  height: min(44vh, 380px);
+}
+
+.subboard__board {
+  display: flex;
+  min-width: 0;
+}
+
+/* The preparation pitch is a portrait drawing for a whole screen. This one
+   fills the board instead, because the drawer it lives in is a strip. */
+.subboard__pitch {
+  flex: 1 1 auto;
+  aspect-ratio: auto;
+  height: 100%;
+  max-width: none;
+  width: 100%;
+  min-height: 190px;
+}
+
+.subboard__pitch .pitch__player {
+  width: 13%;
+  max-width: 78px;
+}
+
+/* A man is in the air: every shirt he could land on is offered to him. */
+.subboard__pitch[data-holding='true'] .subboard__shirt {
+  box-shadow: 0 0 0 2px var(--club-soft);
+}
+
+.subboard__shirt--held {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.subboard__shirt--target {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.subboard__shirt:hover:not(:disabled) .pitch__shirt {
+  background: var(--panel-3);
+}
+
+.subboard__shirt:disabled,
+.subboard__sub:disabled {
+  cursor: default;
+}
+
+.subboard__shirt:disabled {
+  opacity: 0.65;
+}
+
+.subboard__fuel {
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  padding: 0 3px;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--ok);
+}
+
+.subboard__fuel--worn {
+  color: var(--warn);
+}
+
+.subboard__fuel--low {
+  color: var(--bad);
+}
+
+.subboard__bench {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  min-width: 0;
+}
+
+.subboard__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.subboard__sub {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: var(--s2);
+  width: 100%;
+  padding: 6px var(--s2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  color: var(--text);
+  text-align: left;
+  cursor: grab;
+  touch-action: none;
+}
+
+.subboard__sub:hover:not(:disabled) {
+  border-color: var(--club);
+}
+
+.subboard__sub:disabled {
+  opacity: 0.5;
+}
+
+.subboard__sub--held {
+  border-color: var(--focus);
+  box-shadow: inset 0 0 0 1px var(--focus);
+}
+
+.subboard__sub--target {
+  border-color: var(--accent);
+  background: var(--club-wash);
+}
+
+.subboard__sub-shift {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+}
+
+.subboard__sub-who {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-sm);
+}
+
+.subboard__sub .subboard__fuel {
+  background: none;
+  text-align: right;
+}
+
+.subboard__none {
+  padding: var(--s2) 0;
+}
+
+/* One column when there is not room for two: the pitch first, because the
+   shape is what the change is against. */
+@media (max-width: 720px) {
+  .matchbar__drawer:has(.subboard) {
+    max-height: 68vh;
+  }
+
+  .subboard {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+    height: min(58vh, 460px);
+  }
+}
+
+/* --- The pitch, on the whole screen -----------------------------------------
+
+   The match screen already gives the afternoon the window; this gives the
+   *grass* all of it. The manager asks for it from a button in the bottom-right
+   corner of the pitch and gives it back from the same button — one control, in
+   one place, in both views — and what he gets is the picture and nothing else:
+   no header, no team sheets, no rail, no totals. Two things stay, because they
+   are part of watching a match rather than part of its frame: the clock and the
+   score, as a television bug in the top-left corner, and the control strip along
+   the bottom, since the football has not stopped and a view of it that could not
+   be paused would be worse than the screen it replaced.
+
+   Both corners sit inside the safe area the match frame reserves, so a notch or
+   a gesture bar never takes the score or the button, and the bug itself is flat
+   paint over the picture — no pointer events, nothing focusable, dark enough to
+   read over grass in any light. */
+
+.matchday--pitchonly .matchday__main {
+  padding: 0;
+}
+/* The stage is a three-column frame with the sheets either side of the pitch.
+   With the sheets gone the one column left takes the whole width. */
+.matchday--pitchonly .matchday__stage {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* One bar, one row. A broadcaster's scorecard is read across a room in a
+   glance, and every line it does not need is a line that costs the picture: the
+   station's block, the two clubs as three-letter codes in boxes wearing the
+   strips they turned out in, the score between them, the clock at the end. Its
+   height is a token rather than a number, because the one other rule that has to
+   know it — where the direction marker goes in a portrait frame — is about
+   clearing the bar, not about 30. */
+.matchday--pitchonly {
+  --tvboard-h: 30px;
+}
+.tvboard {
+  position: absolute;
+  top: var(--s2);
+  left: var(--s2);
+  z-index: 4;
+  display: flex;
+  align-items: stretch;
+  height: var(--tvboard-h, 30px);
+  max-width: calc(100% - 2 * var(--s2));
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 2px;
+  background: color-mix(in srgb, #06070a 82%, transparent);
+  color: #f2f5f9;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+  backdrop-filter: blur(6px);
+  animation: tvboard-in 200ms ease-out;
+}
+/* The station's own block, in its own black, as a broadcaster's bug leads with
+   the channel rather than with the football. The letters are the mark. */
+.tvboard__mark {
+  display: flex;
+  align-items: center;
+  padding: 0 9px;
+  background: #05060a;
+  font-size: var(--fs-xs);
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+/* A club's box: the three letters on the strip that side turned out in, in the
+   ink `flatClubInk` chose for that colour — the same floor the men on the pitch
+   are drawn to, so a pale away shirt never carries white letters. */
+.tvboard__team {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  min-width: 42px;
+  padding: 0 8px;
+  background: var(--box);
+  color: var(--box-ink);
+  font-size: var(--fs-sm);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+.tvboard__score {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  padding: 0 9px;
+  background: rgba(255, 255, 255, 0.1);
+  font-size: var(--fs-md);
+  font-weight: 800;
+}
+.tvboard__score i {
+  font-style: normal;
+  color: rgba(255, 255, 255, 0.45);
+}
+/* The clock in its own cell at the end of the bar, divided from the scorecard
+   rather than trailing off it: the one number the manager looks for without
+   reading anything else. */
+.tvboard__clock {
+  display: flex;
+  align-items: center;
+  flex: none;
+  padding: 0 9px;
+  border-left: 1px solid rgba(255, 255, 255, 0.14);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.88);
+}
+@keyframes tvboard-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-motion='full']) .tvboard {
+    animation: none;
+  }
+}
+html[data-motion='reduced'] .tvboard {
+  animation: none;
+}
+
+/* The one button. It is over the picture rather than in the frame, so it carries
+   its own ink and its own contrast against grass; forty-four pixels, because it
+   is pressed with a thumb on a phone held sideways. */
+.pitchfull {
+  position: absolute;
+  right: var(--s2);
+  bottom: var(--s2);
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 3px;
+  background: color-mix(in srgb, #06070a 62%, transparent);
+  color: #f2f5f9;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+}
+.pitchfull .glyph {
+  width: 20px;
+  height: 20px;
+}
+.pitchfull:hover {
+  background: color-mix(in srgb, #06070a 82%, transparent);
+}
+.pitchfull:focus-visible {
+  outline: 2px solid #f2f5f9;
+  outline-offset: 2px;
+}
+.pitchfull--on {
+  border-color: rgba(255, 255, 255, 0.45);
+  background: color-mix(in srgb, #06070a 78%, transparent);
+}
+
+/* The incident reads along the foot of the picture rather than across its head.
+   On the match screen the banner belongs over the top of the pitch, because the
+   header above it is outside the picture; with the pitch on the whole screen the
+   scoreboard has that corner, and a board and a goal announcement stacked in one
+   corner is two things read as one. Along the bottom it is a lower-third — and
+   it sits one row above the one button, so a goal never covers the way out. */
+.matchday--pitchonly .incident {
+  top: auto;
+  bottom: calc(var(--s2) + 52px);
+}
+/* In a portrait frame the marker that says which way the manager's side attacks
+   sits at the top of the pitch, which is the scorecard's corner there. It keeps
+   its place in the picture instead, a clear margin under the bar. */
+.matchday--pitchonly .pitch__attack[data-dir='up'] {
+  top: max(30%, calc(var(--s2) + var(--tvboard-h) + 8px));
+}
+/* ==========================================================================
+   Fading between the two
+   --------------------------------------------------------------------------
+   A theme change is the manager's own doing, which is the one kind of motion
+   this sheet spends anything on — and it is also the change with the most
+   surface to travel: every panel, every rule and every word on the screen is a
+   different colour afterwards. Snapping is what a palette does when nothing has
+   asked it to travel; these declarations are what let it.
+
+   A custom property is not normally a value a browser can interpolate. It is a
+   string that happens to be substituted somewhere, and there is nothing in it
+   to move between: `#12171a` and `#f1f3f6` are two strings rather than two
+   points on one scale. `@property` is what makes one a *typed* value, and a
+   typed colour travels — so it is the palette itself that fades, rather than a
+   veil laid over the screen while the palette is switched behind it. Nothing
+   here is decoration: every token registered below is one that is genuinely a
+   different colour in the two palettes.
+
+   A browser without `@property` ignores the registrations and the transition
+   that depends on them, and the theme changes in one frame, exactly as it did
+   before any of this existed. That is the whole fallback, and it is worth
+   having: the absence of the fade leaves nothing broken, only abrupt.
+
+   What is *not* here is as deliberate. The club's colours are mixed in
+   JavaScript against the surface they will be read on, so `--club-text` is not
+   declared on this element and there is nothing here for it to travel from; it
+   arrives with the next render of the shell. The shadow is a shadow rather than
+   a colour, and a shadow that snapped under a fade nobody can see is not worth
+   a registration.
+
+   Both of the durations are cancelled by the same rule the rest of the sheet
+   uses, so a manager who has asked the game to hold still gets his theme
+   change in one frame as well. See `data-motion` at the top of this sheet.
+   ========================================================================== */
+
+@property --bg { syntax: '<color>'; inherits: true; initial-value: #08090b; }
+@property --bg-2 { syntax: '<color>'; inherits: true; initial-value: #0d0f12; }
+@property --panel { syntax: '<color>'; inherits: true; initial-value: #12161a; }
+@property --panel-2 { syntax: '<color>'; inherits: true; initial-value: #181d23; }
+@property --panel-3 { syntax: '<color>'; inherits: true; initial-value: #1f252c; }
+@property --line { syntax: '<color>'; inherits: true; initial-value: #232a31; }
+@property --line-soft { syntax: '<color>'; inherits: true; initial-value: #1b2127; }
+@property --text { syntax: '<color>'; inherits: true; initial-value: #e4e8ec; }
+@property --text-dim { syntax: '<color>'; inherits: true; initial-value: #93a0ac; }
+@property --text-faint { syntax: '<color>'; inherits: true; initial-value: #98a3aa; }
+@property --text-bright { syntax: '<color>'; inherits: true; initial-value: #fff; }
+@property --accent { syntax: '<color>'; inherits: true; initial-value: #4caf7d; }
+@property --accent-dim { syntax: '<color>'; inherits: true; initial-value: #2c6b4d; }
+@property --warn { syntax: '<color>'; inherits: true; initial-value: #d9a13a; }
+@property --bad { syntax: '<color>'; inherits: true; initial-value: #ed8178; }
+@property --ok { syntax: '<color>'; inherits: true; initial-value: #4fb37c; }
+@property --info { syntax: '<color>'; inherits: true; initial-value: #4a90d9; }
+@property --goal-ink { syntax: '<color>'; inherits: true; initial-value: #ffd666; }
+@property --whistle-ink { syntax: '<color>'; inherits: true; initial-value: #7cc4ff; }
+@property --focus { syntax: '<color>'; inherits: true; initial-value: #a3d9bf; }
+@property --lift { syntax: '<number>#'; inherits: true; initial-value: 255, 255, 255; }
+@property --raise { syntax: '<color>'; inherits: true; initial-value: #262e36; }
+@property --line-hover { syntax: '<color>'; inherits: true; initial-value: #2f3941; }
+@property --scroll-thumb { syntax: '<color>'; inherits: true; initial-value: rgba(255, 255, 255, 0.16); }
+@property --scroll-thumb-hover { syntax: '<color>'; inherits: true; initial-value: rgba(255, 255, 255, 0.3); }
+
+/* The transition is declared on the document element, which is where every one
+   of these is set and where the attribute that changes them lands. An inherited
+   property travels once and every element below it reads the moving value, so
+   the whole screen moves together without a rule per panel — and a rule per
+   panel is what this would otherwise be. */
+:root {
+  transition-property:
+    --bg, --bg-2, --panel, --panel-2, --panel-3,
+    --line, --line-soft,
+    --text, --text-dim, --text-faint, --text-bright,
+    --accent, --accent-dim, --warn, --bad, --ok, --info, --goal-ink, --whistle-ink, --focus,
+    --lift, --raise, --line-hover,
+    --scroll-thumb, --scroll-thumb-hover;
+  /* Long enough to read as the lights coming up rather than as a fault, and
+     short enough that it is over before the manager has moved the mouse. */
+  transition-duration: 240ms;
+  transition-timing-function: ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-motion='full']) {
+    transition-duration: 0s;
+  }
+}
+html[data-motion='reduced'] {
+  transition-duration: 0s;
+}
+
+/* ==========================================================================
+   The lights, on
+   --------------------------------------------------------------------------
+   The same building with the lights on, and deliberately nothing more than
+   that: this block does not restate one rule of the furniture above it — not
+   the hairlines, the corner radius, the navigation, or anything the tests in
+   `src/ui/workspaces.test.ts` hold to. It redefines the palette, and the three
+   decisions that are not a colour on their own (which way a lift goes, which
+   end of the ink scale is "strongest", and how strong a shadow is), and the
+   rest of the sheet follows on its own.
+
+   It comes last on purpose. A token is read by every rule above it whenever it
+   was declared, so the palette can live in one place rather than two; but a few
+   rules in this sheet re-declare a token *for a container* — the lifted muted
+   tone on a club-tinted band, for instance — and beating those means coming
+   after them, which is also where the last word on the cascade belongs.
+
+   What does not change, and why, is the interesting part. Three things in this
+   game are not surfaces at all, and the light they are drawn by is not the
+   room's:
+
+   1. The grass. A pitch that went pale because the manager prefers a light
+      interface would be a lie about the one thing the game is standing on, so
+      the grass tones, the mown stripes, the chalk — white in every theme — and
+      the marks of wear are left exactly as they are. The *frame* around the
+      pitch is a surface like any other and does follow the palette, and so do
+      the panels beside it.
+
+   2. The kit. A club's colours come from the world rather than from this sheet,
+      and both inks that sit on that colour are chosen for the colour, not for
+      the page — see `colour.ts`. The one club token that is the theme's
+      business is the club's *text* colour, and `clubStyle` is handed the theme
+      for exactly that reason.
+
+   3. A photograph. The ground behind the menu, the bands on Home, the print the
+      news is pinned to, a screen header with a picture behind it: each is an
+      image, and an image is *washed and inked* for the theme rather than
+      repainted by it. The menu's own ground keeps its dark wash in both themes,
+      because that is the game's front door — a pitch at dusk with the mark lit
+      over it — and the cards on it are glass, which is re-cut here rather than
+      re-coloured. Where a picture sits behind a heading, the wash is chosen in
+      the theme that can read it: see `photoVeil`.
+   ========================================================================== */
+
+:root[data-theme='light'] {
+  /* The browser's own furniture — form controls, scrollbars, the caret — is
+     told the same thing the palette says, for the same reason as the
+     `color-scheme: dark` at the top of this sheet. */
+  color-scheme: light;
+
+  /* The surfaces, and it is the *same ramp*: light comes from above, so a raised
+     surface is lit by the same 180deg run from a lighter tone to its own — which
+     on a light page means the page is the grey one and everything raised is
+     nearer white. The order of the five tones is untouched, so a panel head is
+     still above a panel and a quiet panel still sits in the page rather than on
+     it. Only the direction of travel changed: up the scale with the lights off,
+     down it with them on. */
+  --bg: #e2e5e9;
+  --bg-2: #e9ebef;
+  --panel: #f1f3f6;
+  --panel-2: #f7f8fa;
+  --panel-3: #fdfeff;
+
+  /* Structure. A rule is a shade rather than a highlight, and the pair keeps the
+     relationship it had: `--line-soft` is still the quieter of the two. */
+  --line: #c6ccd3;
+  --line-soft: #d8dde3;
+
+  /* Ink. `--text-faint` is the one with a floor to clear rather than a look to
+     keep — it is the sheet's smallest words — so it is set just past 4.5:1
+     against the *page*, which is the darkest thing anything is written on. */
+  --text: #12171d;
+  --text-dim: #4b5560;
+  --text-faint: #5b6570;
+  --text-bright: #000;
+
+  /* Status. Every one of these is read as text or as a 1px edge on a light
+     surface, so each is the dark end of its own hue rather than the pale one:
+     the amber of a warning reads 5.3:1 here, and the pale one would be 2.4:1. */
+  --accent: #1b6d44;
+  --accent-dim: #6fb792;
+  --warn: #8a5a06;
+  --bad: #b3261e;
+  --ok: #1c7047;
+  --info: #1a5fb4;
+  --goal-ink: #7d5700;
+  --whistle-ink: #1a5fa8;
+
+  /* The focus ring is drawn on light panels and on the club's colour, so it is a
+     dark green rather than the mint the dark theme wears. The club's own
+     surfaces keep their own ink — see `.on-club`. */
+  --focus: #1f6f4b;
+
+  /* The one wash that reverses. White lifts out of the dark; on a light page the
+     same idea is a shade, at the same alphas. */
+  --lift: 0, 0, 0;
+
+  /* The two tones a control moves to under the pointer, which on a light page
+     are *darker* than the panel rather than lighter than it. */
+  --raise: #e4e8ec;
+  --line-hover: #b6bec6;
+
+  /* A shadow on a light page is read as depth rather than as darkness, and half
+     the strength of one drawn on a near-black page says the same thing. */
+  --shadow-float: 0 16px 48px rgba(0, 0, 0, 0.22);
+  --scroll-thumb: rgba(0, 0, 0, 0.22);
+  --scroll-thumb-hover: rgba(0, 0, 0, 0.34);
+
+  /* The game's own green, for the screens before a career: the *mark* keeps the
+     colour it has always been, and the sentences written in it do not. Both inks
+     that sit *on* that green are chosen for the green, and are left alone. */
+  --club-text: #1b6d44;
+}
+
+/* The boot placeholder is in the document before this sheet is, so the light
+   theme has to be stated for it here as well as inline in `index.html`. Without
+   this there is a dark flash between the bundle arriving and the game drawing:
+   the inline block paints the page light, and this rule would paint it
+   near-black again for as long as storage takes to open. */
+:root[data-theme='light'] #booting.booting {
+  background: #e2e5e9;
+}
+:root[data-theme='light'] #booting .booting__label {
+  color: #5c6673;
+}
+:root[data-theme='light'] #booting .booting__note {
+  color: #6d7681;
+}
+
+/* --- The muted tone on a tinted surface ----------------------------------
+
+   The dark sheet lifts `--text-dim` inside the containers that tint themselves
+   with the club's colour (§3b), because a light-coloured club puts a grey label
+   under the 4.5 a small label needs. With the lights on, that wash is a *pale*
+   tint of the same colour and the ordinary muted tone clears it comfortably —
+   so the lifted tone would be the one to fail, and the two selectors that lift
+   it put it back. */
+:root[data-theme='light'] .page-head,
+:root[data-theme='light'] .result-row--mine,
+:root[data-theme='light'] .fixture--current,
+:root[data-theme='light'] .club-card--selected,
+:root[data-theme='light'] .match-options__item--on,
+:root[data-theme='light'] .calendar__cell--today,
+:root[data-theme='light'] .planner__weekday--today,
+:root[data-theme='light'] .tile--selected,
+:root[data-theme='light'] .action-tile--primary {
+  --text-dim: var(--text-dim);
+}
+
+/* --- A photograph with the lights on -------------------------------------
+
+   Two bands on Home are a picture with the club's own wash over it, and both of
+   them are washed the other way here: a pale print rather than a dark one, which
+   is what lets the ink inside them be the page's ink. The fixture sheet and the
+   doors inside them are surfaces and were always going to follow the palette;
+   this is only the picture underneath them. */
+:root[data-theme='light'] .home-hero {
+  background-image: linear-gradient(180deg, rgba(252, 253, 254, 0.66), rgba(252, 253, 254, 0.92)), url('/photos/stadium-matchday.webp');
+}
+:root[data-theme='light'] .home-club {
+  background-image: linear-gradient(180deg, rgba(252, 253, 254, 0.7), rgba(252, 253, 254, 0.94)), url('/photos/prospect-park-sunday.webp');
+}
+:root[data-theme='light'] .news-lead__front {
+  background-image: linear-gradient(180deg, rgba(252, 253, 254, 0.6), rgba(252, 253, 254, 0.94)), url('/photos/news-lead.webp');
+}
+/* And the colour *under* those pictures, which is what a band is painted in for
+   the moment before the photograph arrives — or for good, on a connection that
+   never finishes it. A near-black one under a light wash is a dark band with the
+   page's ink on it, which is the one state nobody would ever see to complain
+   about, so it is the first thing worth putting right. */
+:root[data-theme='light'] .home-hero,
+:root[data-theme='light'] .home-club,
+:root[data-theme='light'] .news-lead__front,
+:root[data-theme='light'] .page-head--photo,
+:root[data-theme='light'] .interval__head--photo {
+  background-color: #eef1f4;
+}
+
+/* --- The menu's ground, and the glass on it ------------------------------
+
+   The menu is the one screen that does not go over to the light: its ground is
+   the photographed pitch the game opens on, the mark is lit over it, and the ink
+   written on it is the ink a photograph needs. What *is* a surface on that
+   screen is the glass — the two doors, the saved careers, the row of utilities
+   — and glass over a picture is re-cut rather than repainted: the same blur, the
+   same translucency, the light tint instead of the dark one. */
+:root[data-theme='light'] .menucard {
+  background: rgba(243, 246, 245, 0.82);
+}
+:root[data-theme='light'] .menucard:hover {
+  background: rgba(250, 252, 251, 0.93);
+}
+:root[data-theme='light'] .utilitycard {
+  background: rgba(243, 246, 245, 0.78);
+}
+:root[data-theme='light'] .utilitycard:hover {
+  background: rgba(250, 252, 251, 0.92);
+}
+:root[data-theme='light'] .start__saves,
+:root[data-theme='light'] .installcard {
+  background: rgba(243, 246, 245, 0.82);
+}
+
+/* The things on that ground that are written straight onto it rather than onto
+   glass, and so keep the ink the photograph was washed for: the build number at
+   the foot of the menu, the rule above the row of utilities, and the screen
+   headers of the three setup screens — which are the only headers in the game
+   with no flat surface behind them. It is the same scoping the dark sheet
+   already does for their drop shadows, for the same reason. */
+:root[data-theme='light'] .start__version,
+:root[data-theme='light'] .start__utility {
+  --text-faint: #98a3aa;
+  --text-dim: #93a0ac;
+  --line: #3a4a41;
+}
+:root[data-theme='light'] .profile-setup .page-head,
+:root[data-theme='light'] .club-select .page-head,
+:root[data-theme='light'] .create-club .page-head,
+:root[data-theme='light'] .firstboot {
+  --text: #e4e8ec;
+  --text-dim: #93a0ac;
+  --text-faint: #98a3aa;
+  --line: #3a4a41;
+  --line-soft: #2b3830;
+}
+
+/* --- A secondary action is still seen as one -----------------------------
+
+   The ghost button's edge is a grey chosen against a near-black panel — the
+   sheet says why, at length, where it is declared: a hairline at 1.2:1 is not a
+   control. The *same grey* on a light panel is 6.6:1, which is not a quieter
+   button either, it is a dark outline round one — so the light theme keeps the
+   relationship rather than the colour, at 2.8:1 against its own rules. */
+:root[data-theme='light'] .btn--ghost {
+  border-color: #89939e;
+}
+:root[data-theme='light'] .btn--ghost:hover:not(:disabled) {
+  border-color: #7b8691;
+}
+
+/* --- The one button asking to be pressed, and how it inverts -------------
+
+   The day's action is due and the Continue button in the command bar says so by
+   *inverting*: it is the one thing on the bar that is not the club's colour, and
+   it has been a near-black fill with white ink since the day it was written,
+   because that is legible whatever colour a club plays in.
+
+   With the lights on, an inversion goes the other way. The bar is still the
+   club's colour — it is the club's shirt, not a surface, and it does not change
+   with the room — but the thing that stands out against it now has to be the
+   *bright* end: a white fill with the page's own ink on it. The tone along the
+   foot stays, and is the club's colour darkened for a light surface rather than
+   lightened for a dark one, so the two ends of the button still bracket the
+   club. */
+:root[data-theme='light'] .continue-btn--solid {
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--text);
+  border-color: rgba(255, 255, 255, 0.95);
+}
+/* Stated again for the pointer, because the bar's own hover rule is a black
+   scrim and it is more specific than the rule above. A press on a solid button
+   lightens it here for the same reason it darkened it there. */
+:root[data-theme='light'] .continue-btn--solid:hover:not(:disabled) {
+  background: #fff;
+}
+
+/* --- Two chips of the same name, one on grass and one on a panel ---------
+
+   The energy badge is drawn twice: on the shirts of the substitution board,
+   which is a picture of a pitch, and in the bench list under it, which is an
+   ordinary panel. Over the grass it is a chip of near-black with the reading
+   printed in the tone it deserves, and it stays exactly that whichever theme is
+   chosen — the board is a drawing, like the pitch it is drawn on. In the bench
+   list the same black is a hole with a dark green number in it, so that one is
+   re-cut as the chip a panel would have. */
+:root[data-theme='light'] .subboard__pitch .subboard__fuel {
+  --ok: #4fb37c;
+  --warn: #d9a13a;
+  --bad: #ed8178;
+}
+:root[data-theme='light'] .subboard__sub .subboard__fuel {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+/* --- Over the page, not on it --------------------------------------------
+
+   The scrim behind a dialog or a bottom sheet is the page's own shadow, and a
+   near-black one over a light page is a hole rather than a veil. It is lighter
+   here and still a long way from transparent, so nothing behind it can be
+   mistaken for something in front of it. The three floating surfaces that carry
+   a shadow of their own — the half-time card, a dialog's panel, and the bar that
+   says a new build is waiting — are let down by the same amount
+   `--shadow-float` is, which is what a light page reads depth as. */
+:root[data-theme='light'] .overlay,
+:root[data-theme='light'] .sheet__backdrop,
+:root[data-theme='light'] .interval {
+  background: rgba(18, 23, 29, 0.42);
+}
+/* The one veil that is heavier than the others on purpose — nothing on the page
+   behind it can be used while the league is being played out — which it stays,
+   at the strength a light page needs to say the same thing. */
+:root[data-theme='light'] .overlay--processing .overlay__scrim {
+  background: rgba(18, 23, 29, 0.6);
+}
+:root[data-theme='light'] .interval__card,
+:root[data-theme='light'] .overlay__panel,
+:root[data-theme='light'] .updatebar {
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.24);
+}
+
+/* --- The opposition report --------------------------------------------------
+
+   The tactics screen used to carry one sentence about the other lot, derived
+   from their club. It now carries the reading the simulation actually made of
+   them, and that reading has a shape: how they set up, what matters most, the
+   detail with where it came from, and the raw evidence underneath. This block
+   is drawn so the page keeps that order instead of becoming a wall of prose.
+
+   Two rules do the work. A read is a run of text on a hairline, with the finding
+   as its heading and the sentence that says who watched it at its foot, so a
+   manager can read the headings alone and still have the report. And fact
+   against reading is a *word*, never a colour on its own: the point of the
+   report is that a manager can see which of the two he is reading, and a tint
+   is not something he can read. */
+
+.oppo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+.oppo__plan {
+  border-left: 2px solid var(--accent);
+  padding-left: var(--s3);
+}
+.oppo__plan-line {
+  margin: 2px 0 4px;
+}
+.oppo__plan .letterpress {
+  display: block;
+}
+.oppo .bullets {
+  margin: 0;
+}
+.oppo__reads-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--s3);
+}
+.oppo__read {
+  border-top: 1px solid var(--line-soft);
+  padding-top: var(--s3);
+}
+.oppo__read:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+.oppo__read-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px var(--s3);
+}
+.oppo__read-title {
+  font-weight: 600;
+}
+.oppo__read-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s2);
+}
+.oppo__read-source {
+  margin: 2px 0 0;
+}
+.oppo__players .row {
+  gap: var(--s3);
+}
+.oppo__player {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 180px;
+  border-left: 2px solid var(--line);
+  padding-left: var(--s3);
+}
+.oppo__player-name {
+  font-weight: 600;
+}
+@media (max-width: 600px) {
+  /* A phone has one column, and the heading and its provenance stop being two
+     ends of a line: the reading is stacked, in the order it is read. */
+  .oppo__read-head {
+    justify-content: flex-start;
+  }
+  .oppo__read-meta {
+    gap: var(--s1) var(--s2);
+  }
 }

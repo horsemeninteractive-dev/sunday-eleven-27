@@ -1,0 +1,28 @@
+# The values `npm run xiai:dev` reads, as the shape of the file they go in.
+#
+#     cp worker/.dev.vars.example worker/.dev.vars
+#
+# `worker/.dev.vars` is ignored by git, and neither value belongs in the
+# repository: the public key is not a secret but it does belong to one Discord
+# application, and the webhook is a credential — anybody holding it can post to
+# that channel.
+#
+# DISCORD_PUBLIC_KEY
+#   Developer Portal → your application → General Information → Public Key.
+#   Sixty-four hex characters. It is the verification half of the pair, and it is
+#   the *only* key the deployed bot has: there is no bot token anywhere near the
+#   endpoint, because verifying a signature and answering an interaction both
+#   need something else — the application's public key, and the one-use token
+#   Discord puts in the interaction itself.
+#
+# XIAI_FEEDBACK_WEBHOOK
+#   Optional. A channel webhook the 👍/👎 buttons report through, which is the
+#   only way the deployed bot can say anything on its own — `#mod-log` is the
+#   intended home (Channel → Integrations → Webhooks → New Webhook → Copy
+#   Webhook URL). Unset is a supported state: a vote is still acknowledged, it
+#   just goes no further.
+#
+# The live Worker reads the same two names as Worker secrets, set once with
+# `npx wrangler secret put DISCORD_PUBLIC_KEY --config worker/wrangler.toml`.
+DISCORD_PUBLIC_KEY=
+XIAI_FEEDBACK_WEBHOOK=

@@ -11,6 +11,7 @@ import type { CustomFormation, FormationSlot } from '@/domain/positions';
 import {
   DEFAULT_PREFERENCES,
   applyMotion,
+  applyTheme,
   clampSpeed,
   loadPreferences,
   savePreferences,
@@ -44,9 +45,11 @@ import {
   type WarmUp,
 } from '@/simulation/match/preparation';
 import { applyMatchConsequences, matchReportEvent } from '@/simulation/consequences';
+import { applyMatchAftermath } from '@/simulation/day';
 import { applyMatchdayFinances } from '@/simulation/finance';
 import { collectSubs as collectClubSubs } from '@/simulation/treasurer';
 import { resolveAdminEvent } from '@/simulation/secretary';
+import { respondToRumour } from '@/simulation/press';
 import { requestChairmanBacking } from '@/simulation/governance';
 import { activeDealForClub, seekSponsor as seekClubSponsor } from '@/simulation/sponsorship';
 import { ensureUserXi, matchEnvironment } from '@/simulation/matchday';
@@ -55,6 +58,7 @@ import { ensureClubTrained } from '@/simulation/training/session';
 import { currentPlan, currentSessionKey, savePlan, sessionDateFor } from '@/simulation/training/plan';
 import { describeSessionQuality, type TrainingBlockId, type TrainingLength } from '@/domain/training';
 import {
+  CAREER_START_YEAR,
   applyCustomClub,
   generateDraft,
   startGameFromDraft,
@@ -72,6 +76,24 @@ import {
   settleSubsFor,
   type DayStep,
 } from '@/simulation/day';
+import {
+  applyForJob as applyForJobSimulation,
+  isEmployed,
+  managingClubId,
+  type CareerContext,
+} from '@/simulation/career';
+import {
+  fundraiserForecast,
+  organiseFundraiser as organiseFundraiserSimulation,
+} from '@/simulation/fundraising';
+import type { FundraiserKind } from '@/domain/fundraising';
+import {
+  cancelGroundWork as cancelGroundWorkSimulation,
+  commissionGroundWork as commissionGroundWorkSimulation,
+  groundSummary,
+  setUpGroundUpkeep as setUpGroundUpkeepSimulation,
+} from '@/simulation/grounds';
+import type { GroundWork } from '@/domain/facilities';
 import { startNextSeason } from '@/simulation/season';
 import { nextFixtureFor } from '@/simulation/schedule';
 import { daysBetween } from '@/simulation/calendar';
@@ -109,6 +131,20 @@ import * as persistence from './persistence';
 function readyForManager(state: GameState): void {
   readyForToday(state);
   ensureUserXi(state);
+}
+
+/**
+ * The career facts that do not change inside a season: which one it is, and
+ * which one has just finished. Used when the manager applies for work.
+ */
+function careerContextFor(state: GameState): CareerContext {
+  return {
+    seasonId: state.season.id,
+    seasonLabel: state.season.label,
+    seasonStart: state.season.startDate,
+    previousSeasonId: state.season.id,
+    previousSeasonLabel: state.season.label,
+  };
 }
 
 /**
@@ -475,6 +511,15 @@ export interface GameStore {
   setMatchTactics: (tactics: Tactics) => void;
   rollOverSeason: () => void;
 
+  /**
+   * Apply for a vacant post while the manager is between jobs.
+   *
+   * A yes puts him in charge of the club — its squad, fixtures and money become
+   * his — and a no closes the post, because the club that turned him down has
+   * found somebody else.
+   */
+  applyForJob: (clubId: ClubId) => void;
+
   // Recruitment: social discovery, trials and registering players.
   askForRecommendations: () => void;
   checkFiveASide: () => void;
@@ -504,6 +549,15 @@ export interface GameStore {
   // Club administration: the secretary's desk.
   /** Close an administrative item the secretary has put in front of the manager. */
   resolveAdmin: (id: string) => void;
+  /**
+   * Answer a local reporter's claim about the manager's own club.
+   *
+   * The only thing a manager can do about a story, and the only thing worth
+   * offering: what he says is remembered by the reporter whose view of him
+   * moves, and by the crowd, which reads a denial as a denial. The claim itself
+   * is untouched — see `simulation/press.ts`.
+   */
+  respondToRumour: (rumourId: string, kind: 'declined' | 'acknowledged') => void;
 
   /** Ask the chairman to help the club out of the red. Rare, and once a season. */
   requestBacking: () => void;
@@ -514,6 +568,37 @@ export interface GameStore {
    * the club may still come away with nobody.
    */
   seekSponsor: () => void;
+
+  /**
+   * Book a fundraising night — a quiz night, a raffle or a do at the pub.
+   *
+   * Only books it: the night sits on the calendar and settles on the evening it
+   * falls, as one ledger line. The club's means decide whether it can put one on
+   * at all, and the money is never taken until the night has actually happened.
+   */
+  organiseFundraiser: (kind: FundraiserKind) => void;
+
+  /**
+   * Commission work on the club's own ground.
+   *
+   * Unlike a fundraiser, this takes the money now: the club commits, the cost
+   * goes on the ledger under `ground`, and the ground itself changes on the day
+   * the work is handed over. What can be done at all — the tenancy, the
+   * administration, whether a job is already in hand and whether the club can
+   * afford it — is decided by the ground service, so a refusal says why.
+   */
+  commissionGroundWork: (work: GroundWork) => void;
+
+  /** Pull out of a job already paid for, and take the part refund. */
+  cancelGroundWork: (projectId: string) => void;
+
+  /**
+   * Take on, or give up, the weekly ground upkeep.
+   *
+   * The commitment that decides whether the club keeps the pitch it has paid
+   * for: while it is paid, a winter of Sundays does not take the surface back.
+   */
+  setGroundUpkeep: (on: boolean) => void;
 
   /** Choose which of this season's kit designs the club runs out in. */
   chooseKit: (option: number) => void;
@@ -601,6 +686,25 @@ export function scheduleAutosave(state: GameState): void {
     autosaveTimer = null;
     void startAutosaveWrite(state);
   }, AUTOSAVE_DELAY_MS);
+}
+
+/**
+ * Take a debounced autosave off the clock, because the career it holds is being
+ * replaced.
+ *
+ * A debounce that has come due fires at the first `await` after it — and in the
+ * action that takes over from a career, an import, that first `await` is the
+ * write of the *new* career. Left alone, the old career's snapshot queues itself
+ * behind that write and lands last, putting the manager back on the career he
+ * just replaced the next time he reloads. Cancelling it before the write is
+ * reached is the only point at which it can be caught: a debounce holds the
+ * career it was scheduled for, and by the time the write it would queue behind
+ * has landed the old snapshot is already waiting its turn.
+ */
+function discardPendingAutosave(): void {
+  if (autosaveTimer === null) return;
+  clearTimeout(autosaveTimer);
+  autosaveTimer = null;
 }
 
 /**
@@ -994,12 +1098,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const next = { ...get().preferences, ...patch };
     savePreferences(next);
     applyMotion(next.motion);
+    applyTheme(next.theme);
     set({ preferences: next });
   },
 
   resetPreferences: () => {
     savePreferences(DEFAULT_PREFERENCES);
     applyMotion(DEFAULT_PREFERENCES.motion);
+    applyTheme(DEFAULT_PREFERENCES.theme);
     set({ preferences: { ...DEFAULT_PREFERENCES } });
   },
   selectPlayer: (playerId) => set({ selectedPlayerId: playerId }),
@@ -1253,7 +1359,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   createDraft: (seed) => {
-    const draft = generateDraft({ seed, startYear: 2026 });
+    const draft = generateDraft({ seed, startYear: CAREER_START_YEAR });
     const mode = get().setup?.mode ?? 'career';
     // Building a club means designing it before it exists, so it goes to the
     // designer; taking one over goes straight to the list.
@@ -1344,6 +1450,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
    * what the confirmation before this is about.
    */
   importCareer: async (state, fileName) => {
+    // Whatever the manager has done since the last autosave is very likely on
+    // the clock right now, and it is the one thing that must not follow the
+    // import onto disk. It is let go *before* the write below, because that
+    // write is the first point at which a debounce that has come due is
+    // allowed to fire — and it would then land on top of the career this action
+    // exists to take over from.
+    discardPendingAutosave();
     const result = await persistence.autosave(state);
     if (!result.info) {
       const error = `${result.error ?? 'The browser would not store it.'} The imported career has not been opened, and the career you were playing is untouched.`;
@@ -1430,6 +1543,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
   startUserMatch: () => {
     const game = get().game;
     if (!game) return;
+    // A manager between jobs has no match to take charge of.
+    if (!isEmployed(game)) return;
     // A new afternoon: whatever engine was playing the last one is forgotten.
     forgetLiveEngine();
     const state = clone(game);
@@ -1641,6 +1756,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   instantResult: () => {
     const game = get().game;
     if (!game) return;
+    if (!isEmployed(game)) return;
     const match = nextFixtureFor(game, game.userClubId, game.date);
     if (!match) {
       set({ error: 'No fixture to simulate.' });
@@ -1671,7 +1787,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
     // stamped as such so the record says which simulation decided it.
     const instant = simulateMatchFull(working, env);
     narrateDrained(working, env, instant.drain());
-    const events = [...applyMatchConsequences(state, working).events, matchReportEvent(state, working)];
+    const events = [
+      ...applyMatchConsequences(state, working).events,
+      // What the afternoon did to the two clubs' relationship and to their two
+      // crowds. The fixture claims the afternoon once, so the calendar catching
+      // up with this result later cannot count it again.
+      ...applyMatchAftermath(state, working),
+      matchReportEvent(state, working),
+    ];
     applyMatchdayFinances(state, working);
     settleSubsFor(state, working);
     state.lastMatchId = working.id;
@@ -1878,17 +2001,25 @@ export const useGameStore = create<GameStore>((set, get) => ({
     // A new season is a new set of shirts: the designs are drawn from the seed
     // and the season label, so the kit changes here without anything being
     // stored for it. The manager gets told, because it is the first thing
-    // anybody notices about a club in August.
-    const kit = clubKit(state, state.userClubId);
+    // anybody notices about a club in August. A man between jobs is not being
+    // sent a kit — the club he left is — so he is told what the summer is
+    // actually for him: the posts that have come free.
+    const employed = isEmployed(state);
+    const kit = employed ? clubKit(state, state.userClubId) : null;
     const kitLine = kit
       ? ` ${kit.maker.name} have sent the new kit down${kit.sponsor ? ` — ${kit.sponsor.name} across the chest.` : ', blank-chested again.'}`
       : '';
+    const openings = state.career?.openings?.length ?? 0;
     set({
       game: state,
       session: null,
       leaveMatchPrompt: false,
       view: 'dashboard',
-      notice: `${state.season.label} pre-season begins.${kitLine}`,
+      notice: employed
+        ? `${state.season.label} pre-season begins.${kitLine}`
+        : openings > 0
+          ? `${state.season.label} begins — ${openings} club${openings === 1 ? '' : 's'} looking for a manager.`
+          : `${state.season.label} begins. Nobody is hiring yet.`,
     });
   },
 
@@ -2005,6 +2136,39 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({ game: state, error: null, notice: `Filed: ${event.title}.` });
   },
 
+  respondToRumour: (rumourId, kind) => {
+    const game = get().game;
+    if (!game) return;
+    const state = clone(game);
+    const answer = respondToRumour(state, rumourId, kind);
+    // A claim already answered, or one about somebody else's club, is not an
+    // error: the store simply has nothing to do.
+    if (!answer) return;
+    publishEvents(state, answer.events);
+    set({ game: state, error: null, notice: answer.message });
+  },
+
+  applyForJob: (clubId) => {
+    const game = get().game;
+    if (!game) return;
+    const state = clone(game);
+    const result = applyForJobSimulation(state, clubId, careerContextFor(state));
+    if (!result.ok) {
+      set({ error: result.message });
+      return;
+    }
+    publishEvents(state, result.events);
+    readyForManager(state);
+    set({
+      game: state,
+      error: null,
+      notice: result.message,
+      // A man who has just been given a club should be looking at it, not at the
+      // job board he found it on.
+      view: result.accepted ? 'dashboard' : get().view,
+    });
+  },
+
   requestBacking: () => {
     const game = get().game;
     if (!game) return;
@@ -2041,6 +2205,83 @@ export const useGameStore = create<GameStore>((set, get) => ({
           ? 'There is nobody local left to ask.'
           : 'Nobody local would take it on this time.';
     set({ game: state, error: null, notice });
+  },
+
+  organiseFundraiser: (kind) => {
+    const game = get().game;
+    if (!game) return;
+    const state = clone(game);
+    const clubId = managingClubId(state);
+    if (!clubId) {
+      set({ error: null, notice: 'You are between jobs — there is no club of yours to raise money for.' });
+      return;
+    }
+    const result = organiseFundraiserSimulation(state, clubId, kind);
+    if (!result.ok) {
+      set({ error: null, notice: result.message });
+      return;
+    }
+    const forecast = fundraiserForecast(state, clubId, kind, result.event!.date);
+    set({
+      game: state,
+      error: null,
+      notice: `${forecast.label} booked for ${result.event!.date} — around ${money(forecast.net)} if it goes well.`,
+    });
+  },
+
+  commissionGroundWork: (work) => {
+    const game = get().game;
+    if (!game) return;
+    const state = clone(game);
+    const clubId = managingClubId(state);
+    if (!clubId) {
+      set({ error: null, notice: 'You are between jobs — there is no ground of yours to work on.' });
+      return;
+    }
+    const option = groundSummary(state, clubId)?.options.find((candidate) => candidate.work === work) ?? null;
+    const result = commissionGroundWorkSimulation(state, clubId, work);
+    if (!result.ok) {
+      set({ error: null, notice: result.message });
+      return;
+    }
+    set({
+      game: state,
+      error: null,
+      notice: option
+        ? `${result.message} ${money(option.cost)} has gone out of the account.`
+        : result.message,
+    });
+  },
+
+  cancelGroundWork: (projectId) => {
+    const game = get().game;
+    if (!game) return;
+    const state = clone(game);
+    const clubId = managingClubId(state);
+    if (!clubId) return;
+    const result = cancelGroundWorkSimulation(state, clubId, projectId);
+    if (!result.ok) {
+      set({ error: null, notice: result.message });
+      return;
+    }
+    set({ game: state, error: null, notice: result.message });
+  },
+
+  setGroundUpkeep: (on) => {
+    const game = get().game;
+    if (!game) return;
+    const state = clone(game);
+    const clubId = managingClubId(state);
+    if (!clubId) {
+      set({ error: null, notice: 'You are between jobs — there is no ground of yours to look after.' });
+      return;
+    }
+    const result = setUpGroundUpkeepSimulation(state, clubId, on);
+    if (!result.ok) {
+      set({ error: null, notice: result.message });
+      return;
+    }
+    set({ game: state, error: null, notice: result.message });
   },
 
   collectSubs: (playerId, amount) => {
@@ -2319,7 +2560,11 @@ function commitFinishedMatch(
   const state = clone(game);
   state.matches[live.id] = clone(live);
   const committed = state.matches[live.id]!;
-  const events = [...applyMatchConsequences(state, committed).events, matchReportEvent(state, committed)];
+  const events = [
+    ...applyMatchConsequences(state, committed).events,
+    ...applyMatchAftermath(state, committed),
+    matchReportEvent(state, committed),
+  ];
   applyMatchdayFinances(state, committed);
   settleSubsFor(state, committed);
   state.lastMatchId = committed.id;

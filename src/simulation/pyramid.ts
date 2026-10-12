@@ -1,9 +1,16 @@
 import type { Club, StandingRow } from '@/domain/club';
-import type { Competition, FixtureList, PyramidConfig } from '@/domain/competition';
-import { DEFAULT_PYRAMID, emptyFixtureList, isCup, isLeague } from '@/domain/competition';
+import type { Competition, FixtureList, Pyramid } from '@/domain/competition';
+import {
+  DEFAULT_PYRAMID,
+  emptyFixtureList,
+  FOUNDING_PYRAMID_ID,
+  isCup,
+  isLeague,
+} from '@/domain/competition';
 import type { GameState } from '@/domain/game';
-import type { ClubId, CompetitionId, PersonId } from '@/domain/ids';
+import type { ClubId, CompetitionId, PersonId, PyramidId } from '@/domain/ids';
 import type { GameEvent } from '@/domain/news';
+import { FOUNDING_REGION_ID } from '@/domain/world';
 import { computeStandings } from './league';
 import { createEvent } from './news';
 
@@ -22,21 +29,104 @@ import { createEvent } from './news';
  * Every one of them is a question about a club, not about a competition, and
  * answering it by club is what lets three divisions share one calendar, one
  * matchday counter and one day loop.
+ *
+ * The county can hold more than one ladder, so a question about a *ladder* is
+ * asked of a pyramid by id. The founding pyramid's id is `league`, and it is the
+ * default wherever a caller means "the county's football" rather than "a
+ * particular ladder" — which is what every caller in a one-pyramid world means.
  */
 
-/** The ladder this career was generated with. */
-export function pyramidOf(state: GameState): PyramidConfig {
-  return state.pyramid ?? DEFAULT_PYRAMID;
+/** The id of the ladder a career's world reads first: the founding pyramid. */
+export function foundingPyramidId(state: GameState): PyramidId {
+  return state.pyramidIds?.[0] ?? FOUNDING_PYRAMID_ID;
 }
 
-/** Every competition with a table, in tier order (1 first). */
+/**
+ * One ladder of the county, by id — the founding one unless told otherwise.
+ *
+ * A career written before pyramids existed has no record to hand back, and
+ * neither has a pyramid whose entry has gone missing. Rather than returning
+ * nothing and taking every caller down with it, the founding id is answered
+ * from the competitions the world actually has, and any other id is answered
+ * with a pyramid that owns nothing — so an unknown ladder yields no divisions
+ * rather than the wrong ones.
+ */
+export function pyramidOf(state: GameState, pyramidId: PyramidId = foundingPyramidId(state)): Pyramid {
+  const stored = state.pyramids?.[pyramidId];
+  if (stored) return stored;
+  if (pyramidId !== foundingPyramidId(state)) return { ...foundingPyramid(state), id: pyramidId, competitionIds: [], cupIds: [] };
+  return foundingPyramid(state);
+}
+
+/** The county's ladders, founding pyramid first. */
+export function pyramidsOf(state: GameState): Pyramid[] {
+  const ids = state.pyramidIds?.length ? state.pyramidIds : [foundingPyramidId(state)];
+  return ids.map((pyramidId) => pyramidOf(state, pyramidId));
+}
+
+/**
+ * The founding ladder, read from the world itself: the divisions that exist, the
+ * cups that were drawn, and the shape the career was generated with.
+ */
+function foundingPyramid(state: GameState): Pyramid {
+  const legacy = state as GameState & { pyramid?: Pyramid['config'] };
+  return {
+    id: FOUNDING_PYRAMID_ID,
+    name: `${state.world?.regionName ?? 'County'} Sunday League`,
+    regionId: state.world?.regionIds?.[0] ?? FOUNDING_REGION_ID,
+    level: 1,
+    config: legacy.pyramid ?? DEFAULT_PYRAMID,
+    competitionIds: leagueCompetitions(state).map((competition) => competition.id),
+    cupIds: cupCompetitions(state).map((competition) => competition.id),
+  };
+}
+
+/** The competitions a pyramid owns, in tier order (1 first). */
+export function divisionsOf(state: GameState, pyramidId: PyramidId = foundingPyramidId(state)): Competition[] {
+  const divisions: Competition[] = [];
+  for (const competitionId of pyramidOf(state, pyramidId).competitionIds) {
+    const competition = state.competitions[competitionId];
+    if (competition && isLeague(competition)) divisions.push(competition);
+  }
+  return divisions.sort((a, b) => a.tier - b.tier || a.name.localeCompare(b.name));
+}
+
+/**
+ * Which pyramid owns a competition, if any.
+ *
+ * Ownership is the pyramid's own list rather than the shape of the id, so a
+ * competition can only ever belong to the ladder that says it does.
+ */
+export function pyramidForCompetition(state: GameState, competition: Competition): Pyramid | undefined {
+  for (const pyramidId of state.pyramidIds ?? []) {
+    const pyramid = state.pyramids?.[pyramidId];
+    if (!pyramid) continue;
+    if (pyramid.competitionIds.includes(competition.id) || pyramid.cupIds.includes(competition.id)) {
+      return pyramid;
+    }
+  }
+  return undefined;
+}
+
+/** The id of the pyramid that owns a competition, or null when none does. */
+export function pyramidIdOf(state: GameState, competition: Competition): PyramidId | null {
+  return pyramidForCompetition(state, competition)?.id ?? null;
+}
+
+/**
+ * Every competition with a table, in tier order (1 first), across the world.
+ *
+ * This is the whole county's football rather than one ladder: use
+ * `divisionsOf(state, pyramidId)` wherever one pyramid's ordered divisions are
+ * what is actually wanted.
+ */
 export function leagueCompetitions(state: GameState): Competition[] {
   return Object.values(state.competitions)
     .filter(isLeague)
     .sort((a, b) => a.tier - b.tier || a.name.localeCompare(b.name));
 }
 
-/** Every knockout in the pyramid, in draw order. */
+/** Every knockout in the world, in draw order. */
 export function cupCompetitions(state: GameState): Competition[] {
   return Object.values(state.competitions)
     .filter(isCup)
@@ -58,14 +148,48 @@ export function tierOf(state: GameState, clubId: ClubId): number | null {
   return divisionOf(state, clubId)?.tier ?? null;
 }
 
+/**
+ * Which level of football a club plays at: 1 is the county's strongest.
+ *
+ * A tier is a rung *within* a ladder, and two ladders of different standing both
+ * start at tier 1 — so a reader that means the level of football a club plays at
+ * (what a crowd is worth, what a sponsor pays, what a committee expects) asks
+ * this, and a reader that means the rung reads `tier`. With one pyramid the two
+ * are the same number.
+ */
+export function levelOf(state: GameState, clubId: ClubId): number | null {
+  const division = divisionOf(state, clubId);
+  if (!division) return null;
+  const pyramid = pyramidForCompetition(state, division);
+  return (pyramid?.level ?? 1) + division.tier - 1;
+}
+
 /** The division one tier below (numerically higher) — where a relegated club goes. */
 export function divisionBelow(state: GameState, competition: Competition): Competition | undefined {
-  return leagueCompetitions(state).find((entry) => entry.tier === competition.tier + 1);
+  return adjacentDivision(state, competition, 1);
 }
 
 /** The division one tier above — where a promoted club goes. */
 export function divisionAbove(state: GameState, competition: Competition): Competition | undefined {
-  return leagueCompetitions(state).find((entry) => entry.tier === competition.tier - 1);
+  return adjacentDivision(state, competition, -1);
+}
+
+/**
+ * The division a step up (-1) or down (+1) the ladder from this one.
+ *
+ * The step is taken through the pyramid's own ordered divisions rather than by
+ * looking for a competition numbered one tier away, because the county has more
+ * than one ladder: a worldwide search for "the division at tier 2" would hand a
+ * club promoted out of one pyramid's bottom division the *other* pyramid's
+ * second division. A competition no pyramid claims is read against the founding
+ * ladder, which is the only ladder a one-pyramid world has ever had.
+ */
+function adjacentDivision(state: GameState, competition: Competition, step: 1 | -1): Competition | undefined {
+  const pyramid = pyramidForCompetition(state, competition) ?? pyramidOf(state);
+  const divisions = divisionsOf(state, pyramid.id);
+  const index = divisions.findIndex((entry) => entry.id === competition.id);
+  if (index < 0) return undefined;
+  return divisions[index + step];
 }
 
 /** Every club playing in any league, de-duplicated and in tier order. */
@@ -170,15 +294,37 @@ export function divisionNameFor(regionName: string, tier: number): string {
   return `${regionName} Sunday League Division ${ordinal}`;
 }
 
-/** The competition id for a division, stable across seasons of a career. */
-export function divisionCompetitionId(tier: number): CompetitionId {
-  return `comp_league_t${tier}`;
+/**
+ * The competition id for a division, stable across seasons of a career.
+ *
+ * The pyramid's id is the prefix, so the founding pyramid's divisions keep the
+ * ids they have always had (`comp_league_t1`) and a second ladder's are named
+ * after it (`comp_vale_t1`) without either colliding with the other.
+ */
+export function divisionCompetitionId(pyramidId: PyramidId, tier: number): CompetitionId {
+  return `comp_${pyramidId}_t${tier}`;
 }
 
 export const LEAGUE_CUP_ID: CompetitionId = 'comp_league_cup';
 export const LEAGUE_CUP_NAME = 'Sunday League Cup';
+/**
+ * The founding pyramid's Plate. Its id predates the `comp_<pyramid>_` convention
+ * and is left exactly as it is: it is the one cup id that would move if the
+ * naming were applied to it, and a save's Plate is not worth renaming.
+ */
 export const PLATE_ID: CompetitionId = 'comp_plate';
 export const PLATE_NAME = 'Sunday League Plate';
+
+/**
+ * The competition id for one of a pyramid's cups.
+ *
+ * Every other pyramid's cups are named after the ladder that runs them —
+ * `comp_vale_cup`, `comp_vale_plate` — so no two ladders can claim one id.
+ */
+export function cupCompetitionId(pyramidId: PyramidId, kind: 'cup' | 'plate'): CompetitionId {
+  if (kind === 'plate' && pyramidId === FOUNDING_PYRAMID_ID) return PLATE_ID;
+  return `comp_${pyramidId}_${kind}`;
+}
 
 // ---------------------------------------------------------------------------
 // Promotion and relegation
@@ -310,7 +456,7 @@ export function resolvePromotionAndRelegation(
 ): PromotionOutcome {
   const events: GameEvent[] = [];
   const movements: MovementRecord[] = [];
-  const divisions = leagueCompetitions(state).filter(
+  const divisions = pyramidsOf(state).flatMap((pyramid) => divisionsOf(state, pyramid.id)).filter(
     (competition) => !context.competitionIds || context.competitionIds.includes(competition.id),
   );
 

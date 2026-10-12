@@ -5,8 +5,11 @@ import type { Side } from '@/domain/matchState';
 // §"Presentation boundary": a reader imports Touchline and nothing deeper, so the
 // surface it may use is one reviewed list rather than whatever a deep path happens
 // to export today.
-import { simulationAlpha, specFor, type MatchEngine } from '@/simulation/touchline';
-import type { MatchRenderState, RenderTeam } from './renderContract';
+import { simulationAlpha, specFor, type MatchEngine, type SetPieceKind, type TouchlineState } from '@/simulation/touchline';
+// The ground, like the teams: a fact about the afternoon that is not the
+// engine's, and that a renderer may not invent for itself.
+import { matchSurfaceFor } from '@/simulation/grounds';
+import type { MatchRenderState, MatchRestart, MatchRestartKind, RenderTeam } from './renderContract';
 import { signalOfEvent, type MatchSignal } from './matchSignals';
 
 /**
@@ -48,6 +51,45 @@ function teamOf(game: GameState, match: Match, side: Side): RenderTeam {
 
 function signalsOf(match: Match): MatchSignal[] {
   return match.events.map((event) => signalOfEvent(event, sideOfEvent(match, event.clubId)));
+}
+
+/**
+ * The engine's restarts, in the picture's own words.
+ *
+ * Written out rather than cast, so that a restart the engine learns tomorrow is
+ * a compile error here rather than a dead ball the picture cannot name.
+ */
+const RESTART_KIND: Record<SetPieceKind, MatchRestartKind> = {
+  kickoff: 'kickoff',
+  'throw-in': 'throw-in',
+  'goal-kick': 'goal-kick',
+  corner: 'corner',
+  'free-kick': 'free-kick',
+  penalty: 'penalty',
+};
+
+/**
+ * The dead ball being taken, read off the engine's own set piece.
+ *
+ * A function because a restart begins and ends between two events: the engine
+ * holds a set piece for a few seconds — the ball out of play on its spot, one
+ * man walking to it — and none of that re-renders anything. Reading it in the
+ * draw loop is what makes the taker appear the moment the whistle goes.
+ */
+function restartOf(state: TouchlineState): () => MatchRestart | null {
+  return () => {
+    const sp = state.setPiece;
+    if (!sp) return null;
+    // The spot is copied rather than carried: it is two numbers, and the picture
+    // draws the mark at the point the ball is played from — which for a throw-in
+    // is not where the ball is.
+    return {
+      kind: RESTART_KIND[sp.kind],
+      side: sp.side,
+      takerId: sp.takerId,
+      spot: { x: sp.spot.x, y: sp.spot.y },
+    };
+  };
 }
 
 /**
@@ -93,10 +135,12 @@ export function buildEngineRenderState(engine: MatchEngine, match: Match, game: 
     ball: state.ball,
     actions: state.actions,
     celebration: celebrationOf(match, phase),
+    restart: restartOf(state),
     teams: {
       home: teamOf(game, match, 'home'),
       away: teamOf(game, match, 'away'),
     },
+    surface: matchSurfaceFor(game, match),
     incidents: match.incidents,
     signals: signalsOf(match),
     revision: match.events.length,

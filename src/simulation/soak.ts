@@ -1,12 +1,16 @@
+import { MANAGER_PERSON_ID } from '@/domain/communication';
+import { FRIENDLY_COMPETITION_ID } from '@/domain/competition';
 import { isOfficial, isPlayer, type Player } from '@/domain/person';
 import { isCompetitiveMatch, type Match } from '@/domain/match';
 import type { GameState } from '@/domain/game';
 import type { ISODate } from '@/domain/ids';
 import { daysBetween } from './calendar';
+import { CLUB_LIFECYCLE } from './clubLifecycle';
+import { cupRoundMatchday, tiesOnMatchday } from './cup';
 import { processDay, currentAttention } from './day';
-import { REARRANGEMENT_GRACE_DAYS } from './postponement';
+import { REARRANGEMENT_GRACE_DAYS, rearrangementDeadlineFor } from './postponement';
 import { startNextSeason } from './season';
-import { cupCompetitions, leagueCompetitions, tierOf } from './pyramid';
+import { cupCompetitions, leagueCompetitions, pyramidOf, tierOf } from './pyramid';
 import { publishEvents } from './news';
 import { createTestGame } from './testSupport';
 import { serialiseGame, deserialiseGame } from '@/state/persistence';
@@ -167,6 +171,18 @@ export interface SoakSnapshot {    season: number;
   tierSizes: number[];
   /** Clubs that have folded over the career, still kept in the archive. */
   foldedClubs: number;
+  /** Clubs playing on that have come back as themselves since the world began. */
+  reformedClubs: number;
+  /** Clubs playing on that were minted in a folded club's place — a new name. */
+  successorClubs: number;
+  /** Clubs in the red and still inside the grace period. */
+  inAdministration: number;
+  /** Spells on the manager's career record: one per run in charge of a club. */
+  careerSpells: number;
+  /** Distinct clubs his record names, which is what "clubs managed" means. */
+  careerClubs: number;
+  /** 1 while he is in work at the close of the season, 0 while he is not. */
+  employed: number;
   championClubId: string | null;
   championName: string | null;
   userClubId: string;
@@ -365,6 +381,12 @@ function snapshotSeason(
     divisionSize: divisions.reduce((sum, division) => sum + division.clubIds.length, 0),
     tierSizes,
     foldedClubs: allClubs.filter((club) => !club.active).length,
+    reformedClubs: clubs.filter((club) => club.heritage?.kind === 'reformed').length,
+    successorClubs: clubs.filter((club) => club.heritage?.kind === 'successor').length,
+    inAdministration: clubs.filter((club) => (club.finances.administrationSeasons ?? 0) > 0).length,
+    careerSpells: state.career?.spells.length ?? 0,
+    careerClubs: new Set((state.career?.spells ?? []).map((spell) => spell.clubId)).size,
+    employed: state.career?.status === 'employed' ? 1 : 0,
     championClubId: championId,
     championName: championId ? state.clubs[championId]?.identity.name ?? null : null,
     userClubId: state.userClubId,
@@ -603,7 +625,9 @@ function checkPyramid(state: GameState, snapshot: SoakSnapshot, baseline: SoakSn
   }
   const boundaries = Math.max(0, divisions.length - 1);
   if (boundaries > 0) {
-    const expected = boundaries * (state.pyramid.promotionPlaces || 0);
+    // The founding ladder's places, which is the ladder this world was built
+    // with and the one the boundary count above is read from.
+    const expected = boundaries * (pyramidOf(state).config.promotionPlaces || 0);
     if (snapshot.promoted !== expected) {
       out.push(
         violation(
@@ -720,6 +744,297 @@ function checkDoubleBookings(state: GameState, snapshot: SoakSnapshot): SoakViol
     byDate.set(match.date, clubs);
   }
   return out;
+}
+
+/**
+ * Every cup that began the season reaches a winner.
+ *
+ * Read at the close of a season, which is what "by the end of the season" means
+ * and where the soak does its reading. A cup that was never drawn is not stuck —
+ * the Plate exists from the moment the season is built and is drawn only when the
+ * main cup has knocked out the clubs that feed it — so the two cases are told
+ * apart here rather than being counted together.
+ *
+ * Three things are wrong, and they are different failures:
+ *
+ *  - **superficially complete.** A bracket marked finished that crowns nobody is
+ *    worse than one that plainly ran out: every screen that reads a winner has a
+ *    null to deal with, and the honours list is short by a trophy nobody was told
+ *    was missing.
+ *  - **ran out.** A cup that drew a round and never reached a final leaves a
+ *    competition that cannot be won, which is the failure a silently dropped cup
+ *    slot produces.
+ *  - **a round that was never drawn.** A cup can be closed up by the round
+ *    arithmetic — no round left to play — while a round of its own plan has no
+ *    ties at all. That is a final that was never played, and the "winner" of it
+ *    is whoever happened to be left standing.
+ */
+function checkCupDecided(state: GameState, snapshot: SoakSnapshot): SoakViolation[] {
+  const out: SoakViolation[] = [];
+  for (const cup of cupCompetitions(state)) {
+    const cupState = cup.cup;
+    if (!cupState) continue;
+
+    const roundsDrawn = new Set<number>();
+    let anyTie = false;
+    for (const match of Object.values(state.matches)) {
+      if (match.competitionId !== cup.id) continue;
+      anyTie = true;
+      if (typeof match.cupRound === 'number') roundsDrawn.add(match.cupRound);
+    }
+
+    // A competition whose draw has never been made has not started. The Plate is
+    // in that state for most of the season: it is built with no clubs and is
+    // drawn from the main cup's losers when they are known.
+    const began = anyTie || cupState.round > 1 || cupState.complete || cup.clubIds.length > 0;
+    if (!began) continue;
+
+    const winner = cupState.winnerClubId;
+    if (cupState.complete && !winner) {
+      out.push(violation(snapshot, 'fail', 'cup-decided', 'is marked complete but crowns nobody', cup.id));
+      continue;
+    }
+    if (winner && !state.clubs[winner]) {
+      out.push(
+        violation(snapshot, 'fail', 'cup-decided', `crowns ${winner}, which is not in the world`, cup.id),
+      );
+      continue;
+    }
+    if (!cupState.complete || !winner) {
+      out.push(
+        violation(
+          snapshot,
+          'fail',
+          'cup-decided',
+          `began the season but reached no winner: round ${cupState.round}, ${cup.clubIds.length} club(s) still in, ${roundsDrawn.size} round(s) drawn`,
+          cup.id,
+        ),
+      );
+      continue;
+    }
+    for (const entry of cupState.plan ?? []) {
+      if (roundsDrawn.has(entry.round)) continue;
+      out.push(
+        violation(
+          snapshot,
+          'fail',
+          'cup-decided',
+          `crowns ${winner} but round ${entry.round} of its plan was never drawn`,
+          cup.id,
+        ),
+      );
+    }
+  }
+  return out;
+}
+
+/** A date a fixture could actually be played on. */
+function usableDate(value: unknown): value is ISODate {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value));
+}
+
+/**
+ * Every cup tie that is still to be played has a date it can be played on, and
+ * every drawn round has a slot in the calendar.
+ *
+ * The two failures are one failure seen twice. A round whose slot the calendar
+ * dropped can never be drawn, and a tie whose date never made it onto the
+ * fixture is a fixture nothing will pick up — either way the competition stops
+ * with ties outstanding and no winner, and the season will not close.
+ *
+ * What is *not* a failure is a record of something that already happened: a tie
+ * that was played, one that was called off and abandoned, and the original of a
+ * fixture that has been rearranged all keep the date they were due, and none of
+ * them is waiting to be played. Only the one live record of a tie is read, and
+ * it is read against the same bounds the game itself uses: inside the season, and
+ * no later than the rearrangement deadline.
+ */
+function checkCupDates(state: GameState, snapshot: SoakSnapshot): SoakViolation[] {
+  const out: SoakViolation[] = [];
+  const calendarDates = new Set(state.season.calendar.map((entry) => entry.date));
+  const knownMatchdays = new Set(state.season.calendar.map((entry) => entry.matchday));
+  const seasonStart = state.season.calendar[0]?.date ?? state.season.startDate;
+  const deadline = rearrangementDeadlineFor(state);
+
+  for (const cup of cupCompetitions(state)) {
+    if (!cup.cup) continue;
+    // Every round drawn so far, including the one in hand: a round that has been
+    // drawn is a round whose ties somebody is waiting to play.
+    for (let round = 1; round <= cup.cup.round; round += 1) {
+      const matchday = cupRoundMatchday(state, cup, round);
+      const ties = tiesOnMatchday(state, cup, matchday);
+      if (ties.length === 0) continue;
+
+      // The round is numbered on a matchday, and that matchday has to be a day
+      // the calendar actually has. A round numbered on a day the season does not
+      // contain is the slot that was lost when the season was built.
+      if (!knownMatchdays.has(matchday)) {
+        out.push(
+          violation(
+            snapshot,
+            'fail',
+            'cup-round-has-date',
+            `round ${round} is numbered on matchday ${matchday}, which is not in the season calendar`,
+            cup.id,
+          ),
+        );
+      }
+
+      for (const tie of ties) {
+        // Everything that has already happened is history: played, called off for
+        // good, or replaced by the rearranged game that is now the live record of
+        // this tie. Only a fixture still to be played needs a date still to come.
+        if (tie.played || tie.status === 'abandoned' || tie.replacedByMatchId) continue;
+        if (!usableDate(tie.date)) {
+          out.push(
+            violation(
+              snapshot,
+              'fail',
+              'cup-round-has-date',
+              `round ${round}'s tie ${tie.id} has no usable date ("${String(tie.date)}")`,
+              tie.id,
+            ),
+          );
+        } else if (tie.date < seasonStart) {
+          out.push(
+            violation(
+              snapshot,
+              'fail',
+              'cup-round-has-date',
+              `round ${round}'s tie ${tie.id} is dated ${tie.date}, before the season began on ${seasonStart}`,
+              tie.id,
+            ),
+          );
+        } else if (tie.date > deadline) {
+          out.push(
+            violation(
+              snapshot,
+              'fail',
+              'cup-round-has-date',
+              `round ${round}'s tie ${tie.id} is dated ${tie.date}, past the rearrangement deadline of ${deadline}`,
+              tie.id,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  // A calendar date nobody plays on is a slot that was handed out and then lost.
+  for (const date of calendarDates) {
+    if (!usableDate(date)) {
+      out.push(violation(snapshot, 'fail', 'cup-round-has-date', `the calendar holds the date "${String(date)}"`, 'calendar'));
+    }
+  }
+  return out;
+}
+
+/**
+ * Every fixture is in a competition, and every competition's list is the truth
+ * about its own fixtures.
+ *
+ * The fixture list is what the day loop walks — `fixtureIdsOnMatchday` reads it
+ * to know what to prepare, play and settle — and `state.matches` is what the
+ * world is made of. A match in one and not the other is a fixture that is either
+ * never going to be played (in the world, not on the list) or a fixture that
+ * cannot be played at all (on the list, not in the world), and both survive a
+ * single season's tests and fail a decade's.
+ *
+ * A postponed tie is two records of one tie on purpose — the original, off, and
+ * the rearranged game — and both are on the list under the same matchday number,
+ * so nothing here treats that as a duplicate. Friendlies are the one competition
+ * the world deliberately does not carry, which is why they are skipped by name
+ * rather than being called an orphan.
+ */
+function checkFixtureRegistration(state: GameState, snapshot: SoakSnapshot): SoakViolation[] {
+  const out: SoakViolation[] = [];
+  const push = (detail: string, subject: string): void => {
+    out.push(violation(snapshot, 'fail', 'every-fixture-in-a-competition', detail, subject));
+  };
+
+  for (const match of Object.values(state.matches)) {
+    if (match.competitionId === FRIENDLY_COMPETITION_ID) continue;
+    if (!state.competitions[match.competitionId]) {
+      push(`is in ${match.competitionId}, which is not a competition in the world`, match.id);
+    }
+  }
+
+  const registeredTo = new Map<string, string>();
+  for (const [competitionId, list] of Object.entries(state.fixtures ?? {})) {
+    if (list.competitionId !== competitionId) {
+      push(`the fixture list filed under ${competitionId} says it is ${list.competitionId}`, competitionId);
+    }
+    for (const [matchId, matchday] of Object.entries(list.matchdayOf)) {
+      const match = state.matches[matchId];
+      if (!match) {
+        push(`the ${competitionId} fixture list names ${matchId}, which is not a match`, matchId);
+        continue;
+      }
+      if (match.competitionId !== competitionId) {
+        push(`is registered to ${competitionId} but belongs to ${match.competitionId}`, matchId);
+      }
+      if (match.matchday !== matchday) {
+        push(`is filed under matchday ${matchday} of ${competitionId} but is played on matchday ${match.matchday}`, matchId);
+      }
+      if (!(list.byMatchday[matchday] ?? []).includes(matchId)) {
+        push(`is in the ${competitionId} list but not in its matchday ${matchday} bucket`, matchId);
+      }
+      const other = registeredTo.get(matchId);
+      if (other && other !== competitionId) {
+        push(`is registered to two competitions, ${other} and ${competitionId}`, matchId);
+      }
+      registeredTo.set(matchId, competitionId);
+    }
+    for (const [matchday, ids] of Object.entries(list.byMatchday)) {
+      for (const id of ids) {
+        if (list.matchdayOf[id] !== Number(matchday)) {
+          push(`is in the matchday ${matchday} bucket of ${competitionId} but filed under matchday ${list.matchdayOf[id] ?? 'nothing'}`, id);
+        }
+      }
+    }
+  }
+
+  for (const match of Object.values(state.matches)) {
+    if (match.competitionId === FRIENDLY_COMPETITION_ID) continue;
+    if (!registeredTo.has(match.id)) {
+      push(`is in the world but on no competition's fixture list (${match.competitionId})`, match.id);
+    }
+  }
+  return out;
+}
+
+/**
+ * The invariants the calendar and competition checks own, by name.
+ *
+ * Named here so the soak's own report can list them whether or not they fired: a
+ * run that says nothing about them should be a run that checked them and found
+ * them clean, not one that never ran them at all.
+ */
+export const CALENDAR_INVARIANTS = [
+  'cup-decided',
+  'cup-round-has-date',
+  'every-fixture-in-a-competition',
+] as const;
+
+/** The calendar and competition checks together, over one world. */
+export function checkCalendarIntegrity(state: GameState, snapshot: SoakSnapshot): SoakViolation[] {
+  return [
+    ...checkCupDecided(state, snapshot),
+    ...checkCupDates(state, snapshot),
+    ...checkFixtureRegistration(state, snapshot),
+  ];
+}
+
+/**
+ * A snapshot of the world as it stands, for a caller that has one of its own.
+ *
+ * `runSoak` takes this at every season's close; a test that has built a world by
+ * hand and wants to read it with the same invariants takes it whenever it likes.
+ * The season number and the clock readings are the caller's to supply, and are
+ * only labels: nothing below them is measured.
+ */
+export function seasonSnapshot(state: GameState, season = 1): SoakSnapshot {
+  return snapshotSeason(state, season, 0, 0, 0);
 }
 
 /**
@@ -946,6 +1261,197 @@ function checkReferences(state: GameState, snapshot: SoakSnapshot): SoakViolatio
   return out;
 }
 
+/**
+ * The world's own continuity: clubs that fold, clubs that come back, and the
+ * record of the ones the manager has been in charge of.
+ *
+ * The lifecycle deliberately keeps a folded club in `state.clubs` as archive —
+ * inactive, out of the ladder, with its seasons and honours still on it — and
+ * mints a replacement that names it in `heritage`. That is a handful of links
+ * across the years, and none of them is visible to a single-season test:
+ *
+ *  - **the archive stays addressable.** A club's heritage names the club it
+ *    succeeded, and that club is still in the world — inactive, and never
+ *    playing. History pointing at nothing is history that was deleted by
+ *    accident.
+ *  - **one predecessor, one successor.** A club folds once and one club forms in
+ *    its place, so two clubs naming the same predecessor means a boundary was
+ *    processed twice and minted a duplicate: a second club in the same town, on
+ *    the same ground, in the same division.
+ *  - **a folded club is off the ladder.** It keeps its record and loses its
+ *    place. An inactive club still listed in a division is a fixture waiting to
+ *    be scheduled for a club that no longer exists.
+ *  - **administration is a countdown, not a state.** A club may be in the red for
+ *    the grace period and no longer; one still playing at the end of it is a
+ *    fold that never happened.
+ *  - **nobody works for a club that has gone.** The fold deletes the committee
+ *    and empties the manager's post, so an official still pointing at an
+ *    inactive club is a fold that left somebody behind.
+ *  - **his career record only grows.** The spells are the answer to "what has he
+ *    done", and a season that shortens that list has lost a piece of a career
+ *    rather than ended one. While he is between jobs there is no club he
+ *    manages, and while he is in work the club he manages is the one the world
+ *    says he is at.
+ */
+function checkLifecycle(state: GameState, snapshot: SoakSnapshot, baseline: SoakSnapshot): SoakViolation[] {
+  const out: SoakViolation[] = [];
+
+  // --- Heritage: the link from a club to the one it came out of ----------------
+  const claimants = new Map<string, string[]>();
+  for (const club of Object.values(state.clubs)) {
+    const heritage = club.heritage;
+    if (!heritage) continue;
+    claimants.set(heritage.predecessorId, [...(claimants.get(heritage.predecessorId) ?? []), club.id]);
+    const predecessor = state.clubs[heritage.predecessorId];
+    if (!predecessor) {
+      out.push(
+        violation(
+          snapshot,
+          'fail',
+          'heritage-predecessor-exists',
+          `names ${heritage.predecessorId}, which is not in the world`,
+          club.id,
+        ),
+      );
+    } else if (predecessor.active) {
+      out.push(
+        violation(
+          snapshot,
+          'fail',
+          'heritage-predecessor-exists',
+          `names ${heritage.predecessorId}, which is still playing`,
+          club.id,
+        ),
+      );
+    }
+  }
+  for (const [predecessorId, clubIds] of claimants) {
+    if (clubIds.length > 1) {
+      out.push(
+        violation(
+          snapshot,
+          'fail',
+          'heritage-one-successor',
+          `${clubIds.length} clubs name ${predecessorId} as what they came from (${clubIds.join(', ')})`,
+          predecessorId,
+        ),
+      );
+    }
+  }
+
+  // --- The ladder: where a folded club is, and where it is not ----------------
+  const listed = new Set<string>(leagueCompetitions(state).flatMap((competition) => competition.clubIds));
+  for (const club of Object.values(state.clubs)) {
+    if (!club.active) {
+      if (listed.has(club.id)) {
+        out.push(
+          violation(snapshot, 'fail', 'folded-stands-aside', 'has folded but is still in a division', club.id),
+        );
+      }
+      continue;
+    }
+    const admin = club.finances.administrationSeasons ?? 0;
+    if (admin >= CLUB_LIFECYCLE.graceSeasons) {
+      out.push(
+        violation(
+          snapshot,
+          'fail',
+          'administration-bounded',
+          `${admin} seasons in the red and still playing, past the ${CLUB_LIFECYCLE.graceSeasons}-season grace`,
+          club.id,
+        ),
+      );
+    }
+  }
+
+  // --- Employment: the club a man is at has to be one that is playing ----------
+  for (const person of Object.values(state.people)) {
+    if (!isOfficial(person) || !person.clubId) continue;
+    const club = state.clubs[person.clubId];
+    if (!club) {
+      out.push(
+        violation(snapshot, 'fail', 'employer-exists', `is at ${person.clubId}, which is not in the world`, person.id),
+      );
+    } else if (!club.active) {
+      out.push(
+        violation(
+          snapshot,
+          'fail',
+          'employer-still-playing',
+          `is still at ${club.identity.name}, which has folded`,
+          person.id,
+        ),
+      );
+    }
+  }
+
+  // --- The manager's own record, which is the career's whole memory -----------
+  const career = state.career;
+  if (career) {
+    if (career.spells.length < baseline.careerSpells) {
+      out.push(
+        violation(
+          snapshot,
+          'fail',
+          'career-record-keeps',
+          `${career.spells.length} spells against ${baseline.careerSpells} after his first season`,
+          MANAGER_PERSON_ID,
+        ),
+      );
+    }
+    for (const spell of career.spells) {
+      if (!state.clubs[spell.clubId]) {
+        out.push(
+          violation(
+            snapshot,
+            'fail',
+            'career-spells-exist',
+            `names a spell at ${spell.clubId}, which is not in the world`,
+            MANAGER_PERSON_ID,
+          ),
+        );
+      }
+    }
+    const manager = state.people[MANAGER_PERSON_ID];
+    if (career.status === 'unemployed') {
+      if (career.clubId !== null) {
+        out.push(
+          violation(
+            snapshot,
+            'fail',
+            'unemployed-has-no-club',
+            `is out of work and still in charge of ${career.clubId}`,
+            MANAGER_PERSON_ID,
+          ),
+        );
+      }
+      if (manager?.clubId) {
+        out.push(
+          violation(
+            snapshot,
+            'fail',
+            'unemployed-has-no-club',
+            `is out of work and still on ${manager.clubId}'s staff`,
+            MANAGER_PERSON_ID,
+          ),
+        );
+      }
+    } else if (manager && manager.clubId !== null && career.clubId !== manager.clubId) {
+      out.push(
+        violation(
+          snapshot,
+          'fail',
+          'employment-agrees',
+          `the career says ${career.clubId ?? 'nobody'} and the world says ${manager.clubId}`,
+          MANAGER_PERSON_ID,
+        ),
+      );
+    }
+  }
+
+  return out;
+}
+
 /** The archive is written once, and a save is the same game twice. */
 function checkBookkeeping(state: GameState, snapshot: SoakSnapshot, baseline: SoakSnapshot): SoakViolation[] {
   const out: SoakViolation[] = [];
@@ -1128,8 +1634,10 @@ export function runSoak(options: SoakOptions): SoakResult {
     violations.push(...checkAges(state, snapshot, baseline));
     violations.push(...checkReferences(state, snapshot));
     violations.push(...checkBookkeeping(state, snapshot, baseline));
+    violations.push(...checkLifecycle(state, snapshot, baseline));
     violations.push(...checkPyramid(state, snapshot, baseline));
     violations.push(...checkDoubleBookings(state, snapshot));
+    violations.push(...checkCalendarIntegrity(state, snapshot));
     violations.push(...checkTierStratification(snapshot, baseline));
     violations.push(...checkSave(state, snapshot));
     if (state.date <= clock && season > 1) {
@@ -1221,6 +1729,10 @@ export const SOAK_TREND_COLUMNS: SoakColumn[] = [
   { header: 'red', width: 5, digits: 0, pick: (s) => s.clubsInTheRed },
   { header: 'free', width: 6, digits: 0, pick: (s) => s.unattached },
   { header: 'folded', width: 6, digits: 0, pick: (s) => s.foldedClubs },
+  { header: 'admin', width: 5, digits: 0, pick: (s) => s.inAdministration },
+  { header: 'reformed', width: 8, digits: 0, pick: (s) => s.reformedClubs },
+  { header: 'new', width: 4, digits: 0, pick: (s) => s.successorClubs },
+  { header: 'career', width: 6, digits: 0, pick: (s) => s.careerClubs },
   { header: 'tier', width: 5, digits: 0, pick: (s) => s.userTier ?? 0 },
   { header: 'up/down', width: 8, digits: 0, pick: (s) => s.promoted * 100 + s.relegated },
   { header: 'cup', width: 5, digits: 0, pick: (s) => s.cupTies },

@@ -131,6 +131,20 @@ const MIN_X = 0.02;
 const MAX_X = 0.98;
 const MIN_Y = 0.03;
 const MAX_Y = 0.97;
+/**
+ * How far off the touchline a player may be sent: the ground a throw-in is taken
+ * from.
+ *
+ * A thrower stands on the ground outside the line with the ball in his hands and
+ * throws it back in, and this is the mover's bounds being told about the one
+ * place in the game a footballer is asked to leave the field. The bounds are
+ * asymmetric on purpose: a touchline is where a man is sent off the pitch, while
+ * nothing sends him off the back of a goal, and the strip is the same one the
+ * ball itself is allowed into (`stepBall`), so a man and a ball beyond the line
+ * are held by the same rule. Every other target the decision layer sets is on
+ * the grass, so this moves no existing football — a mark out there is deliberate.
+ */
+const OFF_PITCH = 0.05;
 
 function approach(value: number, target: number, maxDelta: number): number {
   const diff = target - value;
@@ -240,6 +254,6 @@ export function advanceMovement(mover: MovementState, dt: number, clock = 0): vo
   }
 
   mover.x = Math.max(MIN_X, Math.min(MAX_X, mover.x + mover.vx * dt));
-  mover.y = Math.max(MIN_Y, Math.min(MAX_Y, mover.y + mover.vy * dt));
+  mover.y = Math.max(MIN_Y - OFF_PITCH, Math.min(MAX_Y + OFF_PITCH, mover.y + mover.vy * dt));
 }
 

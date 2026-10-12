@@ -231,9 +231,73 @@ export const MOBILE_PRIMARY: MobileDestination[] = [
   { id: 'more', label: 'More', icon: 'more' },
 ];
 
+/**
+ * What a manager between jobs can still open.
+ *
+ * A sacked manager has no squad to pick, no tactics sheet and no books — those
+ * screens belong to a club that is no longer his, and showing them would be
+ * lying to him about where he works. Everything that is *not* about a club he
+ * keeps: his own page, his messages, the local paper and the world he is
+ * looking for work in. The job board on Home is where he applies.
+ *
+ * Written down here, in the same file as the navigation, because it is the same
+ * question the navigation already answers — which screens exist — asked under a
+ * different situation. Anything not on this list falls back to the job board, so
+ * there is no destination the manager can reach that would contradict him.
+ */
+export const OUT_OF_WORK_VIEWS: ViewId[] = ['dashboard', 'manager', 'inbox', 'news', 'world'];
+
+export function isAvailableOutOfWork(view: ViewId): boolean {
+  return OUT_OF_WORK_VIEWS.includes(view);
+}
+
+/** The sidebar a manager is drawn, which is shorter when he has no club. */
+export function navSectionsFor(outOfWork: boolean): NavSection[] {
+  if (!outOfWork) return NAV_SECTIONS;
+  return NAV_SECTIONS.map((section) => ({
+    ...section,
+    leaves: section.leaves.filter((leaf) => isAvailableOutOfWork(leaf.id)),
+  })).filter((section) => section.leaves.length > 0);
+}
+
+/**
+ * The phone's five, while he has no club.
+ *
+ * Messages takes the place the squad and the team had — the two destinations
+ * that were about a club have nothing behind them, and the two things a manager
+ * out of work actually looks at are who has written to him and who is hiring.
+ */
+export const MOBILE_PRIMARY_OUT_OF_WORK: MobileDestination[] = [
+  { id: 'dashboard', label: 'Home', icon: 'home' },
+  { id: 'inbox', label: 'Messages', icon: 'messages' },
+  { id: 'world', label: 'World', icon: 'world' },
+  { id: 'more', label: 'More', icon: 'more' },
+];
+
+export function mobilePrimaryFor(outOfWork: boolean): MobileDestination[] {
+  return outOfWork ? MOBILE_PRIMARY_OUT_OF_WORK : MOBILE_PRIMARY;
+}
+
 /** The More sheet: every remaining destination, grouped, plus the utilities. */
-export const MOBILE_MORE_SECTIONS: NavSection[] = NAV_SECTIONS.map((section) => ({
-  ...section,
-  direct: false,
-  leaves: section.leaves.filter((leaf) => !MOBILE_PRIMARY.some((destination) => destination.id === leaf.id)),
-})).filter((section) => section.leaves.length > 0);
+function moreSections(primary: readonly MobileDestination[], outOfWork: boolean): NavSection[] {
+  return NAV_SECTIONS.map((section) => ({
+    ...section,
+    direct: false,
+    leaves: section.leaves.filter(
+      (leaf) =>
+        !primary.some((destination) => destination.id === leaf.id) &&
+        (!outOfWork || isAvailableOutOfWork(leaf.id)),
+    ),
+  })).filter((section) => section.leaves.length > 0);
+}
+
+/**
+ * The More sheet, as the manager's situation allows it to be drawn.
+ *
+ * There is no precomputed constant for the employed case any more: the sheet is
+ * the rest of the model either way, and the one caller asks with the situation
+ * it is drawing for, so there is one answer rather than two that could drift.
+ */
+export function mobileMoreSectionsFor(outOfWork: boolean): NavSection[] {
+  return moreSections(mobilePrimaryFor(outOfWork), outOfWork);
+}

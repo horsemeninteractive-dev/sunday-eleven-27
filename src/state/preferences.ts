@@ -25,6 +25,20 @@ export type MotionPreference = 'system' | 'reduced' | 'full';
 export type RendererPreference = '2d' | '3d';
 
 /**
+ * Which way the lights are on.
+ *
+ * The game was drawn for one, and it is the near-black one: a grassroots
+ * ground under floodlights, printed rather than painted. Light mode is the same
+ * building with the lights on, and it is offered rather than assumed — the
+ * default is deliberately still `dark`, because the boot placeholder, the
+ * manifest's theme colour and every screenshot of this game are near-black, and
+ * a manager whose computer happens to be in light mode should not open a game
+ * that looks like a different product. `system` is there for the manager who
+ * wants the two to agree.
+ */
+export type ThemePreference = 'system' | 'dark' | 'light';
+
+/**
  * The speeds a match can be watched at, as multiples of real time.
  *
  * `1x` is the pace a match is actually watched at: one second of football on
@@ -46,6 +60,8 @@ export const MATCH_SPEED_LABEL: Record<number, string> = {
 export interface Preferences {
   /** Reduced motion: follow the system, or be told either way. */
   motion: MotionPreference;
+  /** Which way the lights are on: follow the system, or be told either way. */
+  theme: ThemePreference;
   /** The speed a match opens at. Changing it mid-match is a match control. */
   defaultMatchSpeed: number;
   /** Which renderer draws the match. Presentation only; never the football. */
@@ -54,13 +70,38 @@ export interface Preferences {
 
 export const DEFAULT_PREFERENCES: Preferences = {
   motion: 'system',
+  theme: 'dark',
   defaultMatchSpeed: 1,
   renderer: '2d',
+};
+
+/**
+ * The colour a browser paints its own chrome with, per theme.
+ *
+ * Read by `applyTheme` into the page's `theme-color`, so a phone's status bar
+ * is the colour of the page under it rather than a black band above a light
+ * one. These two are the `--bg` of each palette in the stylesheet, which a test
+ * in `src/ui/theme.test.ts` holds to it — the one place the same colour is
+ * written down twice, and only because the browser's chrome is outside the
+ * document that could have told it.
+ */
+export const THEME_COLOUR: Record<'dark' | 'light', string> = {
+  dark: '#08090b',
+  light: '#e2e5e9',
 };
 
 const KEY = 'slfm26.preferences';
 /** The attribute the stylesheet reads, so CSS never has to ask JavaScript. */
 const MOTION_ATTRIBUTE = 'data-motion';
+/** The same arrangement for the lights, on the same element, for the same reason. */
+const THEME_ATTRIBUTE = 'data-theme';
+
+/** The system's own answer about the lights, asked the same way motion asks it. */
+function systemPrefersLight(): boolean {
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    ? window.matchMedia('(prefers-color-scheme: light)').matches
+    : false;
+}
 
 function store(): Storage | null {
   try {
@@ -89,8 +130,13 @@ function clean(raw: unknown): Preferences {
   // hand-edited "3d" on a build with no 3D renderer still watches a match.
   const renderer: RendererPreference =
     candidate.renderer === '3d' || candidate.renderer === '2d' ? candidate.renderer : DEFAULT_PREFERENCES.renderer;
+  const theme: ThemePreference =
+    candidate.theme === 'light' || candidate.theme === 'dark' || candidate.theme === 'system'
+      ? candidate.theme
+      : DEFAULT_PREFERENCES.theme;
   return {
     motion,
+    theme,
     defaultMatchSpeed: clampSpeed(candidate.defaultMatchSpeed ?? DEFAULT_PREFERENCES.defaultMatchSpeed),
     renderer,
   };
@@ -154,6 +200,56 @@ export function applyMotion(preference: MotionPreference = loadPreferences().mot
 export function currentMotion(): 'reduced' | 'full' {
   if (typeof document === 'undefined') return 'full';
   return document.documentElement.getAttribute(MOTION_ATTRIBUTE) === 'reduced' ? 'reduced' : 'full';
+}
+
+// ---------------------------------------------------------------------------
+// The lights
+//
+// The same arrangement as motion, for the same reason: the stylesheet decides
+// the whole palette from one attribute on the page, so CSS never has to ask
+// JavaScript what the manager chose, and there is no second copy of the
+// palette living in a script. What is decided here is which way the lights are
+// on, not what the lights are.
+// ---------------------------------------------------------------------------
+
+/**
+ * What the page should actually be, given the setting and the system.
+ *
+ * The manager's own choice wins in both directions, exactly as it does for
+ * motion: somebody who asks for light gets light on a machine that never asked
+ * for it, and somebody who asks for dark gets dark on a machine that did.
+ */
+export function resolveTheme(preference: ThemePreference, systemIsLight: boolean): 'dark' | 'light' {
+  if (preference === 'light') return 'light';
+  if (preference === 'dark') return 'dark';
+  return systemIsLight ? 'light' : 'dark';
+}
+
+/**
+ * Put that decision where the stylesheet can read it, and where a browser's own
+ * chrome can too.
+ *
+ * The attribute holds what the page *is* rather than what was asked for —
+ * `light` or `dark`, never `system` — so the stylesheet has one comparison to
+ * make and cannot be handed a value no palette answers to.
+ */
+export function applyTheme(preference: ThemePreference = loadPreferences().theme): 'dark' | 'light' {
+  const resolved = resolveTheme(preference, systemPrefersLight());
+  if (typeof document !== 'undefined') {
+    document.documentElement.setAttribute(THEME_ATTRIBUTE, resolved);
+    // The browser paints the status bar and the tab with this, and it is the
+    // one part of the window the stylesheet cannot reach: a black bar above a
+    // light page is the light theme's own bright seam.
+    const meta = document.querySelector('meta[name="theme-color"]');
+    meta?.setAttribute('content', THEME_COLOUR[resolved]);
+  }
+  return resolved;
+}
+
+/** Which way the page is currently lit, as the stylesheet sees it. */
+export function currentTheme(): 'dark' | 'light' {
+  if (typeof document === 'undefined') return 'dark';
+  return document.documentElement.getAttribute(THEME_ATTRIBUTE) === 'light' ? 'light' : 'dark';
 }
 
 // ---------------------------------------------------------------------------

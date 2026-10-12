@@ -55,6 +55,16 @@ function emptyOutcome(): TrainingOutcome {
 }
 
 /**
+ * What hiring a hall for the night costs, when the weather moves a session
+ * indoors.
+ *
+ * Named here, beside the ledger entry that charges it, because the Training
+ * screen quotes the price before the manager books the fallback — and a number
+ * written into two files is a number that ends up in two answers.
+ */
+export const HALL_HIRE_COST = { min: 18, max: 32 } as const;
+
+/**
  * Run this week's session for one club, once.
  *
  * Called by the daily engine on the session's own date, and by the store when
@@ -170,7 +180,7 @@ export function conductTraining(state: GameState, clubId: ClubId, matchday: numb
       indoor = true;
       hiredHall = true;
       usedVenueName = fallbackName;
-      const cost = rng.int(18, 32);
+      const cost = rng.int(HALL_HIRE_COST.min, HALL_HIRE_COST.max);
       addLedgerEntry(state, clubId, {
         date,
         description: 'Sports hall hire — pitch unfit',

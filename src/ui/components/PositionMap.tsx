@@ -23,10 +23,18 @@ export type PositionBand = 'natural' | 'fill-in' | 'unsuited';
 export const NATURAL_FAMILIARITY = 14;
 export const FILL_IN_FAMILIARITY = 8;
 
+/**
+ * The three bands, in the manager's own words.
+ *
+ * A scan of a squad sheet asks one question — where can this lad play? — and the
+ * answer is a pair of lists: the roles he is picked in, and the roles he can be
+ * asked to cover. "His positions" and "can fill in" said it in a sentence; these
+ * are the two words a manager would say out loud.
+ */
 export const POSITION_BAND_LABEL: Record<PositionBand, string> = {
-  natural: 'his positions',
-  'fill-in': 'can fill in',
-  unsuited: 'no use there',
+  natural: 'Natural',
+  'fill-in': 'Can fill in',
+  unsuited: 'Not suited',
 };
 
 export function bandFor(player: Player, code: PositionCode): PositionBand {
@@ -81,14 +89,23 @@ export function PositionMap({ player }: { player: Player }) {
         {(['natural', 'fill-in', 'unsuited'] as PositionBand[]).map((band) => {
           const codes = band === 'natural' ? bands.natural : band === 'fill-in' ? bands.fillIn : bands.unsuited;
           if (codes.length === 0) return null;
-          // The pitch already names every role it draws, so the key only has to
-          // say how many he cannot play — not list all eleven of them again.
+          // The pitch draws every role as its code, so the key spends its ink on
+          // the names: "Natural — Right back" is the sentence a manager wants
+          // off this panel, and the codes are already on the dots beside it. The
+          // roles he cannot play are a count, because listing eight of them is
+          // what the old twelve-row list did.
           const unsuited = band === 'unsuited';
           return (
-            <li className={`posmap__key-item posmap__key-item--${band}`} key={band} title={unsuited ? codes.join(', ') : undefined}>
+            <li
+              className={`posmap__key-item posmap__key-item--${band}`}
+              key={band}
+              title={unsuited ? codes.map((code) => POSITIONS[code].label).join(', ') : undefined}
+            >
               <span className={`posmap__swatch posmap__swatch--${band}`} aria-hidden="true" />
               <span className="muted small">{POSITION_BAND_LABEL[band]}</span>
-              <strong className="small">{unsuited ? `${codes.length} roles` : codes.join(' · ')}</strong>
+              <strong className="small">
+                {unsuited ? `${codes.length} roles` : codes.map((code) => POSITIONS[code].label).join(' · ')}
+              </strong>
             </li>
           );
         })}

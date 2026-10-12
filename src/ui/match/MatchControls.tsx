@@ -32,6 +32,7 @@ import { Button, ToneText } from '../components/primitives';
 import { Glyph } from '../components/icons';
 import { MatchStatsPanel } from './MatchStats';
 import { CommentaryTranscript } from './CommentaryTranscript';
+import { SubstitutionBoard } from './SubstitutionBoard';
 import { Dialog } from '../dialogs/Dialog';
 
 /**
@@ -53,6 +54,7 @@ export function MatchControls({
   onDrawer,
   showIntervalButton,
   onOpenInterval,
+  commentaryMinute,
 }: {
   game: GameState;
   match: Match;
@@ -62,6 +64,8 @@ export function MatchControls({
   /** The half-time card has been put down; offer to bring it back. */
   showIntervalButton?: boolean;
   onOpenInterval?: () => void;
+  /** A minute the timeline rail asked to see, for the commentary transcript. */
+  commentaryMinute?: number | null;
 }) {
   const [optionsOpen, setOptionsOpen] = useState(false);
 
@@ -100,13 +104,17 @@ export function MatchControls({
       {drawer && (
         <div ref={drawerRef} tabIndex={-1} className="matchbar__drawer" role="region" aria-label={`${drawer} panel`}>
           {drawer === 'tactics' && <TacticsPanel match={match} session={session} />}
-          {drawer === 'subs' && <SubsPanel match={match} session={session} playerById={playerById} />}
+          {drawer === 'subs' && <SubstitutionBoard match={match} session={session} playerById={playerById} />}
           {drawer === 'players' && (
             <PlayersPanel match={match} session={session} playerById={playerById} preMatch={preMatch} />
           )}
           {drawer === 'commentary' && (
             <div className="matchbar__transcript">
-              <CommentaryTranscript match={match} autoScroll={session.phase === 'in-progress'} />
+              <CommentaryTranscript
+                match={match}
+                autoScroll={session.phase === 'in-progress'}
+                focusMinute={commentaryMinute ?? null}
+              />
             </div>
           )}
           {drawer === 'stats' && <MatchStatsPanel game={game} match={match} />}
@@ -358,86 +366,6 @@ function TacticsPanel({ match, session }: { match: Match; session: MatchSession 
       </Field>
       <p className="drawer-note small muted">
         {frozen ? 'The match is over.' : 'Changes are sent straight to Touchline for the next passage of play.'}
-      </p>
-    </div>
-  );
-}
-
-/**
- * The bench, and who each of them can come on for.
- *
- * The panel stays open when a change is made. A manager does not make one
- * substitution — he makes two or three, in one visit to the bench, thinking
- * about the whole of it at once: who is tiring, who he has left, and which of
- * the fourteen he most wants on the pitch. Sending him back to the tab after
- * each one cost him the list he was reading. The list is redrawn where it is —
- * the man who came on is off it, the count at the foot is down by one, and the
- * next change is a second pick rather than a second journey.
- */
-function SubsPanel({
-  match,
-  session,
-  playerById,
-}: {
-  match: Match;
-  session: MatchSession;
-  playerById: (id: string) => Player | undefined;
-}) {
-  const lineup = match.lineups[session.side];
-  const spent = match.substitutions[session.side] >= 3;
-  const frozen = session.phase === 'full-time';
-
-  if (session.phase === 'pre-match') {
-    return <p className="drawer-note small muted">The bench comes into it from kick-off.</p>;
-  }
-
-  return (
-    <div className="subs">
-      {lineup.bench.length === 0 && <p className="empty">Nobody on the bench.</p>}
-      <ul className="subs__list">
-        {lineup.bench.map((slot) => {
-          const player = playerById(slot.playerId);
-          const performance = match.performances[slot.playerId];
-          const energy = Math.round(performance?.energy ?? player?.fitness ?? 0);
-          return (
-            <li key={slot.playerId} className="subs__row">
-              <span className="subs__name">
-                <strong>{player ? `${player.firstName.charAt(0)}. ${player.surname}` : 'Unknown'}</strong>
-                <span className="small muted"> {POSITIONS[slot.position].code}</span>
-              </span>
-              <span className="small muted">energy {energy}</span>
-              <select
-                className="input input--small"
-                disabled={spent || frozen}
-                defaultValue=""
-                aria-label={`Bring on ${player?.surname ?? 'substitute'} for`}
-                onChange={(event) => {
-                  const outgoing = event.target.value;
-                  if (outgoing && player) gameActions().makeSubstitution(outgoing, player.id);
-                  // Back to the placeholder, ready for the next change: this
-                  // select is one of a list of five and it is about to be
-                  // redrawn without the man who has just come on.
-                  event.target.value = '';
-                }}
-              >
-                <option value="">bring on for…</option>
-                {lineup.starting.map((starter) => {
-                  const out = playerById(starter.playerId);
-                  return (
-                    <option key={starter.playerId} value={starter.playerId}>
-                      {POSITIONS[starter.position].code} {out ? out.surname : ''}
-                    </option>
-                  );
-                })}
-              </select>
-            </li>
-          );
-        })}
-      </ul>
-      <p className="drawer-note small muted">
-        {spent
-          ? 'All three changes used.'
-          : `${3 - match.substitutions[session.side]} change${3 - match.substitutions[session.side] === 1 ? '' : 's'} left.`}
       </p>
     </div>
   );

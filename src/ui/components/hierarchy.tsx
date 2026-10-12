@@ -167,22 +167,34 @@ export function FocalFact({
   );
 }
 
-/** A number that matters, with its label above and an optional note below. */
+/**
+ * A number that matters, with its label above and an optional note below.
+ *
+ * `onClick` makes the whole tile the door to the screen the number came from,
+ * which is the difference between a read-out and a summary: a manager who wants
+ * the full table should not have to work out which screen owns the figure. It is
+ * optional because some of these strips are a fact about the screen he is already
+ * on, and a tile that goes nowhere should not look pressable.
+ */
 export function MetricTile({
   label,
   value,
   note,
   tone = 'default',
+  onClick,
+  title,
   children,
 }: {
   label: ReactNode;
   value: ReactNode;
   note?: ReactNode;
   tone?: TileTone;
+  onClick?: () => void;
+  title?: string;
   children?: ReactNode;
 }) {
   return (
-    <Tile label={label} tone={tone} className="metric-tile">
+    <Tile label={label} tone={tone} className="metric-tile" onClick={onClick} title={title}>
       <span className="metric__value">{value}</span>
       {note && <span className="metric__note">{note}</span>}
       {children}

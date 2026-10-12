@@ -11,9 +11,10 @@ import { prepareMatchday } from './matchday';
 import { arrangePreSeason } from './preseason';
 import { applyMovements, buildSeasonStructure, openSeasonRecords } from './seasonStructure';
 import {
+  divisionsOf,
+  foundingPyramidId,
   leagueClubIds,
-  leagueCompetitions,
-  pyramidOf,
+  pyramidsOf,
   recordMovementsOnClubs,
   resolvePromotionAndRelegation,
   standingsFor,
@@ -26,6 +27,8 @@ import { clubQualityFromReputation } from './generation/worldGenerator';
 import { linkNewTeammate } from './generation/relationshipGenerator';
 import { refreshUnattachedPool } from './generation/unattachedPlayers';
 import { clubSignsFromPool, releaseFromClub, runAiClubSummer } from './aiClubs';
+import { squadAssessment, type SquadAssessment } from './recruitment/needs';
+import type { PositionCode } from '@/domain/positions';
 import { abilityMean } from './queries';
 import { pruneTrainingHistory, trainingStore } from './training/store';
 import { pruneCandidates } from './recruitment/store';
@@ -36,8 +39,21 @@ import { emptyScheduleState } from './schedule';
 import { weekStartOf } from './timeline';
 import { applyRelationshipEvent, relationshipStore, relationshipViewsFor } from './relationships';
 import { runManagerMarket } from './managers';
+import { ensurePress } from './press';
+import { coolRivalries } from './rivalries';
+import { applySeasonSupport } from './support';
+import { MANAGER_PERSON_ID } from '@/domain/communication';
+import {
+  dismissUserManager,
+  guaranteeVacancyFor,
+  releaseManagerFromFoldedClub,
+  isEmployed,
+  openJobMarket,
+  reserveVacancyFor,
+  type CareerContext,
+} from './career';
 import { leaveClubStaff, runStaffLifecycle } from './staff';
-import { runGovernance } from './governance';
+import { applyGovernanceDismissal, governanceCanDismiss, runGovernance } from './governance';
 import { renewSponsorship } from './sponsorship';
 import { reviewClubFinances } from './clubLifecycle';
 import { defaultTactics } from '@/domain/tactics';
@@ -69,7 +85,9 @@ export interface SeasonFinishResult {
  * to ask whether the pyramid is stratifying.
  */
 export function finishSeason(state: GameState): SeasonFinishResult {
-  const divisions = leagueCompetitions(state);
+  // Every division of every pyramid, in the order the world reads them: the
+  // founding ladder first, tiers 1 upwards, then the next ladder's.
+  const divisions = pyramidsOf(state).flatMap((pyramid) => divisionsOf(state, pyramid.id));
   const events: GameEvent[] = [];
   if (divisions.length === 0) return { events, championClubId: null, playerPosition: null };
 
@@ -174,7 +192,7 @@ export function finishSeason(state: GameState): SeasonFinishResult {
   state.season.finished = true;
   // One snapshot left standing per division: the final table is the archive of
   // the season and everything before it is already in the club records.
-  const finals = leagueCompetitions(state).map((competition) => {
+  const finals = divisions.map((competition) => {
     const rows = standingsFor(state, competition);
     return {
       date: state.date,
@@ -280,21 +298,20 @@ function clubChurn(state: GameState, club: Club, rng: Rng, seasonStart: ISODate)
   // where it started, which is what a club does over a summer and what stops
   // squads growing in step across the whole pyramid.
   const target = Math.min(club.squadIds.length, SQUAD_REFRESH.cap);
+  // One reading of the squad, used twice: to choose who can be spared and to
+  // tell the signing step which positions have just been left open. Read once
+  // so the club cannot decide who to release from one picture of the squad and
+  // who to sign from another.
+  const assessment = squadAssessment(state, club.id);
 
   let released = 0;
   const releasedRatings: number[] = [];
+  const releasedPositions: PositionCode[] = [];
   for (let i = 0; i < wanted; i += 1) {
-    // The wrong end of the squad: the oldest who is not the manager, and not
-    // one of the men the club is actually relying on.
-    const surplus = club.squadIds
-      .map((id) => state.people[id])
-      .filter(
-        (person): person is Player =>
-          isPlayer(person) && person.id !== club.managerId && person.age >= 30,
-      )
-      .sort((a, b) => b.age - a.age || a.id.localeCompare(b.id))[0];
+    const surplus = releaseCandidate(state, club, assessment);
     if (!surplus) break;
     releasedRatings.push(abilityMean(surplus));
+    releasedPositions.push(surplus.preferredPosition);
     releaseFromClub(state, club, surplus);
     released += 1;
   }
@@ -303,7 +320,44 @@ function clubChurn(state: GameState, club: Club, rng: Rng, seasonStart: ISODate)
   return clubSignsFromPool(state, club, rng, seasonStart, target, {
     cap: SQUAD_REFRESH.cap,
     replaces: releasedRatings,
+    positions: releasedPositions,
   }).length;
+}
+
+/**
+ * The man a club lets go.
+ *
+ * It used to be simply the oldest man over thirty, and that is how a club ends
+ * up with one goalkeeper and no right back: a side deep in forwards would let a
+ * centre half go because he had the temerity to turn thirty-one, and then sign
+ * whoever was available in the summer — which was another forward.
+ *
+ * What a club can spare is a *surplus* player: a man whose position the club
+ * already answers well, and who is not the man answering it. So the oldest of
+ * those goes, and only where the club has no surplus at all does it fall back to
+ * the oldest, because a squad has to turn over somehow and a club that never
+ * releases anybody is a club whose youth intake has nowhere to go.
+ */
+function releaseCandidate(state: GameState, club: Club, assessment: SquadAssessment): Player | null {
+  const candidates = club.squadIds
+    .map((id) => state.people[id])
+    .filter(
+      (person): person is Player =>
+        isPlayer(person) && person.id !== club.managerId && person.age >= 30,
+    );
+  if (candidates.length === 0) return null;
+
+  const spare = candidates.filter((player) => {
+    const slot = assessment.slots.find((entry) => entry.position === player.preferredPosition);
+    if (slot) return !slot.thin && slot.bestId !== player.id;
+    // He plays a position the shape does not even ask for — an attacking
+    // midfielder in a flat 4-4-2. If his area of the squad is well stocked he
+    // is the surplus one by definition.
+    return assessment.needs.positions.find((entry) => entry.group === player.positionGroup)?.verdict === 'strong';
+  });
+
+  const pool = spare.length > 0 ? spare : candidates;
+  return pool.slice().sort((a, b) => b.age - a.age || a.id.localeCompare(b.id))[0] ?? null;
 }
 
 /**
@@ -396,15 +450,19 @@ export function startNextSeason(state: GameState): GameEvent[] {
   const seasonStart = weekStartOf(firstPreSeasonSunday);
   const seasonId = `season_${nextYear}_${String((nextYear + 1) % 100).padStart(2, '0')}`;
   const seasonLabel = seasonLabelFor(firstSunday);
-  const config = pyramidOf(state);
 
   // The ladder as it stands after last season's movements, which were decided
   // and archived by `finishSeason` but not applied to the competitions — the
-  // competitions are about to be rebuilt.
-  const divisions = leagueCompetitions(state).map((competition) => [...competition.clubIds]);
-  applyMovements(state, divisions, {
-    promotionPlaces: config.promotionPlaces,
-    relegationPlaces: config.relegationPlaces,
+  // competitions are about to be rebuilt. Each boundary is settled against its
+  // own pyramid: a ladder's places are its own shape, and the founding pyramid
+  // is the one this world was born with.
+  const divisions = pyramidsOf(state).flatMap((pyramid) => {
+    const ladder = divisionsOf(state, pyramid.id).map((competition) => [...competition.clubIds]);
+    applyMovements(state, pyramid.id, ladder, {
+      promotionPlaces: pyramid.config.promotionPlaces,
+      relegationPlaces: pyramid.config.relegationPlaces,
+    });
+    return ladder;
   });
 
   resetPlayerIdCounter();
@@ -580,6 +638,16 @@ export function startNextSeason(state: GameState): GameEvent[] {
   // `state.competitions` (last season's records, about to be replaced), so the
   // club that forms in a folded club's place is already in its division by the
   // time `buildSeasonStructure` reads `divisions`.
+  // The context every service that judges a career needs, built here because the
+  // lifecycle below is the first thing that can end one.
+  const careerContext: CareerContext = {
+    seasonId,
+    seasonLabel,
+    seasonStart,
+    previousSeasonId: previousSeason.id,
+    previousSeasonLabel: previousSeason.label,
+  };
+
   const lifecycle = reviewClubFinances(state, {
     seasonId,
     seasonLabel,
@@ -588,6 +656,14 @@ export function startNextSeason(state: GameState): GameEvent[] {
     divisions,
   });
   events.push(...lifecycle.events);
+  // A club folding is a career-ending event for the man in charge of it. The
+  // ordinary cycle leaves the player's club alone, but a debt no committee can
+  // survive takes any club — and then the career has to be handed to the job
+  // market rather than left pointing at a club that no longer plays.
+  for (const folded of lifecycle.folded) {
+    if (folded.clubId !== state.userClubId) continue;
+    events.push(...releaseManagerFromFoldedClub(state, folded.clubId, careerContext));
+  }
   // A folded club's players may have been names on the manager's shortlist.
   pruneCandidates(state);
 
@@ -609,6 +685,7 @@ export function startNextSeason(state: GameState): GameEvent[] {
     seasonLabel,
     firstLeagueDate: firstSunday,
     divisions,
+    pyramidId: foundingPyramidId(state),
     regionName: state.world.regionName,
     announceDraws: false,
   });
@@ -616,8 +693,10 @@ export function startNextSeason(state: GameState): GameEvent[] {
   state.season.calendar = calendar;
   state.season.endDate = calendar[calendar.length - 1]!.date;
 
-  // The manager gets the same summer of friendlies the first season began with.
-  arrangePreSeason(state, state.userClubId, firstPreSeasonSunday);
+  // The manager gets the same summer of friendlies the first season began with —
+  // unless he is between jobs, in which case there is no squad of his to arrange
+  // a summer for.
+  if (isEmployed(state)) arrangePreSeason(state, state.userClubId, firstPreSeasonSunday);
   state.lastMatchId = null;
   state.pendingMatchId = null;
 
@@ -640,10 +719,11 @@ export function startNextSeason(state: GameState): GameEvent[] {
 
   openSeasonRecords(state, seasonId, seasonLabel);
 
+  const managingClubId = isEmployed(state) ? state.userClubId : null;
   for (const clubId of leagueClubIds(state)) {
     const club = state.clubs[clubId];
     if (!club) continue;
-    club.tactics = clubId === state.userClubId ? defaultTactics('4-4-2') : club.tactics;
+    club.tactics = clubId === managingClubId ? defaultTactics('4-4-2') : club.tactics;
     const rng = stream(state.seed, 'finance', seasonId, clubId);
     applyAnnualCosts(state, clubId, rng);
   }
@@ -662,20 +742,36 @@ export function startNextSeason(state: GameState): GameEvent[] {
   });
   events.push(...sponsorshipReview.events);
 
+  // The committee takes its view once a season, on the season that has actually
+  // been played and the books as they actually stand. The player's own manager
+  // is held out of the managers' market, so this is where his job is judged.
+  const governance = runGovernance(state, careerContext);
+  events.push(...governance.events);
+
+  // And if the committee has decided on a change, it is carried out *before* the
+  // managers' market turns, so the vacancy it creates is filled in the same
+  // summer rather than leaving a club without a manager into the season. The
+  // manager himself becomes a man between jobs — which is exactly what the job
+  // market below is for.
+  if (isEmployed(state) && governanceCanDismiss(state)) {
+    applyGovernanceDismissal(state);
+    events.push(...dismissUserManager(state, careerContext));
+  }
+
   // The managers' market turns once a season, now that every club's record for
   // the season just finished has been archived and its money settled. The
-  // player's own manager is held out of it for now: sacking him is a career
-  // decision, not a world-building one.
-  const userManagerId = state.clubs[state.userClubId]?.managerId;
+  // player's own manager is never moved by it — his job is the committee's to
+  // decide, and his next job is his own to find. While he is out of work the
+  // market holds a few reachable vacancies for him instead of appointing over
+  // them the same afternoon.
   const market = runManagerMarket(state, {
-    seasonId,
-    seasonLabel,
-    seasonStart,
-    previousSeasonId: previousSeason.id,
-    previousSeasonLabel: previousSeason.label,
-    protectedManagerIds: userManagerId ? [userManagerId] : [],
+    ...careerContext,
+    protectedManagerIds: [MANAGER_PERSON_ID],
+    holdVacancies: reserveVacancyFor(state) ?? undefined,
+    guaranteeVacancy: guaranteeVacancyFor(state) ?? undefined,
   });
   events.push(...market.events);
+  openJobMarket(state, careerContext, market.held);
 
   // The committee turns over too: a year older, a few men stepping down, and the
   // posts they leave filled from the town. Kept apart from the managers' market
@@ -683,34 +779,41 @@ export function startNextSeason(state: GameState): GameEvent[] {
   const staffLifecycle = runStaffLifecycle(state, { seasonId, seasonLabel, seasonStart });
   events.push(...staffLifecycle.events);
 
-  // The committee takes its view once a season, on the season that has actually
-  // been played and the books as they actually stand. The player's own manager
-  // is held out of the managers' market, so this is where his job is judged.
-  const governance = runGovernance(state, {
-    seasonId,
-    seasonLabel,
-    seasonStart,
-    previousSeasonId: previousSeason.id,
-    previousSeasonLabel: previousSeason.label,
-  });
-  events.push(...governance.events);
-
   rollWeeklyAvailabilityForAll(state);
   rollWeeklyStaffAvailabilityForAll(state);
   prepareMatchday(state, 1);
   state.standingHistory.push(...snapshotStandings(state));
 
-  events.push(
-    createEvent(state, {
-      type: 'season-milestone',
-      importance: 3,
-      clubIds: [state.userClubId],
-      data: {
-        headline: `${seasonLabel} pre-season`,
-        body: `Registration is open, the pitch needs marking and the squad list has ${state.clubs[state.userClubId]?.squadIds.length ?? 0} names on it. The ${seasonLabel} season starts on ${firstSunday}.`,
-      },
-    }),
-  );
+  // A man between jobs has no pre-season of his own to open: the milestone is
+  // about a squad he is no longer picking.
+  if (isEmployed(state)) {
+    events.push(
+      createEvent(state, {
+        type: 'season-milestone',
+        importance: 3,
+        clubIds: [state.userClubId],
+        data: {
+          headline: `${seasonLabel} pre-season`,
+          body: `Registration is open, the pitch needs marking and the squad list has ${state.clubs[state.userClubId]?.squadIds.length ?? 0} names on it. The ${seasonLabel} season starts on ${firstSunday}.`,
+        },
+      }),
+    );
+  }
+
+  // The county's relationships and crowds have a summer of their own, and both
+  // are settled here rather than in the day loop, because both are about a
+  // season rather than a Sunday: the heat between two clubs cools, a pairing
+  // that has earned it is promoted from this season's bad temper to an old
+  // rivalry, and every crowd drifts a long way back towards the middle before
+  // promotion and relegation are applied on top. See `rivalries.ts` and
+  // `support.ts` for the arithmetic and the bounds.
+  coolRivalries(state, seasonStart);
+  applySeasonSupport(state, seasonStart);
+
+  // And the reporters' patches are redrawn. A club promoted two divisions up the
+  // ladder is somebody else's story now, and the paper that covered it last
+  // season is not necessarily the nearest one to it any more.
+  ensurePress(state);
 
   return events;
 }

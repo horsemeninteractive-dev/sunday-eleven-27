@@ -315,6 +315,10 @@ export function postponeFixture(
     competitionId: match.competitionId,
     competitionName: match.competitionName,
     kickOff: kickOffForReplay(replacementDate, match.kickOff),
+    // The replay is the same tie on a later date, so it belongs to the same
+    // round: a cup round read off the rearranged game has to be the round the
+    // draw put it in, or the round looks short of a tie and never completes.
+    ...(match.cupRound === undefined ? {} : { cupRound: match.cupRound }),
   });
   replacement.originalDate = match.date;
   replacement.postponedOn = date;

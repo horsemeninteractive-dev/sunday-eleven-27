@@ -16,6 +16,9 @@ import { Button, EmptyState, FormPips, PageHeader, Pill } from '../components/pr
 import { ActionTile, MetricTile, Section, Tile, TileGrid } from '../components/hierarchy';
 import { ClubBadge } from '../components/Badge';
 import { StaffCard } from '../components/StaffCard';
+import { GroundPanel } from '../components/GroundPanel';
+import { PressPanel } from '../components/PressPanel';
+import { upkeepCostFor } from '@/simulation/grounds';
 
 /**
  * Club.
@@ -50,7 +53,15 @@ export function ClubView() {
   const desk = secretarySummary(game, club.id);
 
   const weeklyIn = weeklySponsorshipIncome(game, club.id);
-  const weeklyOut = club.finances.weeklyGroundCost + club.finances.insurancePerWeek + club.finances.trainingCostPerWeek;
+  // The ground upkeep is a weekly commitment of the club's own rather than a
+  // figure on the club's finances, so the week's outgoings are read from the
+  // ground service: a tile that said "+£0 a week" while the club was paying a
+  // groundsman would be a lie about the balance.
+  const weeklyOut =
+    club.finances.weeklyGroundCost +
+    club.finances.insurancePerWeek +
+    club.finances.trainingCostPerWeek +
+    upkeepCostFor(game, club.id);
   const net = weeklyIn - weeklyOut;
   const town = game.world.towns[club.townId]?.name ?? null;
 
@@ -177,6 +188,13 @@ export function ClubView() {
           />
         </TileGrid>
       </Section>
+
+      <GroundPanel clubId={club.id} />
+
+      {/* Who covers the club. Beside the ground and the committee because the man
+          from the paper is another of the people the club's week belongs to: what
+          the town reads on Thursday starts with what the manager says on Sunday. */}
+      <PressPanel clubId={club.id} />
 
       <Section
         title="What needs you"

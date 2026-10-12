@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Player } from '@/domain/person';
 import { isPlayer } from '@/domain/person';
 import { gameActions, useGame } from '../hooks';
 import { useGameStore } from '@/state/gameStore';
+import { fullscreenSupported, isFullscreen, setFullscreen, watchFullscreen } from '@/state/preferences';
+import { PitchViewToggle, TvScoreboard } from '../match/PitchScreen';
 import { buildMatchFeed, type MatchFeed } from '../matchFeed';
 import { MatchHeader } from '../match/MatchHeader';
 import { MatchIncidentBanner } from '../match/MatchIncidentBanner';
@@ -16,8 +18,10 @@ import { MatchControls, type MatchDrawer } from '../match/MatchControls';
 import { LeaveMatchDialog } from '../match/LeaveMatchDialog';
 import { useDismissable } from '../components/useModal';
 import { MatchStatsStrip } from '../match/MatchStats';
+import { MatchTimeline, matchLengthMinutes, timelineMarks } from '../match/MatchTimeline';
 import { FullTimePanel, HalfTimePanel, PreMatchPanel } from '../match/MatchPhases';
 import { matchMinuteMs } from '../matchPace';
+
 import { matchKitColours, matchTeamColours } from '../kit';
 import { openMatchReport } from '../reportActions';
 
@@ -45,13 +49,85 @@ export function MatchView() {
   const session = useGameStore((state) => state.session);
   const rendererPreference = useGameStore((state) => state.preferences.renderer);
   const [drawer, setDrawer] = useState<MatchDrawer | null>(null);
+  // The minute the rail last sent the manager to, so the transcript opens on the
+  // incident he pressed rather than at the top of the afternoon.
+  const [askedMinute, setAskedMinute] = useState<number | null>(null);
   // The dressing room, half-time and full-time cards can be put down so the
   // manager can look at the pitch and work in the panels underneath; they come
   // back up whenever the phase changes.
   const [intervalOpen, setIntervalOpen] = useState(true);
+  // The pitch, given the whole screen. It is a view of this afternoon rather
+  // than a panel of it — the header, the two sheets, the rail and the totals all
+  // stand aside and the grass takes the frame — and it is the manager's own
+  // state, so nothing about it reaches the save.
+  const [pitchOnly, setPitchOnly] = useState(false);
+  // Whether *this* view asked the browser for fullscreen, so putting the pitch
+  // back does not take a fullscreen the manager had already asked for elsewhere.
+  const askedFullscreen = useRef(false);
 
   const running = session?.phase === 'in-progress' && !session.paused;
   const speed = session?.speed ?? 1;
+
+  // Commentary only is commentary only: with the words carrying the match there
+  // is no pitch to give the screen, which is what the effect below is about.
+  const commentaryOnly = session?.viewingMode === 'commentary';
+
+  const leavePitchOnly = useCallback(() => {
+    setPitchOnly(false);
+    if (!askedFullscreen.current) return;
+    askedFullscreen.current = false;
+    void setFullscreen(false);
+  }, []);
+
+  const openPitchOnly = useCallback(() => {
+    setPitchOnly(true);
+    // The browser's own fullscreen is asked for as well, when it has one and is
+    // not already in it: on a desktop or a handset this is a television, and the
+    // browser is the one that owns those pixels. A browser that refuses, or one
+    // with no fullscreen at all, still gets the pitch on the whole screen, which
+    // is the promise the button makes.
+    if (fullscreenSupported() && !isFullscreen()) {
+      askedFullscreen.current = true;
+      void setFullscreen(true).then((full) => {
+        askedFullscreen.current = full;
+      });
+    }
+  }, []);
+
+  const togglePitchOnly = useCallback(() => {
+    if (pitchOnly) leavePitchOnly();
+    else openPitchOnly();
+  }, [pitchOnly, leavePitchOnly, openPitchOnly]);
+
+  // Escape, the browser's own way out and the phone's back gesture all give the
+  // afternoon back the same way. Inside the browser's fullscreen the Escape key
+  // never reaches the page, so the `fullscreenchange` listener hears that
+  // decision instead — and only acts on it when this view is the thing that
+  // asked for the fullscreen in the first place.
+  useEffect(() => {
+    if (!pitchOnly) return;
+    const key = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !event.defaultPrevented && !isFullscreen()) leavePitchOnly();
+    };
+    window.addEventListener('keydown', key);
+    const stopWatching = watchFullscreen((full) => {
+      if (!full && askedFullscreen.current) leavePitchOnly();
+    });
+    return () => {
+      window.removeEventListener('keydown', key);
+      stopWatching();
+    };
+  }, [pitchOnly, leavePitchOnly]);
+
+  // The back gesture puts the pitch back in its place before it asks the harder
+  // question about leaving the match, the way it puts a drawer away first.
+  useDismissable(pitchOnly, leavePitchOnly);
+
+  // A match watched in words has no pitch to give the screen, so the view cannot
+  // outlive the picture it was opened for.
+  useEffect(() => {
+    if (commentaryOnly) leavePitchOnly();
+  }, [commentaryOnly, leavePitchOnly]);
 
   // One clock, pumped once a frame, and it hands over *real* seconds: the
   // presentation decides how much football this frame is worth — fast through
@@ -86,6 +162,13 @@ export function MatchView() {
   // more drastic — see `ui/layers.ts`.
   useDismissable(drawer !== null, () => setDrawer(null));
 
+  // The minute the rail asked for belongs to the visit: with the drawer put
+  // down, the next time the manager opens the commentary he wants the match he
+  // is watching, not the moment he looked at five minutes ago.
+  useEffect(() => {
+    if (drawer === null) setAskedMinute(null);
+  }, [drawer]);
+
   // The back gesture asking to leave puts the drawer down first: one question on
   // screen at a time, and the answer to it should not be hidden behind a panel.
   const leavePrompt = useGameStore((state) => state.leaveMatchPrompt);
@@ -115,6 +198,10 @@ export function MatchView() {
     () => (match ? buildMatchFeed(match) : null),
     [match, session?.revision],
   );
+  // What the rail is drawn from: the same feed, key incidents only. Rebuilt on
+  // the session's revision because the live match is mutated in place as it is
+  // played, so the record itself is not a change the memo can see.
+  const marks = useMemo(() => (match ? timelineMarks(match) : []), [match, session?.revision]);
   // The match, read once into the neutral shape every renderer consumes. Once
   // the whistle has gone the football is the engine's, so the renderer is handed
   // the engine's own state — the players, the ball and the residual it
@@ -158,48 +245,60 @@ export function MatchView() {
   const phase = session.phase;
   // Commentary only is commentary only: with the words carrying the match there
   // is no pitch to watch, so the two team sheets take the space the renderer
-  // would have had rather than framing an empty middle.
-  const commentaryOnly = session.viewingMode === 'commentary';
+  // would have had rather than framing an empty middle. And with the pitch on
+  // the whole screen there is no room for anything framing it: the sheets, the
+  // rail and the totals all stand aside, while the control strip stays where it
+  // is — the match is still being played, and a view of it that could not be
+  // paused would be a worse one than the screen it replaced.
 
   return (
-    <div className="matchday">
-      <MatchHeader game={game} match={match} side={session.side} phase={phase} />
+    <div className={`matchday${pitchOnly ? ' matchday--pitchonly' : ''}`}>
+      {!pitchOnly && <MatchHeader game={game} match={match} side={session.side} phase={phase} />}
 
       <div className="matchday__main">
         <div className={`matchday__stage${commentaryOnly ? ' matchday__stage--commentary' : ''}`}>
-          <TeamSheet
-            side="home"
-            club={game.clubs[match.homeClubId]!}
-            lineup={match.lineups.home}
-            match={match}
-            playerById={playerById}
-            /* The colours the pitch beside it is drawn from, rather than the
-               club's own: the sheet is headed in the strip the side actually
-               turned out in, and the man in goal is in the third strip. */
-            colours={renderState.teams.home.colours}
-          />
+          {!pitchOnly && (
+            <TeamSheet
+              side="home"
+              club={game.clubs[match.homeClubId]!}
+              lineup={match.lineups.home}
+              match={match}
+              playerById={playerById}
+              /* The colours the pitch beside it is drawn from, rather than the
+                 club's own: the sheet is headed in the strip the side actually
+                 turned out in, and the man in goal is in the third strip. */
+              colours={renderState.teams.home.colours}
+            />
+          )}
           {!commentaryOnly && (
             <div className="matchday__visual">
               {/* The renderer draws the football; the banner sits beside it. Both
                   take the same neutral state, so the incident reads the same in
-                  any renderer. */}
+                  any renderer. The scoreboard and the toggle are drawn here too,
+                  in the two corners of the picture rather than beside it, so the
+                  button is in the same place whether or not the pitch has the
+                  screen. */}
               <div className="matchday__renderer">
                 <Renderer state={renderState} side={session.side} playerById={playerById} />
                 <MatchIncidentBanner state={renderState} playerById={playerById} />
+                {pitchOnly && <TvScoreboard game={game} match={match} phase={phase} />}
+                <PitchViewToggle full={pitchOnly} onToggle={togglePitchOnly} />
               </div>
             </div>
           )}
-          <TeamSheet
-            side="away"
-            club={game.clubs[match.awayClubId]!}
-            lineup={match.lineups.away}
-            match={match}
-            playerById={playerById}
-            colours={renderState.teams.away.colours}
-          />
+          {!pitchOnly && (
+            <TeamSheet
+              side="away"
+              club={game.clubs[match.awayClubId]!}
+              lineup={match.lineups.away}
+              match={match}
+              playerById={playerById}
+              colours={renderState.teams.away.colours}
+            />
+          )}
         </div>
 
-        {phase !== 'pre-match' && (
+        {!pitchOnly && phase !== 'pre-match' && (
           <CurrentCommentary
             commentary={match.commentary ?? []}
             revision={session.revision}
@@ -215,9 +314,31 @@ export function MatchView() {
         )}
       </div>
 
-      <div className="matchday__stats">
-        {kitColours && <MatchStatsStrip match={match} homeColour={kitColours.home} awayColour={kitColours.away} />}
-      </div>
+      {/* The afternoon on one rail, between the pitch and the totals. A live
+          match cannot be rewound, so pressing a mark does what can be done: it
+          stops the clock and opens the words at that minute. */}
+      {!pitchOnly && phase !== 'pre-match' && marks.length > 0 && (
+        <div className="matchday__rail">
+          <MatchTimeline
+            marks={marks}
+            minute={match.minute}
+            length={matchLengthMinutes(match)}
+            homeColour={kitColours?.home}
+            awayColour={kitColours?.away}
+            onJump={(mark) => {
+              setAskedMinute(mark.rawMinute);
+              if (running) gameActions().toggleMatchPause();
+              setDrawer('commentary');
+            }}
+          />
+        </div>
+      )}
+
+      {!pitchOnly && (
+        <div className="matchday__stats">
+          {kitColours && <MatchStatsStrip match={match} homeColour={kitColours.home} awayColour={kitColours.away} />}
+        </div>
+      )}
 
       <MatchControls
         game={game}
@@ -227,6 +348,7 @@ export function MatchView() {
         onDrawer={setDrawer}
         showIntervalButton={phase !== 'in-progress' && !intervalOpen}
         onOpenInterval={() => setIntervalOpen(true)}
+        commentaryMinute={askedMinute}
       />
 
       {phase === 'pre-match' && intervalOpen && (

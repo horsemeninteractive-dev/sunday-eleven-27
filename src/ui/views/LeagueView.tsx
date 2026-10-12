@@ -24,7 +24,7 @@ import { handleTabKeys } from '../components/Tabs';
  * bottom division's two relegated ones are marked correctly without any of the
  * three being told it is the top.
  */
-function zoneFor(position: number, size: number, competition: Competition): 'title' | 'promotion' | 'mid' | 'relegation' {
+export function zoneFor(position: number, size: number, competition: Competition): 'title' | 'promotion' | 'mid' | 'relegation' {
   const promotionPlaces = competition.promotionPlaces ?? 0;
   const relegationPlaces = competition.relegationPlaces ?? 0;
   if (position === 1) return 'title';
@@ -43,14 +43,44 @@ function relegationLabel(competition: Competition): string {
   return places === 0 ? 'nothing to lose' : places === 1 ? 'one relegated' : `${places} relegated`;
 }
 
-/** The one number around us that matters: the gap to the place that counts. */
-function contextLabel(competition: Competition): string {
+/**
+ * Whether the club is in the relegation places.
+ *
+ * Asked of the position in the table, the same way the mark on the row is
+ * (`zoneFor`), because the sentence in the focal fact and the colour of the
+ * number in the table are about one fact and cannot be allowed two answers.
+ */
+export function inDropZone(standings: readonly StandingRow[], myPosition: number, competition: Competition): boolean {
+  const relegationPlaces = competition.relegationPlaces ?? 0;
+  return relegationPlaces > 0 && myPosition > standings.length - relegationPlaces;
+}
+
+/**
+ * The name of the gap that matters: promotion, survival, or nothing at all.
+ *
+ * It is told which side of the line the club is on rather than working it out
+ * from the competition alone. Read from the competition, a club sitting 19th of
+ * 20 was told it stood "Above the drop" — with `0 pts` beside it, because the gap
+ * to the last safe club is negative and clamped. The one club the sentence is
+ * most about was the one it was least true for.
+ */
+export function contextLabel(competition: Competition, inDrop: boolean): string {
   if ((competition.promotionPlaces ?? 0) > 0) return 'To promotion';
-  if ((competition.relegationPlaces ?? 0) > 0) return 'Above the drop';
+  if ((competition.relegationPlaces ?? 0) > 0) return inDrop ? 'In the drop' : 'Above the drop';
   return 'Mid-table';
 }
 
-function contextValue(standings: StandingRow[], myPosition: number, competition: Competition): string {
+/**
+ * How far it is to the place that counts, said from whichever side of it the
+ * club is on: a cushion when it is safe, and the points that close the gap when
+ * it is not.
+ */
+export function contextValue(
+  standings: readonly StandingRow[],
+  myPosition: number,
+  competition: Competition,
+  inDrop: boolean,
+): string {
   const promotionPlaces = competition.promotionPlaces ?? 0;
   const relegationPlaces = competition.relegationPlaces ?? 0;
   const mine = standings[myPosition - 1]?.points ?? 0;
@@ -61,8 +91,10 @@ function contextValue(standings: StandingRow[], myPosition: number, competition:
   }
   if (relegationPlaces > 0) {
     const safeIndex = standings.length - relegationPlaces - 1;
-    const above = standings[safeIndex]?.points ?? 0;
-    return `${Math.max(0, mine - above)} pts`;
+    const lastSafe = standings[safeIndex]?.points ?? 0;
+    if (inDrop) return `${Math.max(1, lastSafe - mine + 1)} pts from safety`;
+    const cushion = mine - lastSafe;
+    return cushion > 0 ? `${cushion} pts clear` : 'level on points';
   }
   return '—';
 }
@@ -142,6 +174,11 @@ export function LeagueView() {
     name: game.clubs[row.clubId]?.identity.name ?? '',
   }));
   const sortedRows = applySort(rows, sort, TABLE_SORT);
+  const inDrop = inDropZone(standings, myPosition, competition);
+  // A tabstrip is only drawn when there is more than one division to move
+  // between, so the panel is only a tab panel when there are tabs to own it: a
+  // panel labelled by an id that is not on the screen is a reference to nothing.
+  const tabbed = divisions.length > 1;
 
   return (
     <div className="stack">
@@ -167,7 +204,7 @@ export function LeagueView() {
         }
       />
 
-      {divisions.length > 1 && (
+      {tabbed && (
         <div className="segmented" role="tablist" aria-label="Divisions" onKeyDown={handleTabKeys}>
           {divisions.map((division) => (
             <button
@@ -199,7 +236,7 @@ export function LeagueView() {
           tone="accent"
           aside={
             <span className="small muted">
-              {contextLabel(competition)} · {contextValue(standings, myPosition, competition)}
+              {contextLabel(competition, inDrop)} · {contextValue(standings, myPosition, competition, inDrop)}
             </span>
           }
         />
@@ -215,7 +252,11 @@ export function LeagueView() {
       )}
 
       <p className="small muted">{(competition.promotionPlaces ?? 0) > 0 ? `Top ${competition.promotionPlaces} go up. ` : ''}{(competition.relegationPlaces ?? 0) > 0 ? `Bottom ${competition.relegationPlaces} go down. ` : ''}Coloured position marks follow the club's league place, even when you sort.</p>
-      <div role="tabpanel" id="league-table-panel" aria-labelledby={`league-tab-${competition.id}`}><Section title="The table">
+      <div
+        role={tabbed ? 'tabpanel' : undefined}
+        id="league-table-panel"
+        aria-labelledby={tabbed ? `league-tab-${competition.id}` : undefined}
+      ><Section title="The table">
       <Panel level="primary">
         <div className="table-wrapper">
           <table className="table table--league">

@@ -240,7 +240,8 @@ match state continues throughout:
                           │
                  SET PIECE STATE   phase: 'kickoff' | 'corner' | 'throw-in'
                  ┌──────────────────────────────────────────────┐  | 'goal-kick' | 'free-kick' | 'penalty'
-                 │ setup      ball dead on its spot; the men walk into place │
+                 │ setup      ball dead on its spot (in the thrower's hands, │
+                 │            off the pitch, for a throw-in); the men walk    │
                  │ delivery   the taker plays it; the ball travels          │
                  │ resolution the ordinary control/aerial/shot rules apply  │
                  └──────────────────────────────────────────────┘
@@ -251,7 +252,7 @@ match state continues throughout:
 | Restart | Begins in | Notes |
 | --- | --- | --- |
 | kick-off | `MatchEngine.setStatePiece`, `beginPeriod` | every period opens with one; the restart after a goal goes to the side that conceded |
-| throw-in | `resolve.ts::checkOutOfPlay` | taken from the line by a named thrower |
+| throw-in | `resolve.ts::checkOutOfPlay` | taken from *off* the line by a named thrower, ball in his hands — see below |
 | goal kick | `resolve.ts::checkOutOfPlay` | ball over the goal line off an attacker |
 | corner | `resolve.ts`, and off a blocked shot | off a defender; some blocks ricochet instead |
 | free kick | `resolve.ts`, `offside.ts` | one phase carrying a `direct` flag — see the debt below |
@@ -275,6 +276,7 @@ penalties:
 | `RESTART_KINDS` | kickoff · throw-in · goal-kick · corner · free-kick · penalty |
 | `RESTART_SETUP_SECONDS` | how long each is given to arrange (`matchEngine/setPieces.ts` reads it) |
 | `restartSpotFor` | the geometry — the engine re-exports it as `spotFor`, and `resolve.ts` is untouched |
+| `THROW_IN_STAND_OFF`, `throwInStandSpot` | the one restart taken from outside the field: how far behind the line the thrower stands, and where that puts him |
 | `RESTART_TAKER` | the taker rule per restart: keeper for a goal kick, nomination-or-best for a penalty, nearest otherwise |
 | `RESTART_STRIKES` | what a strike directly at goal is worth, walked as a ladder of shares |
 | `penaltyTaker` | the nomination wins; each resolution supplies only its own reading of "best available" |

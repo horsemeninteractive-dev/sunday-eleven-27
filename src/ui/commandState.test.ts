@@ -159,6 +159,34 @@ describe('command state', () => {
     });
   });
 
+  it('offers only the calendar to a manager between jobs', () => {
+    const { state } = createTestGame('command-between-jobs');
+    state.career.status = 'unemployed';
+    state.career.clubId = null;
+    state.career.lastClubId = state.userClubId;
+    state.career.openings = [
+      {
+        clubId: state.userClubId,
+        postedOn: state.date,
+        closesOn: state.date,
+        note: 'A club, somewhere.',
+      },
+    ];
+
+    const command = commandStateFor(state, null);
+    expect(command.phase).toBe('between-jobs');
+    expect(command.secondary).toEqual([]);
+    // The one thing he can do is move the days on: there is no club, no fixture
+    // and no team to pick.
+    expect(command.action.intent).toEqual({ kind: 'action', action: 'continue' });
+    expect(command.eyebrow).toBe('Between jobs');
+    expect(command.title).toContain('1 club');
+
+    // Even a session left over from a match is not his to resume.
+    const match = userFixture(state);
+    expect(commandStateFor(state, sessionFor(match, 'home')).phase).toBe('between-jobs');
+  });
+
   it('starts pre-season when the season is over', () => {
     const { state } = createTestGame('command-season-end');
     state.phase = 'complete';
@@ -166,6 +194,26 @@ describe('command state', () => {
     const command = commandStateFor(state, null);
     expect(command.phase).toBe('season-complete');
     expect(command.action.intent).toEqual({ kind: 'action', action: 'rollover-season' });
+  });
+
+  it('turns the season over for a manager with no club, without offering him a pre-season', () => {
+    const { state } = createTestGame('command-season-end-between-jobs');
+    state.phase = 'complete';
+    state.career.status = 'unemployed';
+    state.career.clubId = null;
+    state.career.lastClubId = state.userClubId;
+
+    const command = commandStateFor(state, null);
+    expect(command.phase).toBe('season-complete');
+    // The button is still his: it is what runs the summer's appointments, and a
+    // career that could not press it would be stuck this side of the job board
+    // for good.
+    expect(command.action.intent).toEqual({ kind: 'action', action: 'rollover-season' });
+    expect(command.action.label).toMatch(/season over/i);
+    expect(command.action.label).not.toMatch(/pre-season/i);
+    // And it offers him nothing he cannot open: the table and the archive are
+    // the club's screens, and the club is not his.
+    expect(command.secondary).toEqual([]);
   });
 
   it('treats screens as doors, and everything that moves the game on as not one', () => {

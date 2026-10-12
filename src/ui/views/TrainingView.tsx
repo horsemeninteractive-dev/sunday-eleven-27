@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { GameState } from '@/domain/game';
 import type { PersonId } from '@/domain/ids';
+import { FULL_SIDE } from '@/domain/match';
 import { isPlayer, type Player } from '@/domain/person';
 import {
   TRAINING_BLOCKS,
@@ -21,8 +22,10 @@ import { formatDayMonth, formatShortDate } from '@/simulation/calendar';
 import { currentPlan, sessionForecast } from '@/simulation/training/plan';
 import { clubSetPieceFamiliarity, clubSystemFamiliarity } from '@/simulation/training/cohesion';
 import { developmentSummary } from '@/simulation/training/development';
-import { lastSessionFor, sessionsFor, trainingStore, weeksSince } from '@/simulation/training/store';
+import { HALL_HIRE_COST } from '@/simulation/training/session';
+import { lastSessionFor, sessionsFor, weeksSince } from '@/simulation/training/store';
 import { gameActions, useGame } from '../hooks';
+import { moneyRange } from '../format';
 import { Button, Callout, PageHeader, Panel, Pill, SortTh } from '../components/primitives';
 import { FocalFact, MetricTile, Section, TileGrid } from '../components/hierarchy';
 import { PersonLine } from '../components/PersonIdentity';
@@ -76,8 +79,8 @@ export function TrainingView() {
   const capacity = blockCapacity(plan.length);
   const last = lastSessionFor(game, club.id);
   const history = sessionsFor(game, club.id);
+  const calledOff = history.filter((session) => session.cancelled).length;
   const squad = club.squadIds.map((id) => game.people[id]).filter(isPlayer);
-  const store = trainingStore(game);
   const workingOn = squad
     .map((player) => ({ player, lines: developmentSummary(game, player) }))
     .filter((entry) => entry.lines.length > 0)
@@ -85,7 +88,9 @@ export function TrainingView() {
   const errors = forecast.problems.filter((problem) => problem.severity === 'error');
   const warnings = forecast.problems.filter((problem) => problem.severity === 'warning');
   const alreadyRun = history.some((session) => session.matchday === forecast.matchday);
-  const thin = forecast.attendance.attending.length < 11;
+  // A session without a full side to train is the thing a Thursday night is
+  // short of, so it is measured against the side the game itself is built for.
+  const thin = forecast.attendance.attending.length < FULL_SIDE;
 
   return (
     <div className="stack">
@@ -178,13 +183,13 @@ export function TrainingView() {
 
           <ol className="session-plan">{plan.blocks.map((blockId, index) => <li key={blockId}><span className="session-plan__number">{index + 1}</span><div><strong>{TRAINING_BLOCKS[blockId].label}</strong><p className="small muted">{TRAINING_BLOCKS[blockId].purpose}</p></div></li>)}</ol>
           {plan.blocks.length === 0 && <p className="empty">Choose blocks above to give the evening a purpose.</p>}
-          <details className="instruction-help"><summary>Session length and indoor fallback</summary><p>{TRAINING_LENGTH_DETAIL[plan.length]} Hall hire costs £20–£30 when used.</p></details>
+          <details className="instruction-help"><summary>Session length and indoor fallback</summary><p>{TRAINING_LENGTH_DETAIL[plan.length]} Hall hire costs {moneyRange(HALL_HIRE_COST)} when used.</p></details>
           <div className="row row--wrap row--tight" style={{ marginTop: 'var(--s3)' }}>
             <Button
               variant={plan.fallbackVenue ? 'primary' : 'ghost'}
               size="sm"
               aria-pressed={plan.fallbackVenue}
-              title="Costs £20–£30 when it is used, and beats standing about in the rain."
+              title={`Costs ${moneyRange(HALL_HIRE_COST)} when it is used, and beats standing about in the rain.`}
               onClick={() => gameActions().setTrainingFallbackVenue(!plan.fallbackVenue)}
             >
               {plan.fallbackVenue ? '✓ Hall booked' : 'Book the hall'}
@@ -309,7 +314,7 @@ export function TrainingView() {
       <Section title="Training history">
         <details className="more">
           <summary className="small muted">
-            {history.length === 0 ? 'Nothing on record yet' : `${history.length} sessions · ${store.history.filter((session) => session.clubId === club.id).length} on file`}
+            {historySummary(history.length, calledOff)}
           </summary>
           {history.length === 0 ? (
             <p className="empty">The first session of the season is coming up.</p>
@@ -399,6 +404,20 @@ function detailFor(player: Player | undefined, state: GameState): string {
   if (weeks <= 4) bits.push('new to the club');
   if (player.fitness < 70) bits.push('short of fitness');
   return bits.join(' · ');
+}
+
+/**
+ * How many sessions are on record, and how many of them never happened.
+ *
+ * The line used to say the same number twice — "12 sessions · 12 on file" — the
+ * seconds half being the club's own sessions counted a second way. The second
+ * half now carries the fact the list underneath is not saying: how many evenings
+ * the weather, or a turnout of four, called off.
+ */
+export function historySummary(count: number, calledOff: number): string {
+  if (count === 0) return 'Nothing on record yet';
+  const sessions = `${count} session${count === 1 ? '' : 's'}`;
+  return calledOff > 0 ? `${sessions} · ${calledOff} called off` : sessions;
 }
 
 function personLabel(state: GameState, personId: PersonId): string {

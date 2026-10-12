@@ -1,7 +1,9 @@
 import { useState, type ReactNode } from 'react';
 import type { Club } from '@/domain/club';
+import type { GameState } from '@/domain/game';
 import { CLUB_STRUCTURE_LABEL } from '@/domain/club';
 import { ATTRIBUTE_DESCRIPTORS } from '@/domain/attributes';
+import { MANAGER_PERSON_ID } from '@/domain/communication';
 import { isOfficial, isPlayer, personDisplayName, type Player, type PlayerHistoryEntry } from '@/domain/person';
 import { POSITIONS, POSITION_GROUP_LABEL } from '@/domain/positions';
 import {
@@ -20,6 +22,7 @@ import {
   squadOf,
   type AbilityBand,
 } from '@/simulation/queries';
+import { managingClubId } from '@/simulation/career';
 import { candidateInterest } from '@/simulation/recruitment/interest';
 import { joiningProspect } from '@/simulation/recruitment/signing';
 import { candidateOf } from '@/simulation/recruitment/store';
@@ -99,13 +102,17 @@ export function ProfileOverlay({ target }: { target: ProfileTarget }) {
     });
   };
   const back = () => setStack((entries) => (entries.length > 1 ? entries.slice(0, -1) : entries));
+  // The career the page is drawn from, read once here and handed to the two
+  // pages — a page that reads nothing but what it is given can be printed and
+  // checked without a browser, which is how its own rules are pinned.
+  const game = useGame();
 
   return (
     <ProfileNavProvider open={push}>
       <Dialog title={current.kind === 'club' ? 'Club profile' : 'Person profile'} kind={current.kind === 'club' ? 'club' : 'person'} onClose={() => gameActions().closeProfile()}
         actions={stack.length > 1 ? <Button variant="ghost" size="sm" onClick={back}>← Back</Button> : undefined}>
         <div key={`${current.kind}-${current.id}`} className="profile-content">
-          {current.kind === 'club' ? <ClubProfile clubId={current.id} /> : <PlayerProfile personId={current.id} />}
+          {current.kind === 'club' ? <ClubProfile game={game} clubId={current.id} /> : <PlayerProfile game={game} personId={current.id} />}
         </div>
       </Dialog>
     </ProfileNavProvider>
@@ -114,8 +121,15 @@ export function ProfileOverlay({ target }: { target: ProfileTarget }) {
 
 /* ------------------------------------------------------------------ player */
 
-function PlayerProfile({ personId }: { personId: string }) {
-  const game = useGame();
+/**
+ * One man's page.
+ *
+ * Exported, and handed its career rather than reading the store, for the same
+ * reason the club band and the home hero are: a page that draws only what it is
+ * given can be printed in a test and read back, which is the only way the
+ * questions it asks — is this man me, has he got a club — can be checked at all.
+ */
+export function PlayerProfile({ game, personId }: { game: GameState | null; personId: string }) {
   // Which heading this man's career table was left on, in this career.
   const [careerSort, setCareerSort] = useRememberedSort('profile-career', game?.saveId ?? null, CAREER_SORT);
   const [tab, setTab] = useState<'overview' | 'attributes' | 'history'>('overview');
@@ -138,7 +152,12 @@ function PlayerProfile({ personId }: { personId: string }) {
     </div>
     <dl className="facts"><Row label="Age" value={String(person.age)} /><Row label="Local standing" value={String(Math.round(person.reputation))} /></dl>
     {person.notes.length > 0 && <ul className="tight-list">{person.notes.map((note, index) => <li key={index}>{note}</li>)}</ul>}
-    {person.id !== game.clubs[game.userClubId]!.managerId && <Button variant="primary" onClick={() => { gameActions().closeProfile(); gameActions().startConversationWith(person.id); }}>Have a word</Button>}
+    {/* The one man he does not have a word with is himself, and the question is
+        who this is rather than whose manager slot he answers to. It used to be
+        asked of the club — `clubs[userClubId].managerId` — which gave the same
+        answer only while he was in a job: a dismissal empties that post, so his
+        own page then offered him a conversation with the man holding the phone. */}
+    {person.id !== MANAGER_PERSON_ID && <Button variant="primary" onClick={() => { gameActions().closeProfile(); gameActions().startConversationWith(person.id); }}>Have a word</Button>}
   </div>;
   if (!person || !isPlayer(person)) {
     return (
@@ -153,7 +172,12 @@ function PlayerProfile({ personId }: { personId: string }) {
   const player: Player = person;
   const club = player.clubId ? game.clubs[player.clubId] : undefined;
   const town = player.townId ? game.world.towns[player.townId] : undefined;
-  const isMine = player.clubId === game.userClubId;
+  // Whether this man is one of the manager's own, asked of the career rather
+  // than assumed: out of work there is no "ours", and a profile that claimed
+  // there was would be offering subs collection and releases for a club that is
+  // not his any more.
+  const myClubId = managingClubId(game);
+  const isMine = myClubId !== null && player.clubId === myClubId;
   const candidate = candidateOf(game, player.id);
   const best = bestPositionFor(player);
   const improving = developmentSummary(game, player);
@@ -233,7 +257,10 @@ function PlayerProfile({ personId }: { personId: string }) {
               <Row label="Joined" value={formatShortDate(player.joinedClubOn)} />
               <Row label="Position group" value={POSITION_GROUP_LABEL[player.positionGroup]} />
               <Row label="Deal" value="Non-contract (Sunday League)" />
-              <Row label="Subs" value={`£${club?.finances.starterSubAmount ?? 5}/£${club?.finances.substituteSubAmount ?? 3} per game`} />
+              {/* A subs scheme is a club's, so a man without one is not given a
+                  figure: the fallbacks here were the game's own defaults, printed
+                  as though they were the terms he plays under. */}
+              <Row label="Subs" value={club ? `£${club.finances.starterSubAmount}/£${club.finances.substituteSubAmount} per game` : '—'} />
               <Row label="Registration" value={player.registered ? 'Registered' : 'Not registered'} />
             </dl>
           </Panel>
@@ -334,11 +361,11 @@ function PlayerProfile({ personId }: { personId: string }) {
                   ? `You have a view on ${knowledge.length} part${knowledge.length === 1 ? '' : 's'} of his game, all of it second hand until you see him yourself.`
                   : 'You have not seen enough of him to form a view. That is what watching and sessions are for.'}
               </p>
-              {candidate && (
+              {candidate && myClubId && (
                 <>
                   <h4 className="subhead">Would he come?</h4>
                   <ul className="tight-list">
-                    {candidateInterest(game, player.id, game.userClubId).reasons.map((reason, index) => (
+                    {candidateInterest(game, player.id, myClubId).reasons.map((reason, index) => (
                       <li key={`${reason.text}-${index}`}>
                         <div className="row row--wrap">
                           <Pill tone={reason.weight >= 0 ? 'ok' : 'bad'}>{reason.weight >= 0 ? 'for' : 'against'}</Pill>
@@ -538,8 +565,7 @@ const CLUB_TABS: Array<{ id: ClubTab; label: string }> = [
   { id: 'money', label: 'Money' },
 ];
 
-function ClubProfile({ clubId }: { clubId: string }) {
-  const game = useGame();
+export function ClubProfile({ game, clubId }: { game: GameState | null; clubId: string }) {
   const [tab, setTab] = useState<ClubTab>('season');
   const [squadSort, setSquadSort] = useRememberedSort('profile-squad', game?.saveId ?? null, CLUB_SQUAD_SORT);
   if (!game) return null;
@@ -559,6 +585,8 @@ function ClubProfile({ clubId }: { clubId: string }) {
   const manager = club.managerId ? game.people[club.managerId] : undefined;
   const squad = squadOf(game, club.id);
   const position = leaguePosition(game, club.id);
+  // The club he is in charge of now, if any: out of work, no club is "yours".
+  const myClubId = managingClubId(game);
   const kit = clubKit(game, club.id);
   // The club's shirt sponsor as a mark, where it is a business with a trade.
   const sponsorMark = kit?.sponsor ? sponsorBrand(kit.sponsor) : null;
@@ -580,7 +608,7 @@ function ClubProfile({ clubId }: { clubId: string }) {
             <div className="row row--tight">
               <span className="muted small">{club.identity.nickname}</span>
               <Pill tone="muted">{CLUB_STRUCTURE_LABEL[club.structure]}</Pill>
-              {club.id === game.userClubId && <Pill tone="accent">your club</Pill>}
+              {club.id === myClubId && <Pill tone="accent">your club</Pill>}
             </div>
           </div>
         </div>
@@ -769,7 +797,7 @@ function ClubProfile({ clubId }: { clubId: string }) {
                 <>
                   <div className="stat-grid stat-grid--wide">
                     <Stat label="Balance" value={moneyShort(club.finances.balance)} />
-                    <Stat label="Subs" value={`£${club.finances.starterSubAmount ?? 5} / £${club.finances.substituteSubAmount ?? 3}`} hint="Starter / substitute, per match" />
+                    <Stat label="Subs" value={`£${club.finances.starterSubAmount} / £${club.finances.substituteSubAmount}`} hint="Starter / substitute, per match" />
                     <Stat
                       label="Sponsorship"
                       value={sponsorNameFor(game, club.id) ? `£${weeklySponsorshipIncome(game, club.id)}` : '—'}

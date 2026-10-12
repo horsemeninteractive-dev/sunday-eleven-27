@@ -7,12 +7,14 @@ import type { GameState } from '@/domain/game';
 import type { Match, MatchEvent, MatchEventType } from '@/domain/match';
 import { createTestGame } from '@/simulation/testSupport';
 import { prepareMatchday } from '@/simulation/matchday';
+import { CHANGES_PER_MATCH } from '@/simulation/match/laws';
 import { cloneMatch } from '@/simulation/match/testHelpers';
 import { currentScore } from '@/simulation/match/matchEngine';
 import { matchKitColours, shirtLine } from '../kit';
 import { Dialog } from '../dialogs/Dialog';
 import { MatchScoreline } from './MatchScoreline';
 import { MatchStatsPanel } from './MatchStats';
+import { changesRemaining } from './MatchPhases';
 
 /**
  * The three moments the match stops for the manager.
@@ -167,6 +169,28 @@ describe('a stopped match is drawn in the match’s own marks', () => {
     expect(scoreline).not.toMatch(/<div|<p[ >]/);
   });
 
+});
+
+describe('the changes the half-time card counts', () => {
+  it('counts what the law allows, and never fewer than none', () => {
+    // The card said `3 - substitutions`: the number the engine works to today,
+    // because the competition allows three, but a number written in beside the
+    // law rather than read from it — and one that could print a negative for a
+    // match the allowance ever moved in.
+    const { match } = preparedMatch('changes-left');
+    expect(changesRemaining(match, 'home')).toBe(CHANGES_PER_MATCH);
+
+    match.substitutions.home = CHANGES_PER_MATCH - 1;
+    expect(changesRemaining(match, 'home')).toBe(1);
+    // Each side's own changes: the other side's count does not move with it.
+    expect(changesRemaining(match, 'away')).toBe(CHANGES_PER_MATCH);
+
+    match.substitutions.home = CHANGES_PER_MATCH;
+    expect(changesRemaining(match, 'home')).toBe(0);
+    // More changes than the game allows cannot make the card say he owes any.
+    match.substitutions.home = CHANGES_PER_MATCH + 2;
+    expect(changesRemaining(match, 'home')).toBe(0);
+  });
 });
 
 describe('the figures the two moments put in front of him', () => {

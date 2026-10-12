@@ -26,7 +26,12 @@ statement of what has been checked and what has not.
 | --- | --- |
 | [`src/platform/discord.ts`](src/platform/discord.ts) | **every decision about the server.** The permission bits, the three roles, the four categories, the fourteen channels, who may see and post in each, the six pinned posts, the three AutoMod rules, what a person still has to do, and the planner that compares all of it with a server. Imports nothing and touches nothing. |
 | [`src/platform/xiai.ts`](src/platform/xiai.ts) | **every decision about an answer.** What the bot knows, and the matcher that decides which of it a question is about. Also imports nothing: an answer is a fact and a score, and a question it cannot match gets no answer at all. |
-| [`tools/xiai.ts`](tools/xiai.ts) | **the bot itself.** Connects to Discord's gateway, registers `/ask`, answers in the server — and answers on the command line with `--ask`, which needs no token at all. |
+| [`tools/xiai.ts`](tools/xiai.ts) | **the bot as a process.** Registers the commands, connects to Discord's gateway, answers there — and answers on the command line with `--ask`, which needs no token at all. What an answer *is* belongs to the two files below; this one no longer keeps a copy. |
+| [`worker/xiaiEndpoint.ts`](worker/xiaiEndpoint.ts) | **the bot, always on.** A Discord interactions endpoint as a Cloudflare Worker: the signature check, the three ways to ask (`/ask`, the topic picker, the message command) and the vote buttons. It holds **no bot token** — verification needs the application's public key and a reply needs the interaction's own token — so the one secret any of this needs is the optional feedback webhook. |
+| [`worker/index.ts`](worker/index.ts) | **the entry point, and nothing else.** A Worker's export map is its list of entrypoints, so workerd refuses to start a module that exports a *value* as well as a handler — this file re-exports the handler and the tests import the endpoint beside it. |
+| [`worker/wrangler.toml`](worker/wrangler.toml) | **where the endpoint is deployed from.** A configuration of its own rather than one in the repository root, which the game's Pages deploy would otherwise read. |
+| [`worker/xiai.test.ts`](worker/xiai.test.ts) | the endpoint's tests, and the important one is the boring one: a real Ed25519 signature is accepted, a key that is not the application's is refused, and every answer is built from a real `Request`. |
+| [`src/platform/xiaiVerify.ts`](src/platform/xiaiVerify.ts) | **what a check of the deployed endpoint means.** One PING signed the way Discord signs one, and the reading of every answer that can come back from it — including the one that must never be read as a pass: a PONG to a key the endpoint was never given. No network, no token: the signatures are checked against the endpoint's own verifier in the tests. |
 | [`tools/discordEnv.ts`](tools/discordEnv.ts) | **the token, in one place**, because the two tools are the same bot. |
 | [`src/platform/discord.test.ts`](src/platform/discord.test.ts) | the tests: the permission values against Discord's own hex, the spec's internal consistency, the channel overwrites, the planner's three outcomes, and reading a release out of the changelog. |
 | [`tools/discord.ts`](tools/discord.ts) | the *effects*: a token, Discord's REST API, and a report. Decides nothing — every question it asks is answered by the module above. |
@@ -78,13 +83,19 @@ random is a tool that configures the wrong community.
 npm run discord:plan        # what this would do, and change nothing
 npm run discord:apply       # ...then do it
 npm run discord:announce    # post a release from CHANGELOG.md into #announcements
-npm run xiai                # run the bot: it answers /ask while it is running
+npm run xiai                # run the bot as a process, answering while it is running
+npm run xiai:dev            # run the always-on endpoint locally, against worker/.dev.vars
+npm run xiai:deploy         # put the always-on endpoint live
+npm run xiai:logs           # watch what the live endpoint answers
+npm run xiai:verify         # check the deployed endpoint, and say what is wrong with it
 ```
 
 ```bash
-npm run xiai -- --register   # register or refresh /ask, then exit
+npm run xiai -- --register   # register or refresh /ask and the message command, then exit
 npm run xiai -- --check      # connect to Discord, say who it is, disconnect
 npm run xiai -- --ask "how long is a season"   # answer one question here, no bot and no token
+npm run xiai -- --verify [url]                 # check an endpoint: the one given, or Discord's own
+npm run xiai -- --new-key                      # write the key `--verify` signs with (for a local run)
 ```
 
 | flag | |
@@ -207,11 +218,73 @@ find the answer, and a wrong one should be correctable by a person in front of
 everybody rather than in a private window. Where the bot is wrong, the fact it
 came from is in the message.
 
-**It only answers while it runs.** `npm run xiai` holds a gateway connection open;
-close the terminal and XIAI is quiet until it is started again. That is the
-honest shape of a first version — an always-on deployment is an HTTP interactions
-endpoint with signature verification, and it is a step rather than a rewrite: the
-half that decides an answer is already a file with tests.
+**It answers without a machine being on.** XIAI is an **interactions endpoint**:
+the application carries an *Interactions Endpoint URL*, Discord POSTs every
+interaction to it, and the endpoint is woken only when somebody asks something.
+That endpoint is the Cloudflare Worker in [`worker/xiaiEndpoint.ts`](worker/xiaiEndpoint.ts),
+and the half that decides an answer has not moved — the same
+[`src/platform/xiai.ts`](src/platform/xiai.ts), the same tests, and the same
+answers word for word, because the command line and the endpoint share the code
+rather than each keeping a copy. `npm run xiai` still runs the bot as a gateway
+client, which is how it is tried out before anything is deployed; once the
+endpoint URL is set, Discord delivers interactions *there* and the local process
+stops being asked anything.
+
+The two properties worth stating plainly, because both of them are Discord's
+rules rather than choices:
+
+- **the signature is checked before anything else happens.** The request carries
+  `X-Signature-Ed25519` and `X-Signature-Timestamp`, and the signature is over the
+  timestamp followed by the **raw body**, so the body is read as bytes and parsed
+  only once it has been proved to be Discord's. Anything else is a 401, which is
+  what Discord's own periodic bad-signature probe is looking for. A request that
+  is signed but *old* is refused too — a genuine signature over something already
+  answered is a replay;
+- **intents are still zero, and the bot still cannot read a channel.** `/ask`
+  carries its own question, and "Ask XIAI" receives the text of the *message it
+  was pointed at* and nothing else — which is how a whole sentence can be asked
+  without the privileged Message Content intent the bot has never requested.
+
+The deployed half holds **no bot token at all.** Verifying a signature needs the
+application's *public* key, and a reply goes back on the interaction's own one-use
+token, so the bot token stays on the machine that registers commands. Five steps,
+and the last one is a check rather than a change:
+
+1. **Deploy it**: `npm run xiai:deploy`. Wrangler prints the URL it was given.
+2. **Give it the key**: `npx wrangler secret put DISCORD_PUBLIC_KEY --config
+   worker/wrangler.toml`, then the application's **Public Key** from the Portal's
+   General Information page — sixty-four hex characters. It is not a secret (it
+   is the verification half of the pair), but it belongs to one application, so it
+   lives in Cloudflare and in `worker/.dev.vars` for local runs rather than in the
+   repository. `XIAI_FEEDBACK_WEBHOOK` is the one genuinely optional secret: a
+   channel webhook, which is the only way the bot can say anything on its own, and
+   which a 👍/👎 click reports through. Unset, a vote is still acknowledged and
+   just goes no further.
+3. **Point Discord at it**: the URL from step 1 goes in the Portal's
+   Interactions Endpoint URL. Discord verifies it by sending a PING, which the
+   endpoint answers with a PONG — a request it will not accept an answer to being
+   unsigned — and the URL is saved only when that round trip works.
+4. **Register the commands**: `npm run xiai -- --register`. It is the same run as
+   ever, and it replaces the guild's command list, which is why both commands are
+   sent together.
+5. **Check it from here**: `npm run xiai:verify`. It signs a PING of its own, reads
+   the answer, and reads the application back to see whether this is really the
+   address Discord is pointed at — which is the mistake worth catching, because an
+   endpoint can be deployed, working, and answering nobody.
+
+**What a check from here can and cannot prove.** A PONG can only be *made* by
+Discord, because it signs with the private half of the application's key pair and
+nobody else has it — which is the point of the signature rather than an obstacle
+to be worked around. So `npm run xiai:verify` signs a PING of its own and reads
+the answer, and the answer it *wants* from a deployment is a **401**: the endpoint
+is up, it holds a public key, and it refused a signature it cannot trust. Against
+a local `wrangler dev` run it can do more, because that endpoint's key comes out
+of a file on this machine: `npm run xiai -- --new-key` writes down a key, its
+public half goes in `worker/.dev.vars`, and the check gets a real `{"type": 1}`
+back — the signature, the PING and the Worker runtime, all exercised. The one
+answer it reports as a defect rather than a pass is a PONG to a key it has never
+been given, because that means the signature was not checked at all — a bot
+anybody can post to.
 
 ### AutoMod, and the filter deliberately not installed
 
@@ -285,13 +358,20 @@ safe to run after editing `src/platform/discord.ts`: the edit is the change.
 | `npm run discord:plan` with a token Discord refuses | the API's own answer is reported (`GET /users/@me/guilds → 401 ... 401: Unauthorized`), the usage is printed once, and the process exits **1** |
 | `npm run discord:announce 9.9.9` | exits 1 and lists the versions the changelog actually has |
 | `npm run discord:announce` with no version | uses the version in `package.json`, and gets as far as the API |
-| `src/platform/xiai.test.ts` | **15 tests**: every fact has a title, a body, a source and triggers that can actually fire; answers fit one Discord message; the command description fits Discord's own 100 characters; and thirty questions a person would plausibly type each land on the answer they should |
+| `src/platform/xiai.test.ts` | **25 tests**: every fact has a title, a body, a source and triggers that can actually fire; the **rendered** answer — title, body and source line together — fits one Discord message; the command description fits Discord's own 100 characters; the picker fits Discord's 25 choices and names every topic after the answer it gives; the button ids fit; and forty-odd questions a person would plausibly type each land on the answer they should, typos and plurals included |
+| `worker/xiai.test.ts` | **28 tests**, and the important one is the boring one: a real Ed25519 key pair signs a real `Request`, the application's key is accepted and a second key is refused. Also — a body changed after it was signed is refused; a correct signature over a ten-minute-old timestamp is refused; an *unsigned* body that is not JSON is a 401 while a signed one is a 400, which is the order the endpoint promises; a missing public key is a 503 rather than a 401; `/ask` answers a question, a topic, and neither; the message command answers from the message it was pointed at and says so when there are no words in it; a 👍 is ephemeral and a 👎 is reported to a webhook with a link to the answer it was about; and a GET is a 405 |
+| **The endpoint, run in workerd** | **verified end to end.** `npm run xiai:dev` started the Worker on a loopback port and a real signed request, signed by a real key pair held for the purpose, was answered: a PING came back `{"type":1}`; `/ask` answered a question, a topic and neither; the message command answered from the message it was pointed at; a 👍 came back with `flags: 64`; and an unsigned request, a ten-minute-old one, a non-JSON one and a GET answered 401, 401, 400 and 405. `worker/.dev.vars` is read from the config file's own directory, which is what the local workflow assumes. |
+| **What workerd found that the tests could not** | a real defect, **fixed**: the entry module exported a *value* beside its handler, and the runtime refuses to start one that does — `Incorrect type for map entry 'NO_WORDS'`. The endpoint now lives in `worker/xiaiEndpoint.ts` and `worker/index.ts` re-exports the handler alone, which is the real reason the two files are split |
 | The matcher's rules | a rare word beats a common one, a trigger appearing as the phrase it is written beats its words floating about, and the **best** trigger decides rather than the total — otherwise “can i play on my phone” answers with where to play, which is the case that produced the rule |
 | **`npm run discord:apply` against the live server** | **run, exit 0.** `#ask-xiai`, `#touchline` and `#known-issues` were created, their pinned posts written, and the run ended with *the server matches the spec in `src/platform/discord.ts`*. `#announcements` is still skipped, because Community is not enabled yet |
 | **`npm run xiai -- --register`** | **run.** `/ask` was registered in the guild and read back in `--check` (`registered commands: /ask`) — guild commands appear at once, which is why it is not global |
 | **`npm run xiai -- --check`** | **run.** The bot identified itself, connected to the gateway, and Discord said **READY** — which is every handshake in the protocol succeeding at once |
+| **`npm run xiai -- --verify` against the deployed endpoint** | **run, exit 0.** It answered a `GET` the way only this Worker does (405, `Allow: POST`), refused a real Ed25519-signed PING with a **401** — the right answer from a deployment, whose key is the application's — and did it in **73 ms** of the three seconds Discord allows. Discord's own `interactions_endpoint_url` was read back and is that same address |
+| **`npm run xiai -- --verify` against a local `wrangler dev` run** | **run, exit 0.** With `worker/.dev.vars` holding the public half of `worker/.verify-key`, the signed PING was answered `{"type":1}` in **14 ms** and the Worker logged *the endpoint was checked: PING answered with PONG*. With that file holding a **different** key: exit **1**, *the local endpoint refused the signature: its key is not the one this check signed with*, naming the key to put in the file |
+| **`npm run xiai -- --verify` when there is nothing to check** | **run, exit 1 each time**: a name that does not resolve (`fetch failed: getaddrinfo ENOTFOUND`), a `workers.dev` host with no Worker behind it (**404**), and a socket that accepts a connection and then says nothing — refused after the check's own **10 s** bound, because a bare `fetch` there waits for ever rather than failing |
+| `src/platform/xiaiVerify.test.ts` | **23 tests.** A PING signed by the check is accepted by the endpoint's *own* verifier, and refused when the key differs or the timestamp is ten minutes old — without which a signature over the wrong bytes would arrive as a 401 and read exactly like a healthy deployment. Also: a seed survives being written down and comes back as the same key; a PONG to a key that was never given reads as a defect and not a pass; a slow PONG is a warning; and Discord's own setting is compared with the address, trailing slash and all |
 | **`npm run xiai -- --ask "…"`** | **run**, with no token and no Discord: “how do promotions work” answers from `promotion`, “is there a steam release” from `price`, both with the file they came from, and “what is the capital of peru” is refused rather than guessed |
-| The whole suite | **1,021 tests in 79 files, all passing** |
+| The whole suite | **1,140 tests in 87 files, all passing** |
 | **A real `/ask`, answered in the server** | **answered, live.** The question arrived as an `INTERACTION_CREATE` frame, the callback POST was accepted and the reply appeared — no failure was logged. It was `what is SE27?`, and the bot did not know it, which is how the knowledge base found its first gap: the project's own shorthand is a trigger now, with the question kept as a test |
 | **Running it twice** | the second apply reported every pinned post as *already right, and pinned* — the idempotency this document claims, demonstrated on the live server rather than asserted |
 
@@ -319,6 +399,10 @@ document makes.
 
 | | |
 | --- | --- |
+| **The endpoint deployed, and Discord pointed at it** | **done, and checked from here.** `npm run xiai:deploy` put the Worker live, its public key is a Worker secret, and the application's Interactions Endpoint URL is that Worker — read back from Discord's API by the check rather than assumed. `npm run xiai -- --verify` also saw it answer a `GET` with 405 and `Allow: POST` and refuse a signed PING with a **401** in 73 ms. What has not happened is a real interaction answered *by the deployment*: that needs somebody to type `/ask` in the server, and until then the evidence is that Discord is pointed at an endpoint that is up and enforcing signatures |
+| **Registering the second command** | **run, and accepted.** `npm run xiai -- --register` reported *registered /ask, Ask XIAI in that server*, so Discord took both names rather than refusing the second with a 400 as this row used to warn. What has still not happened is a person using it: no answer has been given from the right-click menu |
+| **The vote webhook** | **never set.** A 👎 has been proved against a stubbed `fetch` and never against a real channel webhook, so what the report looks like in a client is unknown — and unset is a supported state, in which case nothing is sent |
+| **The local bot's interaction path, remade** | **not exercised over the gateway.** `npm run xiai` now answers with the endpoint's own decision function rather than a copy of it, which is what stops the two answering differently — and the decision is the same code the 28 endpoint tests cover. What has not been run since the change is an interaction arriving over a socket |
 | **What the answers look like in the client** | **not seen by me.** A real question has been answered, so the round trip is proved, but the answer as the *client* renders it — the bold title, the `-# ` source line, whether a long answer reads well in a channel — has only been judged by somebody looking at Discord, not by anything here |
 | **The bot left running for a long time** | **not done here.** `--check` connects and disconnects on purpose, and the bot has run for minutes rather than days: no reconnect after a real network drop, no rate limit, no resumed session |
 | `--icon` | **never run.** The allow/deny arithmetic is tested; the upload is not |
@@ -341,7 +425,9 @@ document makes.
 | The HTTP layer: credential handling, refusal to run with a tracked token, 429/5xx retries, honest 403/404 hints | **written, partly exercised** — the failure paths were run; the successful ones have not been |
 | Applying it to a live server | **run**: roles, categories, channels, overwrites, pinned posts and the three AutoMod rules are in the server, and the run ends by saying it matches the spec. `#announcements` waits for Community |
 | `src/platform/discord.ts`'s spec reaching the game's own build | **it does not, and should not:** nothing under `src/` imports this outside the tests, and the game itself has no Discord integration, no presence sharing and no account |
-| XIAI: the facts, and the matcher that picks one | **done, tested** — 15 tests, and it answers on the command line today |
+| XIAI: the facts, and the matcher that picks one | **done, tested** — 25 tests, 32 facts, and it answers on the command line today |
+| XIAI: the endpoint — the contract, the signature, and the three ways to ask | **done, tested, deployed and checked** — 28 tests, run against the real runtime locally, deployed with `npm run xiai:deploy`, and checked live: 405 to a `GET`, 401 to a signed PING, and Discord pointed at it. No interaction has been answered by the deployment yet |
+| Each answer's own buttons, and the picker built from its titles | **done, tested** — a 👍 is ephemeral, a 👎 reports to a webhook when one is set |
 | `/ask`, and the bot answering it | **done**: registered, connected, and a real question answered in the server. The command line answers the same questions without a token, which is how the knowledge base can be reviewed |
 | `#ask-xiai`, `#touchline`, `#known-issues` | **applied and verified**: created by the run above, with their pinned posts, on the live server |
 | The answer text as Discord shows it | **not seen**: everything about it is testable except how it looks in the client |

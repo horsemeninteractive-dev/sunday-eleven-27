@@ -1,3 +1,4 @@
+import { GROUND_UPKEEP, RECURRING_UPKEEP_ID } from '@/domain/facilities';
 import type { GameState } from '@/domain/game';
 import type { ClubId, ISODate } from '@/domain/ids';
 import { isCompetitiveMatch } from '@/domain/match';
@@ -51,6 +52,12 @@ export function obligationsBetween(state: GameState, clubId: ClubId, from: ISODa
   const rules = recurringEvents(state);
   const standingRule = rules.find((rule) => rule.id === 'rec_costs');
   const trainingRule = rules.find((rule) => rule.id === 'rec_training');
+  // The ground upkeep is the club's own commitment rather than a rule of the
+  // calendar, so its rule only exists while it is paid. It is read from the
+  // club's record, and priced from the same constant the charge is made from,
+  // so the treasurer's outlook and the ledger cannot disagree about the £9.
+  const upkeepRule = rules.find((rule) => rule.id === RECURRING_UPKEEP_ID);
+  const upkeep = state.facilities?.upkeep?.[clubId] === true ? GROUND_UPKEEP.perWeek : 0;
   // The pitch is not a weekly bill: it is charged when the club plays at home,
   // and appears on the fixture itself below. What recurs every week is the
   // insurance.
@@ -65,6 +72,15 @@ export function obligationsBetween(state: GameState, clubId: ClubId, from: ISODa
         label: 'Standing costs',
         detail: 'Insurance',
         amount: -standing,
+      });
+    }
+    if (upkeepRule && upkeep > 0 && recursOn(upkeepRule, date)) {
+      out.push({
+        id: `upkeep:${date}`,
+        date,
+        label: GROUND_UPKEEP.label,
+        detail: 'The groundsman, the mower and the winter covers',
+        amount: -upkeep,
       });
     }
     if (trainingRule && hall > 0 && recursOn(trainingRule, date)) {

@@ -5,6 +5,7 @@ import { PITCH_LABEL, WEATHER_LABEL, type Match } from '@/domain/match';
 import { isPlayer, type Player } from '@/domain/person';
 import { POSITIONS } from '@/domain/positions';
 import { formatDayMonth, formatKickOff } from '@/simulation/calendar';
+import { CHANGES_PER_MATCH } from '@/simulation/match/laws';
 import { expectedAttendanceFor } from '@/simulation/matchday';
 import {
   FULL_TIME_TALK_BLURB,
@@ -16,12 +17,16 @@ import {
   WARM_UP_BLURB,
   WARM_UP_LABEL,
   WARM_UP_ORDER,
+  warmUpEnergyDelta,
+  warmUpFamiliarityDelta,
   type TeamTalk,
   type WarmUp,
 } from '@/simulation/match/preparation';
 import type { MatchSession } from '@/state/gameStore';
-import { gameActions } from '../hooks';
+import { photoVeil } from '../colour';
+import { gameActions, useTheme } from '../hooks';
 import { Button } from '../components/primitives';
+import { PitchBadge, pitchVerdict } from './PitchBadge';
 import { MatchScoreline } from './MatchScoreline';
 import { MatchStatsPanel } from './MatchStats';
 import type { MatchFeed } from '../matchFeed';
@@ -31,6 +36,50 @@ import type { MatchFeed } from '../matchFeed';
  * fifteen minutes in the changing room, and the result. They all live in the
  * same frame so nothing about the day feels like a different application.
  */
+
+/** One thing a warm-up does, in the words the manager would use for it. */
+export interface WarmUpEffect {
+  label: string;
+  /** `undefined` for the neutral one: it is the row's own ink, not a tone. */
+  tone?: 'ok' | 'warn' | 'accent';
+}
+
+/**
+ * What a warm-up costs and what it buys.
+ *
+ * Read from the numbers the simulation actually applies — `warmUpEnergyDelta`
+ * for the legs it leaves and `warmUpFamiliarityDelta` for the shape it teaches —
+ * rather than written beside them, so the two can never drift apart. The words
+ * are deliberately directions and not figures: nothing about a warm-up is
+ * reported to the manager as a number, which is why the trade-off had to be a
+ * choice between four sentences until now.
+ */
+export function warmUpEffects(warmUp: WarmUp): WarmUpEffect[] {
+  const legs = warmUpEnergyDelta(warmUp);
+  const effects: WarmUpEffect[] = [
+    legs > 0
+      ? { label: 'Fresher legs', tone: 'ok' }
+      : legs < 0
+        ? { label: 'Heavier legs', tone: 'warn' }
+        : { label: 'No change' },
+  ];
+  if (warmUpFamiliarityDelta(warmUp) > 0) effects.push({ label: 'Sharper shape', tone: 'accent' });
+  return effects;
+}
+
+/**
+ * The changes a side still has, asked of the law rather than written in beside it.
+ *
+ * The half-time card counted `3 - substitutions` — the right number in every
+ * match today, because the competition's allowance is three and the bench obeys
+ * the same number — but the law lives in `laws.ts` (`CHANGES_PER_MATCH`) and the
+ * engine reads it there. A card that restates a law is a card that lies the day
+ * the law changes, and the subtraction could go below none: the clamp is what the
+ * engine's own reading of the same figure does.
+ */
+export function changesRemaining(match: Match, side: 'home' | 'away'): number {
+  return Math.max(0, CHANGES_PER_MATCH - match.substitutions[side]);
+}
 
 /** What the manager knows before kick-off, and what he says to them. */
 export function PreMatchPanel({
@@ -53,15 +102,20 @@ export function PreMatchPanel({
   const ground = game.world.grounds[match.groundId];
   const warnings = selectionWarnings(game, match, session, playerById);
   const opponentForm = recentForm(game, opponentId);
+  // What the surface does to the football, read from the engine's own numbers.
+  const pitch = pitchVerdict(match.conditions);
   const ref = useRef<HTMLDivElement>(null);
   useModal(ref, onLookAround);
+  // The briefing is printed on the matchday photograph, so the photograph is
+  // washed to whatever ink the theme is about to put on it.
+  const veil = photoVeil(useTheme());
 
   return (
     <div className="interval">
       <div ref={ref} className="interval__card" role="dialog" aria-modal="true" aria-label="Matchday briefing">
         <header
           className="interval__head interval__head--photo"
-          style={{ backgroundImage: `linear-gradient(90deg, rgba(8, 9, 11, 0.92), rgba(8, 9, 11, 0.55)), url(/photos/prematch-matchday.webp)` }}
+          style={{ backgroundImage: `${veil}, url(/photos/prematch-matchday.webp)` }}
         >
           <h2>Matchday</h2>
           <p className="small muted">
@@ -87,11 +141,19 @@ export function PreMatchPanel({
         </div>
         <div>
           <dt>Pitch</dt>
-          <dd>{PITCH_LABEL[match.conditions.pitch]}</dd>
+          <dd className="briefing__pitch">
+            <PitchBadge conditions={match.conditions} />
+            <span className="briefing__pitch-word">{PITCH_LABEL[match.conditions.pitch]}</span>
+          </dd>
         </div>
         <div>
           <dt>Expected</dt>
           <dd>~{expectedAttendanceFor(game, match)}</dd>
+        </div>
+        {/* The one fact on this card that changes the football, said rather
+            than left to be worked out from a word. */}
+        <div className={`briefing__pitch-note briefing__pitch-note--${pitch.tone}`}>
+          {pitch.notes.join(' · ')}
         </div>
       </dl>
 
@@ -163,6 +225,19 @@ export function PreMatchPanel({
               title={WARM_UP_BLURB[warmUp]}
             >
               {WARM_UP_LABEL[warmUp]}
+              {/* The trade-off is the decision, and it used to be two sentences
+                  underneath a row of four buttons — so choosing between them
+                  meant reading all four. */}
+              <span className="choice__effects">
+                {warmUpEffects(warmUp).map((effect) => (
+                  <span
+                    key={effect.label}
+                    className={`choice__effect${effect.tone ? ` choice__effect--${effect.tone}` : ''}`}
+                  >
+                    {effect.label}
+                  </span>
+                ))}
+              </span>
             </button>
           ))}
         </div>
@@ -210,7 +285,7 @@ export function HalfTimePanel({
   const starters = match.lineups[session.side].starting.map((slot) => ({ slot, player: playerById(slot.playerId) }));
   const tired = starters.filter((entry) => (match.performances[entry.slot.playerId]?.energy ?? 100) < 45);
   const carded = starters.filter((entry) => (match.performances[entry.slot.playerId]?.yellowCards ?? 0) > 0);
-  const changes = 3 - match.substitutions[session.side];
+  const changes = changesRemaining(match, session.side);
   const ref = useRef<HTMLDivElement>(null);
   useModal(ref, onMakeChanges);
 

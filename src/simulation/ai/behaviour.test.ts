@@ -203,9 +203,15 @@ describe('two instruction sets produce two kinds of football', () => {
   });
 
   it('moves the real engine, not only the abstraction', () => {
+    // Measured across a matchday's worth of football rather than one or two
+    // fixtures. A real afternoon's shots swing hard from match to match — the
+    // same two sets of instructions over two fixtures have come out favouring the
+    // cautious side outright — so a two-fixture sample is a wager on which
+    // afternoon it happened to pick. The claim is about the engine, and it is
+    // measured over enough of the engine's football to be a claim about it.
     let aggressive = 0;
     let cautious = 0;
-    for (const { match, env } of fixtures('ai-style-full', 2)) {
+    for (const { match, env } of fixtures('ai-style-full', 8)) {
       aggressive += playFull(match, env, GOING_FOR_IT, BALANCED).result!.homeShots;
       cautious += playFull(match, env, SITTING_ON_IT, BALANCED).result!.homeShots;
     }

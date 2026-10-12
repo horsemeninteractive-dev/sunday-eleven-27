@@ -4,7 +4,7 @@ import { isPlayer, type Player } from '@/domain/person';
 import { ordinal } from '@/simulation/news';
 import { moneyShort } from '../format';
 import { gameActions } from '../hooks';
-import { Button, PageHeader, Panel, Pill, SortTh } from '../components/primitives';
+import { Button, Fact, PageHeader, Panel, Pill, SortTh } from '../components/primitives';
 import { ClubBadge } from '../components/Badge';
 import { PersonLine } from '../components/PersonIdentity';
 import { SceneBackdrop } from '../components/SceneBackdrop';
@@ -62,6 +62,11 @@ export function ClubSelectView() {
   if (!draft) return null;
 
   const selectedClub = selected ? draft.clubs[selected] : null;
+  // The ground the club plays on, read once: the row that describes it prints the
+  // name, the surface and the capacity of one ground, and they have to come from
+  // the same one — a missing ground is a dash, not a surface of "—" beside a
+  // capacity of 0.
+  const selectedGround = selectedClub ? draft.world.grounds[selectedClub.groundId] : undefined;
   const squad = selectedClub
     ? selectedClub.squadIds.map((id) => draft.people[id]).filter(isPlayer)
     : [];
@@ -118,7 +123,15 @@ export function ClubSelectView() {
         </div>
       )}
 
-      <div className="club-select__grid" id="selected-division" role="tabpanel" aria-labelledby={`division-${visible?.tier}`}>
+      {/* A tab panel only when there are tabs: with one division in the draft no
+          tabstrip is drawn, and a panel labelled by an id that is not on the
+          screen is a reference to nothing. */}
+      <div
+        className="club-select__grid"
+        id="selected-division"
+        role={divisions.length > 1 ? 'tabpanel' : undefined}
+        aria-labelledby={divisions.length > 1 ? `division-${visible?.tier}` : undefined}
+      >
         <div className="stack">
           {visible && (
             <Panel
@@ -181,9 +194,11 @@ export function ClubSelectView() {
                   <Fact label="Town" value={draft.world.towns[selectedClub.townId]?.name ?? '—'} />
                   <Fact
                     label="Ground"
-                    value={`${draft.world.grounds[selectedClub.groundId]?.name ?? '—'} (${
-                      draft.world.grounds[selectedClub.groundId]?.surface ?? '—'
-                    }, capacity ${draft.world.grounds[selectedClub.groundId]?.capacity ?? 0})`}
+                    value={
+                      selectedGround
+                        ? `${selectedGround.name} (${selectedGround.surface}, capacity ${selectedGround.capacity})`
+                        : '—'
+                    }
                   />
                   <Fact label="Structure" value={CLUB_STRUCTURE_LABEL[selectedClub.structure]} />
                   <Fact label="Founded" value={String(selectedClub.identity.foundedYear)} />
@@ -206,9 +221,13 @@ export function ClubSelectView() {
                       draft.people[selectedClub.chairmanId ?? '']?.surname ?? ''
                     }`}
                   />
+                  {/* The club's own figures, with nothing standing in for them: these
+                      three are part of every club's finances, so a fallback here
+                      would print the game's own defaults as the terms of whichever
+                      club the manager is looking at. */}
                   <Fact
                     label="Finances"
-                    value={`${moneyShort(selectedClub.finances.balance)} · subs £${selectedClub.finances.starterSubAmount ?? 5}/£${selectedClub.finances.substituteSubAmount ?? 3} per game · sponsorship up to £${selectedClub.finances.sponsorIncomePerWeek}/week`}
+                    value={`${moneyShort(selectedClub.finances.balance)} · subs £${selectedClub.finances.starterSubAmount}/£${selectedClub.finances.substituteSubAmount} per game · sponsorship up to £${selectedClub.finances.sponsorIncomePerWeek}/week`}
                   />
                   <Fact
                     label="Rivalries"
@@ -277,11 +296,3 @@ export function ClubSelectView() {
   );
 }
 
-function Fact({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="facts__row">
-      <dt>{label}</dt>
-      <dd>{value}</dd>
-    </div>
-  );
-}

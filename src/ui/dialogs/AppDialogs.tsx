@@ -1,6 +1,7 @@
+import type { ReactNode } from 'react';
 import { useGameStore } from '@/state/gameStore';
-import { clubStyle } from '../colour';
-import { useGame } from '../hooks';
+import type { ClubColours } from '../colour';
+import { useClubColours, useGame } from '../hooks';
 import {
   ChangelogDialog,
   CreditsDialog,
@@ -37,7 +38,18 @@ export function AppDialogs() {
     dialog === 'credits' ? <CreditsDialog /> :
     <ProfilesDialog />;
   if (!game) return open;
-  return (
-    <div style={clubStyle(game.clubs[game.userClubId]!.identity.colours)}>{open}</div>
-  );
+  return <ClubWrapped colours={game.clubs[game.userClubId]!.identity.colours}>{open}</ClubWrapped>;
+}
+
+/**
+ * Someone else's colours, put on a dialog that is not inside the shell.
+ *
+ * A component of its own for one reason: a club's colours now depend on the
+ * theme — `--club-text` is mixed against the surface it will be read on, and
+ * that surface is different in each — so they are resolved in a hook. A hook
+ * cannot be called after the early returns above, so the element that needs one
+ * is the element that has one.
+ */
+function ClubWrapped({ colours, children }: { colours: ClubColours; children: ReactNode }) {
+  return <div style={useClubColours(colours)}>{children}</div>;
 }

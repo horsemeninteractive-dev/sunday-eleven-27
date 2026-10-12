@@ -61,6 +61,18 @@ function makeEveryoneUnavailable(game: TestGame): void {
   }
 }
 
+/**
+ * How much room a man has left to develop.
+ *
+ * `developmentFor` only banks opportunity for a player with some headroom — a
+ * man already as good as he is ever going to be banks nothing, however hard the
+ * night was — so a test about *what* a block banks has to choose its subject
+ * from the players the model will bank for at all.
+ */
+function roomToGrow(player: Player): number {
+  return (player.development?.potential ?? 0) - overallAbility(player);
+}
+
 function attributeSnapshot(players: readonly Player[]): Map<string, number> {
   const map = new Map<string, number>();
   for (const player of players) {
@@ -349,11 +361,31 @@ describe('development', () => {
     planFor(game, ['warm-up', 'fitness']);
     const session = conductTraining(game.state, game.state.userClubId, 1).session!;
 
-    const attendee = session.attendance.find((entry) => entry.status === 'attending')!;
-    const banked = developmentFor(game.state, attendee.personId);
+    // The claim is which block feeds which attributes, so the man under the
+    // microscope has to be one with room to grow: taking whoever the generator
+    // happened to roll as attending first would make this a test of the
+    // squad's luck rather than of the model.
+    const attendee = session.attendance
+      .filter((entry) => entry.status === 'attending')
+      .map((entry) => game.state.people[entry.personId])
+      .filter(isPlayer)
+      .find((player) => roomToGrow(player) > 0);
+    expect(attendee, 'no attending player had room to develop').toBeTruthy();
+
+    const banked = developmentFor(game.state, attendee!.id);
     const keys = Object.keys(banked);
     expect(keys.length).toBeGreaterThan(0);
     expect(keys.every((key) => key.startsWith('physical.'))).toBe(true);
+
+    // And the other side of the same rule, on the same night: a man who has
+    // nothing left to grow into banks nothing, which is why the subject above
+    // had to be chosen rather than assumed.
+    const spent = session.attendance
+      .filter((entry) => entry.status === 'attending')
+      .map((entry) => game.state.people[entry.personId])
+      .filter(isPlayer)
+      .find((player) => roomToGrow(player) <= 0);
+    if (spent) expect(Object.keys(developmentFor(game.state, spent.id))).toHaveLength(0);
   });
 
   it('does not turn training into an attribute every week', () => {

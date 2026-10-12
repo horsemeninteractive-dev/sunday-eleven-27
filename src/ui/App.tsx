@@ -1,9 +1,9 @@
-import { Suspense, useCallback, useState } from 'react';
+import { Suspense, useCallback, useState, type ReactNode } from 'react';
 import type { ViewId } from '@/state/gameStore';
 import { useGameStore } from '@/state/gameStore';
 import { hasSeenFirstBoot, markFirstBootSeen, shouldShowFirstBoot } from '@/state/firstBoot';
-import { useGame } from './hooks';
-import { clubStyle } from './colour';
+import { useClubColours, useGame } from './hooks';
+import type { ClubColours } from './colour';
 import { AppShell } from './layout/AppShell';
 import { AppDialogs } from './dialogs/AppDialogs';
 import { UpdatePrompt } from './components/UpdatePrompt';
@@ -15,7 +15,10 @@ import { useCareerLoading } from './careerActions';
 // behind a fallback that would blank the page.
 import { StartView } from './views/StartView';
 import { FirstBootView } from './views/FirstBootView';
+import { isEmployed } from '@/simulation/career';
+import { isAvailableOutOfWork } from './navigation';
 import {
+  BetweenJobsView,
   ClubSelectView,
   ClubView,
   CreateClubView,
@@ -118,9 +121,9 @@ export function App() {
     if (view === 'match' && session) {
       // The club's colours come with it: the match is still your club's match.
       return (
-        <div className="takeover" style={clubStyle(game.clubs[game.userClubId]!.identity.colours)}>
+        <Takeover colours={game.clubs[game.userClubId]!.identity.colours}>
           <MatchView />
-        </div>
+        </Takeover>
       );
     }
 
@@ -128,9 +131,23 @@ export function App() {
       // Watching an afternoon back is a takeover too: nothing about the career
       // should be reachable while the replay has the screen.
       return (
-        <div className="takeover" style={clubStyle(game.clubs[game.userClubId]!.identity.colours)}>
+        <Takeover colours={game.clubs[game.userClubId]!.identity.colours}>
           <ReplayView />
-        </div>
+        </Takeover>
+      );
+    }
+
+    // A manager between jobs keeps the screens that are not about a club — his
+    // own page, his messages, the local paper, and the world he is looking for
+    // work in — and the job board on Home for everything else. Every other
+    // destination would be showing a club that is no longer his, so it falls
+    // back to the board rather than to a lie.
+    if (!isEmployed(game)) {
+      const available = isAvailableOutOfWork(view) ? view : 'dashboard';
+      return (
+        <AppShell game={game} view={available} outOfWork>
+          {available === 'dashboard' ? <BetweenJobsView /> : <ViewRouter view={available} />}
+        </AppShell>
       );
     }
 
@@ -157,6 +174,22 @@ export function App() {
           and a dialog he can close would let him press Continue twice. */}
       <ProcessingModal />
     </>
+  );
+}
+
+/**
+ * A screen that has the whole window, in the club's own colours.
+ *
+ * It is a component of its own because the two screens that take the window do
+ * not render where the shell does, and a club's colours now depend on the theme
+ * — so the colours have to be worked out somewhere a hook is allowed to be
+ * called unconditionally, rather than in the branch that happens to be showing.
+ */
+function Takeover({ colours, children }: { colours: ClubColours; children: ReactNode }) {
+  return (
+    <div className="takeover" style={useClubColours(colours)}>
+      {children}
+    </div>
   );
 }
 

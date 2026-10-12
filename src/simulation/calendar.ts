@@ -230,20 +230,52 @@ export function cupRoundDate(leagueDate: ISODate): ISODate {
 }
 
 /**
- * Build the calendar for a season of leagues and cups.
+ * A cup round's slot, and what became of it.
  *
- * `slots` names the league matchday each cup round precedes. A slot pointing at
- * a matchday that does not exist is ignored rather than throwing, so a pyramid
- * configured with more cup rounds than the league has weeks still builds.
+ * `date` is null when the round could not be given a day of its own, and
+ * `reason` says why — because a round with no date is a round that can never be
+ * drawn, and a competition that can never be drawn is one that never reaches a
+ * winner.
  */
-export function buildSeasonCalendarWithCups(
+export interface PlacedCupSlot extends CupRoundSlot {
+  /** The Sunday the round was given, or null when the calendar had none to give it. */
+  date: ISODate | null;
+  /** The matchday number the round took in the calendar, or null when it was not placed. */
+  matchday: number | null;
+  /** Why the round could not be placed, when it could not. */
+  reason: string | null;
+}
+
+/** The calendar a season's cup rounds were placed in, and the fate of each slot. */
+export interface CupRoundPlacement {
+  calendar: SeasonCalendarEntry[];
+  /** One entry per requested slot, in the order they were requested. */
+  slots: PlacedCupSlot[];
+  /** The slots that could not be given a date. Empty for a healthy season. */
+  unplaced: PlacedCupSlot[];
+}
+
+/**
+ * Build the calendar for a season of leagues and cups, and report every slot in
+ * it.
+ *
+ * `slots` names the league matchday each cup round precedes. A slot that cannot
+ * be placed — pointing at a matchday the league calendar does not have, or with
+ * every Sunday within reach of it already taken or inside the Christmas break —
+ * is reported as unplaced rather than quietly skipped. The calendar itself is
+ * unchanged by that reporting; the difference is that the season builder can now
+ * tell the two cases apart and refuse the season rather than running a cup that
+ * has no date on which to be drawn.
+ */
+export function placeCupRounds(
   startDate: ISODate,
   matchdays: number,
   slots: readonly CupRoundSlot[] = [],
-): SeasonCalendarEntry[] {
+): CupRoundPlacement {
   const league = buildSeasonCalendar(startDate, matchdays);
   const extra: SeasonCalendarEntry[] = [];
   const nextMatchday = league.length;
+  const placements: PlacedCupSlot[] = [];
 
   // Every Sunday already spoken for: the league's own, and the rounds placed
   // ahead of this one. A cup round needs a day to itself, because the whole
@@ -252,8 +284,17 @@ export function buildSeasonCalendarWithCups(
 
   for (const slot of slots) {
     const leagueEntry = league[slot.beforeMatchday - 1];
-    if (!leagueEntry) continue;
-    let date = cupRoundDate(leagueEntry.date);
+    if (!leagueEntry) {
+      placements.push({
+        ...slot,
+        date: null,
+        matchday: null,
+        reason: `its anchor, league matchday ${slot.beforeMatchday}, is not in a ${matchdays}-matchday league calendar`,
+      });
+      continue;
+    }
+    const anchor = cupRoundDate(leagueEntry.date);
+    let date = anchor;
     // A round whose slot falls in the Christmas fortnight moves on to the next
     // Sunday out of it rather than being dropped. Dropping it left the round with
     // no date at all: the competition could then never finish, because a
@@ -272,9 +313,28 @@ export function buildSeasonCalendarWithCups(
       if (!isChristmasBreak(date) && !taken.has(date)) break;
       date = addDays(date, 7);
     }
-    if (isChristmasBreak(date) || taken.has(date)) continue;
+    if (isChristmasBreak(date)) {
+      placements.push({
+        ...slot,
+        date: null,
+        matchday: null,
+        reason: `every Sunday within eight weeks of ${anchor} falls in the Christmas break`,
+      });
+      continue;
+    }
+    if (taken.has(date)) {
+      placements.push({
+        ...slot,
+        date: null,
+        matchday: null,
+        reason: `every Sunday within eight weeks of ${anchor} is already taken by a league matchday or another cup round`,
+      });
+      continue;
+    }
     taken.add(date);
-    extra.push({ matchday: nextMatchday + extra.length + 1, date });
+    const entry: SeasonCalendarEntry = { matchday: nextMatchday + extra.length + 1, date };
+    extra.push(entry);
+    placements.push({ ...slot, date: entry.date, matchday: entry.matchday, reason: null });
   }
 
   // Numbered in one sequence, but the numbers are *not* in date order: a cup
@@ -284,7 +344,26 @@ export function buildSeasonCalendarWithCups(
   // code that walked it in date order — as the fixture list does — met cup ties
   // dated in the past, which nothing ever plays. Sorted by date, the sequence is
   // the order things actually happen in.
-  return [...league, ...extra].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.matchday - b.matchday));
+  return {
+    calendar: [...league, ...extra].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.matchday - b.matchday)),
+    slots: placements,
+    unplaced: placements.filter((placement) => placement.date === null),
+  };
+}
+
+/**
+ * The season's calendar, cups included.
+ *
+ * The calendar on its own, for a caller with nothing to say about the slots.
+ * The season builder uses {@link placeCupRounds} instead, so it can refuse a
+ * season whose cup rounds could not all be dated.
+ */
+export function buildSeasonCalendarWithCups(
+  startDate: ISODate,
+  matchdays: number,
+  slots: readonly CupRoundSlot[] = [],
+): SeasonCalendarEntry[] {
+  return placeCupRounds(startDate, matchdays, slots).calendar;
 }
 
 /**

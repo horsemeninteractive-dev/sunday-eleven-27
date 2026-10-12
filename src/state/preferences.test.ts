@@ -1,12 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   applyMotion,
+  applyTheme,
   clampSpeed,
   currentMotion,
+  currentTheme,
   DEFAULT_PREFERENCES,
   loadPreferences,
   resolveMotion,
+  resolveTheme,
   savePreferences,
+  THEME_COLOUR,
 } from './preferences';
 
 /**
@@ -42,8 +46,27 @@ describe('preferences', () => {
 
   it('remembers what was chosen, and gives it back next time', () => {
     installStorage();
-    savePreferences({ motion: 'reduced', defaultMatchSpeed: 4, renderer: '2d' });
-    expect(loadPreferences()).toEqual({ motion: 'reduced', defaultMatchSpeed: 4, renderer: '2d' });
+    savePreferences({ motion: 'reduced', theme: 'light', defaultMatchSpeed: 4, renderer: '2d' });
+    expect(loadPreferences()).toEqual({ motion: 'reduced', theme: 'light', defaultMatchSpeed: 4, renderer: '2d' });
+  });
+
+  it('opens dark, because that is what this game is', () => {
+    // The lights are a choice rather than a guess about the machine: the boot
+    // placeholder, the manifest and every screenshot are near-black, so a
+    // manager whose computer happens to be in light mode is not shown a
+    // different product on his first launch.
+    installStorage();
+    expect(loadPreferences().theme).toBe('dark');
+    expect(DEFAULT_PREFERENCES.theme).toBe('dark');
+  });
+
+  it('remembers the chosen lights, and falls back to dark when they are nonsense', () => {
+    installStorage();
+    savePreferences({ ...DEFAULT_PREFERENCES, theme: 'light' });
+    expect(loadPreferences().theme).toBe('light');
+
+    installStorage(JSON.stringify({ theme: 'sepia' }));
+    expect(loadPreferences().theme).toBe('dark');
   });
 
   it('remembers the chosen renderer, and opens in 2D without one', () => {
@@ -82,6 +105,43 @@ describe('preferences', () => {
     expect(clampSpeed(undefined)).toBe(1);
   });
 
+
+  it('lets the manager overrule the system about the lights, in either direction', () => {
+    expect(resolveTheme('light', false)).toBe('light');
+    expect(resolveTheme('light', true)).toBe('light');
+    expect(resolveTheme('dark', true)).toBe('dark');
+    expect(resolveTheme('dark', false)).toBe('dark');
+    expect(resolveTheme('system', true)).toBe('light');
+    expect(resolveTheme('system', false)).toBe('dark');
+  });
+
+  it('writes the lights where the stylesheet reads them, and where a browser does', () => {
+    installStorage();
+    const attributes = new Map<string, string>();
+    const meta = { content: '' };
+    vi.stubGlobal('document', {
+      documentElement: {
+        setAttribute: (name: string, value: string) => attributes.set(name, value),
+        getAttribute: (name: string) => attributes.get(name) ?? null,
+      },
+      // The browser paints its own chrome with this one, and it is the only part
+      // of the window the stylesheet cannot reach.
+      querySelector: (selector: string) =>
+        selector === 'meta[name="theme-color"]'
+          ? { setAttribute: (_name: string, value: string) => { meta.content = value; } }
+          : null,
+    });
+    vi.stubGlobal('window', { matchMedia: () => ({ matches: false }) });
+
+    expect(applyTheme('light')).toBe('light');
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+    expect(currentTheme()).toBe('light');
+    expect(meta.content).toBe(THEME_COLOUR.light);
+
+    expect(applyTheme('dark')).toBe('dark');
+    expect(currentTheme()).toBe('dark');
+    expect(meta.content).toBe(THEME_COLOUR.dark);
+  });
 
   it('lets the manager overrule the system in either direction', () => {
     // Asked for reduced motion: reduced, whether or not the system agrees.

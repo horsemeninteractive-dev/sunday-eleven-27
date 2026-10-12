@@ -3,12 +3,14 @@ import type { GameState } from '@/domain/game';
 import type { ClubId, ISODate, PersonId, SeasonId } from '@/domain/ids';
 import type { GameEvent } from '@/domain/news';
 import { isOfficial, isPlayer, type Official, type Person, type Player } from '@/domain/person';
-import { yearOf } from './calendar';
+import { formatShortDate, yearOf } from './calendar';
 import { linkManagerToClub } from './generation/relationshipGenerator';
 import { maybeNickname, occupation, personFirstName, personSurname } from './generation/names';
 import { createEvent } from './news';
 import { removePersonFromCommunication } from './communication/store';
 import { removePersonRelationships, relationshipStore } from './relationships';
+import { nextId } from './ids';
+import { leaveClubStaff, releaseSupportRole, rolesAtClub } from './staff';
 import { Rng, stream } from './rng';
 
 /**
@@ -65,6 +67,26 @@ export interface ManagerMarketContext {
   previousSeasonLabel: string;
   /** Managers the market must not move (the player's own, for now). */
   protectedManagerIds?: PersonId[];
+  /**
+   * Vacancies to leave unfilled rather than appoint over.
+   *
+   * Used by the player's own career: while he is out of work the market holds a
+   * handful of posts his standing makes him a candidate for, so the job market
+   * has something in it. A club the predicate says yes to is returned in
+   * {@link ManagerMarketOutcome.held} and filled when its window closes.
+   */
+  holdVacancies?: (club: Club) => boolean;
+  /**
+   * The last resort when {@link holdVacancies} held nothing: the club whose
+   * committee should take a look at its manager, because there is a manager out
+   * of work and a summer in which nobody moved.
+   *
+   * Only ever consulted for the player's own career, only when he is out of work
+   * and the carousel has left him nothing to apply for, and only given clubs that
+   * have a manager and are not protected. The market, not the caller, makes the
+   * change — the answer is which club, not what happens to it.
+   */
+  guaranteeVacancy?: (clubs: readonly Club[]) => Club | null;
 }
 
 export interface ManagerChange {
@@ -85,6 +107,8 @@ export interface ManagerChange {
 export interface ManagerMarketOutcome {
   events: GameEvent[];
   changes: ManagerChange[];
+  /** Posts left vacant for a caller to hand to the player's job market. */
+  held: ClubId[];
 }
 
 const REASONS = {
@@ -164,6 +188,15 @@ function appointManager(
   context: ManagerMarketContext,
   reason: ManagerChange['reason'],
 ): ManagerChange {
+  // A man promoted from inside the club gives up the post he was holding. The
+  // committee's roster must not go on naming him as the assistant in the job he
+  // has just left: it did, and the day his age caught up with him — this very
+  // market retires a manager at 68 and deletes him from the world — the club was
+  // left pointing at a man who no longer existed (`club-staff-exists` in the
+  // soak, first seen four seasons after the club was formed). The best-placed man
+  // in the building is usually the assistant, so this is the ordinary case rather
+  // than an edge one.
+  for (const role of rolesAtClub(manager, club.id)) releaseSupportRole(club, manager, role);
   manager.role = 'manager';
   manager.roles = [{ clubId: club.id, role: 'manager', since: context.seasonStart }];
   manager.clubId = club.id;
@@ -267,9 +300,23 @@ export function runManagerMarket(state: GameState, context: ManagerMarketContext
   const events: GameEvent[] = [];
   const changes: ManagerChange[] = [];
   const protectedIds = new Set<PersonId>(context.protectedManagerIds ?? []);
-  const competition = Object.values(state.competitions)[0];
-  if (!competition) return { events, changes };
-  const clubIds = competition.clubIds;
+  // The carousel turns through the whole pyramid, not just its top division. A
+  // committee in the third division judges its manager against the third
+  // division, and the man who loses his job down there is exactly the man the
+  // player's own job market is for. Reading only the first competition meant
+  // only the top tier ever had a change of manager.
+  const divisions = Object.values(state.competitions)
+    .filter((competition) => competition.kind === 'league')
+    .sort((a, b) => a.tier - b.tier);
+  const divisionOfClub = new Map<ClubId, ClubId[]>();
+  const clubIds: ClubId[] = [];
+  for (const division of divisions) {
+    for (const id of division.clubIds) {
+      divisionOfClub.set(id, division.clubIds);
+      clubIds.push(id);
+    }
+  }
+  if (clubIds.length === 0) return { events, changes, held: [] };
   const clubs = clubsByReputation(state, clubIds);
 
   // 1. A year older, for every man holding a manager's job, wherever he is.
@@ -295,10 +342,14 @@ export function runManagerMarket(state: GameState, context: ManagerMarketContext
       reason = 'stepped-down';
     } else {
       const finish = lastFinish(club, context.previousSeasonId);
-      const expected = expectedRank(state, clubIds, club.id);
+      // His own division, not the whole pyramid: a third-division club finishing
+      // fourth has had a fine season, whatever the top division's standings say.
+      const divisionClubIds = divisionOfClub.get(club.id) ?? clubIds;
+      const expected = expectedRank(state, divisionClubIds, club.id);
       const underPressure =
         finish !== null &&
-        (finish > clubIds.length - MANAGER_MARKET.dangerZone || finish - expected >= MANAGER_MARKET.sackingSlack);
+        (finish > divisionClubIds.length - MANAGER_MARKET.dangerZone ||
+          finish - expected >= MANAGER_MARKET.sackingSlack);
       if (underPressure && rng.chance(0.45)) reason = 'sacked';
     }
     if (!reason) continue;
@@ -308,15 +359,18 @@ export function runManagerMarket(state: GameState, context: ManagerMarketContext
       // Age ends the career for good: he leaves the world rather than the pool,
       // which is what stops a long career filling up with managers. The post
       // must be emptied first, or the club keeps pointing at a man who is gone
-      // and step 4 never refills it.
+      // and step 4 never refills it — and so must every committee post he was
+      // still holding, because a man who has left the world cannot be anybody's
+      // assistant.
       closeTenure(club, manager.id, context.seasonStart);
       club.managerId = null;
+      leaveClubStaff(state, club.id, manager.id);
       delete state.people[manager.id];
       removePersonRelationships(state, manager.id);
       removePersonFromCommunication(state, manager.id);
     } else {
       leaveClub(club, manager, context.seasonStart);
-      manager.notes.push(`Between jobs, ${context.seasonStart}.`);
+      manager.notes.push(`Between jobs, ${formatShortDate(context.seasonStart)}.`);
     }
     changes.push({ clubId: club.id, personId: manager.id, name: displayName(manager), reason });
     if (club.id === state.userClubId) {
@@ -365,41 +419,58 @@ export function runManagerMarket(state: GameState, context: ManagerMarketContext
   //    few men who were already between jobs) are actually available to clubs.
   refillPool(state, context);
 
-  // 5. Fill every post, from the pool first, then from within, then a player.
-  //    `club.managerId` covers a player-manager too: a Player in charge is still
-  //    a manager, and the market must not appoint over the top of him.
-  let generated = 0;
+  // 5. Fill every post, from the pool first, then from within, then a player —
+  //    unless it is a post the caller asked to hold for the player's own job
+  //    market while he is out of work. The caller is asked once per vacancy and
+  //    its answer remembered, because the question below is "did anything at all
+  //    come free for him?" and a predicate that is counting its own answers must
+  //    not be asked about the same club twice.
+  const vacantNow = clubs.filter((club) => !club.managerId);
+  const wanted = new Map<ClubId, boolean>();
+  for (const club of vacantNow) wanted.set(club.id, context.holdVacancies?.(club) ?? false);
+
+  // A manager out of work with nothing to apply for is a career with nowhere to
+  // go, and the summer in which nobody else moved is exactly when that happens:
+  // every post that came free is out of his reach, or is the one he has just
+  // left, which no committee re-advertises to the man it has sacked. So the
+  // caller may name one club — one that would talk to a man of his standing —
+  // and that committee parts with its manager for the same reason the clubs a
+  // rung above already did: its season was poor and there is a manager looking
+  // for work. Taken once and without a roll, because a way back that only
+  // sometimes exists is not a way back.
+  if (context.holdVacancies && ![...wanted.values()].some(Boolean)) {
+    const managed = clubs.filter((club) => {
+      const manager = managerOf(state, club);
+      return !!manager && !protectedIds.has(manager.id);
+    });
+    const chosen = context.guaranteeVacancy?.(managed) ?? null;
+    const manager = chosen ? managerOf(state, chosen) : null;
+    if (chosen && manager && !protectedIds.has(manager.id)) {
+      leaveClub(chosen, manager, context.seasonStart);
+      manager.notes.push(`Between jobs, ${formatShortDate(context.seasonStart)}.`);
+      changes.push({ clubId: chosen.id, personId: manager.id, name: displayName(manager), reason: 'sacked' });
+      if (chosen.id === state.userClubId) events.push(managerNews(state, chosen, manager, 'sacked', context));
+      wanted.set(chosen.id, true);
+    }
+  }
+
+  const held: ClubId[] = [];
   for (const club of clubs) {
     if (club.managerId) continue;
-    const rng = stream(state.seed, 'manager-appointment', context.seasonId, club.id);
-    const internal = internalCandidate(state, club, protectedIds);
-    const pooled = poolCandidate(state, club, protectedIds);
-
-    if (internal && rng.chance(0.35)) {
-      changes.push(appointManager(state, club, internal, context, 'promoted'));
+    if (wanted.get(club.id)) {
+      held.push(club.id);
       continue;
     }
-    if (pooled) {
-      changes.push(appointManager(state, club, pooled, context, 'appointed'));
-      continue;
-    }
-    if (internal) {
-      changes.push(appointManager(state, club, internal, context, 'promoted'));
-      continue;
-    }
-    const playerManager = playerManagerCandidate(state, club, protectedIds);
-    if (playerManager) {
-      changes.push(appointPlayerManager(state, club, playerManager, context));
-      continue;
-    }
-    generated += 1;
-    const manager = generateManager({ reputation: club.reputation, townId: club.townId }, `mgr_${context.seasonId}_${generated}`, rng);
-    state.people[manager.id] = manager;
-    changes.push(appointManager(state, club, manager, context, 'appointed'));
+    const change = fillVacantPost(state, club, context, protectedIds);
+    if (change) changes.push(change);
   }
 
   // 6. Trim the pool so a long career cannot fill the world with idle managers.
-  const betweenJobs = officials(state).filter((person) => person.clubId === null && person.role === 'manager');
+  //    Never the player's own manager, however long he is out of work: he is the
+  //    player, and the pool is where he waits.
+  const betweenJobs = officials(state).filter(
+    (person) => person.clubId === null && person.role === 'manager' && !protectedIds.has(person.id),
+  );
   if (betweenJobs.length > MANAGER_MARKET.maxPool) {
     const trim = betweenJobs
       .sort((a, b) => a.reputation - b.reputation || b.age - a.age || a.id.localeCompare(b.id))
@@ -411,7 +482,39 @@ export function runManagerMarket(state: GameState, context: ManagerMarketContext
     }
   }
 
-  return { events, changes };
+  return { events, changes, held };
+}
+
+/**
+ * Fill one club's manager post, from the pool first, then from within, then a
+ * player, then a man invented for the job.
+ *
+ * Lifted out of the market's own loop so a vacancy can be filled at any time of
+ * year — the managers' carousel turns this at the season boundary, and the
+ * player's career turns it the day a post stops waiting for him.
+ */
+export function fillVacantPost(
+  state: GameState,
+  club: Club,
+  context: ManagerMarketContext,
+  protectedIds: Set<PersonId> = new Set(context.protectedManagerIds ?? []),
+): ManagerChange | null {
+  if (club.managerId) return null;
+  const rng = stream(state.seed, 'manager-appointment', context.seasonId, club.id);
+  const internal = internalCandidate(state, club, protectedIds);
+  const pooled = poolCandidate(state, club, protectedIds);
+
+  if (internal && rng.chance(0.35)) return appointManager(state, club, internal, context, 'promoted');
+  if (pooled) return appointManager(state, club, pooled, context, 'appointed');
+  if (internal) return appointManager(state, club, internal, context, 'promoted');
+  const playerManager = playerManagerCandidate(state, club, protectedIds);
+  if (playerManager) return appointPlayerManager(state, club, playerManager, context);
+
+  // Nobody to promote and nobody in the pool: invent a man for the job, with an
+  // id that is unique to the club and the season it is being filled in.
+  const manager = generateManager({ reputation: club.reputation, townId: club.townId }, nextId(state, 'manager'), rng);
+  state.people[manager.id] = manager;
+  return appointManager(state, club, manager, context, 'appointed');
 }
 
 /** Keep a handful of men between jobs, so a vacancy is never filled out of thin air. */

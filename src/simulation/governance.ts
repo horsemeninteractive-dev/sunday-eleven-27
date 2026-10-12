@@ -318,7 +318,11 @@ export function failureStreak(state: GameState, clubId: ClubId): number {
   const expected = expectedLeagueRank(state, clubId);
   let streak = 0;
   for (const record of club.history.seasons) {
-    if (record.finalPosition === null) break;
+    // A season that has not finished cannot be judged either way, and is skipped
+    // rather than ending the run: the record for the season about to start is at
+    // the front of the archive from the moment it is opened, and stopping on it
+    // would mean the committee could never count last season's failure.
+    if (record.finalPosition === null) continue;
     if (record.finalPosition > expected + GOVERNANCE.leagueSlack) streak += 1;
     else break;
   }

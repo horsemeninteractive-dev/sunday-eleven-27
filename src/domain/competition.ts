@@ -1,4 +1,4 @@
-import type { ClubId, CompetitionId, MatchId, SeasonId } from './ids';
+import type { ClubId, CompetitionId, MatchId, PyramidId, RegionId, SeasonId } from './ids';
 
 export type CompetitionKind = 'league' | 'cup';
 
@@ -33,6 +33,46 @@ export const DEFAULT_PYRAMID: PyramidConfig = {
   leagueCup: true,
   consolationCup: true,
 };
+
+/**
+ * One local ladder of football, and everything it owns.
+ *
+ * A pyramid is not a competition: it is the ladder the competitions belong to.
+ * Its id is also the prefix of every competition id it owns — the founding
+ * pyramid is `league`, so it owns `comp_league_t1`, `comp_league_cup` and
+ * `comp_plate` — and that is the whole reason a second ladder can be founded
+ * without renaming a single competition in a career that is already being
+ * played.
+ */
+export interface Pyramid {
+  /** Also the id prefix of every competition it owns: 'league' → comp_league_t1. */
+  id: PyramidId;
+  /** 'Wyre Valley Sunday League'. */
+  name: string;
+  /** The region it draws its clubs from. */
+  regionId: RegionId;
+  /**
+   * 1 = the county's strongest ladder. A rung of a second pyramid at level 2 is
+   * a level of football below the founding top division, whatever its own tier
+   * number says, which is what separates "rung" from "level" (see `levelOf`).
+   */
+  level: number;
+  /** Tiers, clubs per tier, places swapped at a boundary, and whether cups run. */
+  config: PyramidConfig;
+  /** The divisions it owns, tier 1 first. */
+  competitionIds: CompetitionId[];
+  /** The cups it runs, and no other. */
+  cupIds: CompetitionId[];
+}
+
+/**
+ * The id of the pyramid every career begins with.
+ *
+ * It is `league` because that is already the prefix of every competition id the
+ * game has ever written, so the founding ladder keeps its own name and nothing
+ * is re-homed.
+ */
+export const FOUNDING_PYRAMID_ID: PyramidId = 'league';
 
 /**
  * What a boundary did to a club.

@@ -217,6 +217,24 @@ export function rivalryIntensity(state: GameState, a: ClubId, b: ClubId): number
   return state.clubs[a]?.rivalries[b]?.intensity ?? 0;
 }
 
+/**
+ * The club that took a folded club's place, if one did.
+ *
+ * The link is stored on the club that came back rather than on the one that
+ * went, so this is how a screen asks the other question — "what became of this
+ * club" — without the two records ever being able to disagree: there is one
+ * pointer and it is read in one direction.
+ */
+export function successorOf(state: GameState, clubId: ClubId): Club | undefined {
+  return Object.values(state.clubs).find((club) => club.heritage?.predecessorId === clubId);
+}
+
+/** The club whose place this one took, if it took one. */
+export function predecessorOf(state: GameState, club: Club): Club | undefined {
+  const id = club.heritage?.predecessorId;
+  return id ? state.clubs[id] : undefined;
+}
+
 /** Impressions rather than numbers: exact ability is not automatically known. */
 export type AbilityBand = 'Poor' | 'Limited' | 'Solid' | 'Good' | 'Very good' | 'Exceptional';
 

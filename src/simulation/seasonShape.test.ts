@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { buildSeasonCalendar, buildSeasonCalendarWithCups, canPlayOnWeekday, NO_GAME_WEEKDAYS, toDate } from './calendar';
+import {
+  buildSeasonCalendar,
+  buildSeasonCalendarWithCups,
+  canPlayOnWeekday,
+  placeCupRounds,
+  NO_GAME_WEEKDAYS,
+  toDate,
+} from './calendar';
 import { allCupRoundSlots } from './cup';
 import { matchdayCount } from './generation/fixtureGenerator';
+import { buildSeasonStructure } from './seasonStructure';
+import { createTestGame } from './testSupport';
 
 /**
  * The shape of a season.
@@ -120,5 +129,96 @@ describe('a cup round is given a Sunday to itself', () => {
     const expected = allCupRoundSlots(36, LEAGUE, true).length;
     const cupDates = calendar.filter((entry) => entry.matchday > LEAGUE).length;
     expect(cupDates).toBe(expected);
+  });
+});
+
+describe('placing the cup rounds, and refusing a season that cannot hold them', () => {
+  const LEAGUE = matchdayCount(12);
+  const slots = allCupRoundSlots(36, LEAGUE, true);
+
+  it('gives every round the season asks for a Sunday of its own', () => {
+    const placement = placeCupRounds(OPENING_SUNDAY, LEAGUE, slots);
+    expect(placement.slots).toHaveLength(slots.length);
+    expect(placement.unplaced).toEqual([]);
+    expect(placement.slots.every((slot) => slot.date !== null && slot.reason === null)).toBe(true);
+    // One round, one date: no two rounds share the afternoon every club in both
+    // would have to play on.
+    expect(new Set(placement.slots.map((slot) => slot.date)).size).toBe(slots.length);
+  });
+
+  it('gives back the calendar the season has always had, slot report beside it', () => {
+    // The reporting is added *beside* the calendar, not into it: a valid season's
+    // dates are exactly what they were before the slots were counted.
+    const placement = placeCupRounds(OPENING_SUNDAY, LEAGUE, slots);
+    expect(placement.calendar).toEqual(buildSeasonCalendarWithCups(OPENING_SUNDAY, LEAGUE, slots));
+  });
+
+  it('reports a round whose anchor is not in the calendar, rather than skipping it', () => {
+    const placement = placeCupRounds(OPENING_SUNDAY, LEAGUE, [{ round: 1, beforeMatchday: LEAGUE + 4 }]);
+    expect(placement.unplaced).toHaveLength(1);
+    expect(placement.unplaced[0]!.date).toBeNull();
+    expect(placement.unplaced[0]!.matchday).toBeNull();
+    expect(placement.unplaced[0]!.reason).toContain(`league matchday ${LEAGUE + 4}`);
+    // Nothing was dated, so the calendar is the league's own alone.
+    expect(placement.calendar).toHaveLength(LEAGUE);
+  });
+
+  it('reports a round it cannot find a free Sunday for, and says what got there first', () => {
+    // Ten rounds all wanting the same week. The search runs eight weeks ahead, so
+    // the first nine take the next nine Sundays and the tenth has nowhere left.
+    // This is the silent drop the invariant exists for: a round with no date can
+    // never be drawn, so its competition can never reach a final.
+    const crowded = Array.from({ length: 10 }, (_unused, index) => ({ round: index + 1, beforeMatchday: LEAGUE }));
+    const placement = placeCupRounds(OPENING_SUNDAY, LEAGUE, crowded);
+    // The search runs eight weeks ahead and no further, so the rounds at the back
+    // of the queue have nowhere left to go - and are reported, not dropped.
+    expect(placement.unplaced.length).toBeGreaterThan(0);
+    expect(placement.unplaced.every((slot) => slot.reason?.includes('already taken'))).toBe(true);
+    expect(placement.slots.filter((slot) => slot.date !== null)).toHaveLength(
+      placement.slots.length - placement.unplaced.length,
+    );
+  });
+
+  it('throws when the season it is building has no room for every cup round', () => {
+    const { state } = createTestGame('season-short-calendar');
+    const clubIds = Object.values(state.clubs)
+      .filter((club) => club.active)
+      .map((club) => club.id);
+    // A first division of two clubs is a two-matchday league calendar while the
+    // cup field is the whole county, so eleven cup rounds want to be played
+    // around two league Sundays. In development and in tests that is a season
+    // that must not start.
+    const divisions = [clubIds.slice(0, 2), clubIds.slice(2, 14), clubIds.slice(14, 26)];
+    expect(() =>
+      buildSeasonStructure({
+        state,
+        seasonId: 'season_test',
+        seasonLabel: '2026/27',
+        firstLeagueDate: OPENING_SUNDAY,
+        divisions,
+        regionName: 'Testshire',
+      }),
+    ).toThrow(/no room for every cup round/);
+  });
+
+  it('builds the current world\'s season with every cup round placed', () => {
+    const { state } = createTestGame('season-cups-placed');
+    const divisions = [
+      Object.values(state.clubs).filter((club) => club.active).slice(0, 12).map((club) => club.id),
+      Object.values(state.clubs).filter((club) => club.active).slice(12, 24).map((club) => club.id),
+      Object.values(state.clubs).filter((club) => club.active).slice(24, 36).map((club) => club.id),
+    ];
+    const structure = buildSeasonStructure({
+      state,
+      seasonId: 'season_test_full',
+      seasonLabel: '2026/27',
+      firstLeagueDate: OPENING_SUNDAY,
+      divisions,
+      regionName: 'Testshire',
+    });
+    expect(structure.cupSlots).toHaveLength(allCupRoundSlots(36, structure.leagueMatchdays, true).length);
+    const cupDates = structure.calendar.filter((entry) => entry.matchday > structure.leagueMatchdays);
+    expect(cupDates).toHaveLength(structure.cupSlots.length);
+    expect(structure.calendar).toHaveLength(structure.leagueMatchdays + structure.cupSlots.length);
   });
 });

@@ -3,6 +3,7 @@ import type { ClubId, EventId, MatchId, PersonId } from '@/domain/ids';
 import type { GameEvent, GameEventType, NewsCategory, NewsItem } from '@/domain/news';
 import { isPlayer } from '@/domain/person';
 import { nextId } from './ids';
+import { attributeStory, isFiled, markFiled, storyKey } from './press';
 import { variant } from './prose';
 
 /**
@@ -70,6 +71,8 @@ const CATEGORY_BY_TYPE: Record<GameEventType, NewsCategory> = {
   'club-event': 'Club',
   social: 'Club',
   world: 'World',
+  'press-rumour': 'World',
+  'press-verdict': 'World',
   calendar: 'Club',
 };
 
@@ -678,6 +681,12 @@ export function renderNewsItem(state: GameState, event: GameEvent): NewsItem {
     case 'calendar':
       written = writeDressingRoom(event);
       break;
+    // The press writes its own copy, hedges and all: a claim is the reporter's
+    // sentence, and a verdict is his paper's. Nothing is reworded here.
+    case 'press-rumour':
+    case 'press-verdict':
+      written = writeExplicit(event);
+      break;
     case 'postponement':
       written = writePostponement(event);
       break;
@@ -702,12 +711,42 @@ export function renderNewsItem(state: GameState, event: GameEvent): NewsItem {
     personIds: event.personIds,
     matchId: event.matchId,
     eventId: event.id,
+    // What happened, as well as which column it belongs in: the paper draws the
+    // event, and a category cannot say that a cup tie is not a league game. See
+    // `NewsItem.eventType` — the item is the only place the type survives, so
+    // this line is the whole of what the interface is allowed to know.
+    eventType: event.type,
     read: false,
   };
 }
 
+/**
+ * Publish events as stories.
+ *
+ * Two things happen here that must happen here and nowhere else:
+ *
+ *   - **a story is printed once.** A calendar can be processed twice — a save
+ *     resumed on the same Sunday, a migration that replays a week — and the same
+ *     afternoon must not appear twice. The key is built from the event's facts
+ *     rather than from its id, because the id is handed out fresh every time the
+ *     event is created and the facts are not. See `storyKey`.
+ *   - **a story gets its masthead.** The byline is put on here, in one place, so
+ *     that every route into the feed — a fixture, a negotiation, a watched
+ *     match, a fund-raising night — is attributed by the same rule and no writer
+ *     can name itself.
+ */
 export function publishEvents(state: GameState, events: readonly GameEvent[]): NewsItem[] {
-  const items = events.map((event) => renderNewsItem(state, event));
+  const fresh: GameEvent[] = [];
+  for (const event of events) {
+    const key = storyKey(event);
+    if (isFiled(state, key)) continue;
+    markFiled(state, key);
+    fresh.push(event);
+  }
+
+  const items = fresh.map((event) => renderNewsItem(state, event));
+  for (let index = 0; index < items.length; index++) attributeStory(state, fresh[index]!, items[index]!);
+
   // Newest first, capped so a save never grows without bound.
   state.news = [...items.reverse(), ...state.news].slice(0, 300);
   return items;

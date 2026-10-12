@@ -30,6 +30,27 @@ describe('world generation', () => {
     expect(a.leagueName).toBe(b.leagueName);
   });
 
+  it('draws one region around the county, and every town is in it', () => {
+    const world = generateDraft({ seed: 'region-and-towns' });
+
+    const regions = Object.values(world.world.regions);
+    expect(regions).toHaveLength(1);
+    const region = regions[0]!;
+    expect(world.world.regionIds).toEqual([region.id]);
+    expect(region.name).toBe(world.world.regionName);
+
+    const towns = Object.values(world.world.towns);
+    expect(towns.length).toBeGreaterThan(5);
+    for (const town of towns) expect(town.regionId).toBe(region.id);
+
+    // The centre is the middle of the towns the county has rather than a point
+    // somebody invented, which is what makes it true of every seed.
+    const mean = (of: (town: (typeof towns)[number]) => number) =>
+      towns.reduce((sum, town) => sum + of(town), 0) / towns.length;
+    expect(region.centre.x).toBeCloseTo(mean((town) => town.x));
+    expect(region.centre.y).toBeCloseTo(mean((town) => town.y));
+  });
+
   it('produces different worlds for different seeds', () => {
     const a = generateDraft({ seed: 'ash-tree-7' });
     const b = generateDraft({ seed: 'willow-lane-2' });

@@ -235,10 +235,41 @@ function scoreGoal(state: MatchEngineState, world: DecisionWorld, side: 'home' |
 
 // --- The ball leaving play --------------------------------------------------
 
+/**
+ * Whether a ball beyond a line is being carried back onto the pitch.
+ *
+ * The only ball a match ever has outside the field of play and on its way in is
+ * one that has just been thrown: a throw-in is taken from the ground outside the
+ * touchline, so it starts beyond the line and arrives over it. Everything else
+ * beyond a line is a ball that has left play — a shot wide, a pass gone astray, a
+ * clearance over the touchline — and is judged the moment it is out.
+ *
+ * It is read from the velocity the simulation itself carries, so this decides
+ * nothing of its own: where the ball is going was settled when it was struck.
+ * A ball *sitting* outside the line — nothing carrying it, no way back — counts
+ * as gone, which is what a ball placed there is.
+ */
+function comingBackIn(state: MatchEngineState): boolean {
+  const ball = state.ball;
+  const inbound = (position: number, velocity: number): boolean =>
+    (position <= 0 && velocity > 0) || (position >= 1 && velocity < 0);
+  // Every line it is beyond has to be one it is coming back from: a ball out over
+  // the touchline and still drifting out has left play.
+  if ((ball.y <= 0 || ball.y >= 1) && !inbound(ball.y, ball.vy)) return false;
+  if ((ball.x <= 0 || ball.x >= 1) && !inbound(ball.x, ball.vx)) return false;
+  return true;
+}
+
 function checkOutOfPlay(state: MatchEngineState, world: DecisionWorld): boolean {
   const ball = state.ball;
   if (ball.status === 'out-of-play') return false;
   if (!outOfPlay(ball.x, ball.y)) return false;
+  // A ball beyond a line is not always a ball that has left play. A throw-in is
+  // thrown from the ground *behind* the touchline, so the ball begins its flight
+  // outside the field and comes in over the line: a ball that is out and on its
+  // way back has not gone anywhere yet. Judging it out on the way would hand the
+  // throw straight back to the other side, off a ball nobody has touched.
+  if (comingBackIn(state)) return false;
 
   const last = ball.lastTouchId ? playerOf(state, ball.lastTouchId)?.side ?? null : null;
   const intended = ball.intendedSide;

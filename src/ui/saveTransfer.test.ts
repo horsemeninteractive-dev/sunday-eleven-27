@@ -226,6 +226,35 @@ describe('importing a career file', () => {
     expect((await loadGame('slot-1')).state?.seed).toBe(mine.seed);
   });
 
+  it('does not let the autosave of the career it replaced land after the import', async () => {
+    // The ordering that bites a machine under load: the career on screen has an
+    // autosave on the debounce, the import takes a moment to write, and the
+    // debounce comes due in between. Left alone it queues a snapshot of the
+    // *old* career behind the new one and lands last — the import says the
+    // career is stored and a reload finds the one it replaced.
+    //
+    // The wait below is synchronous on purpose. A debounce that is due fires at
+    // the next `await`, so yielding here would let it fire long before the
+    // import and destroy the very ordering this test exists to pin.
+    const mine = career('import-stale-autosave');
+    await saveGame(mine, 'slot-1');
+    useGameStore.setState({ game: mine });
+
+    const due = Date.now() + 900;
+    while (Date.now() < due) {
+      /* hold the thread past the debounce window */
+    }
+
+    const incoming = career('import-stale-autosave-other');
+    stageCareerFile('other.json', exportCareer(incoming));
+    expect(await confirmImport()).toBe(true);
+
+    // The import's write is the last word on the slot, not the career it took
+    // over from — and the manager's own slot is untouched either way.
+    expect((await loadGame(AUTOSAVE_SLOT)).state?.seed).toBe(incoming.seed);
+    expect((await loadGame('slot-1')).state?.seed).toBe(mine.seed);
+  });
+
   it('refuses a file that is not a career file without touching the career being played', async () => {
     const mine = career('import-refuses');
     await autosave(mine);

@@ -15,6 +15,7 @@ import {
 } from '../relationships';
 import { linkNewTeammate } from '../generation/relationshipGenerator';
 import { stream } from '../rng';
+import { applyOffFieldRivalry } from '../rivalries';
 import { candidateInterest, resolveInvitation } from './interest';
 import { candidateOf, recordCandidateHistory, setCandidateStatus } from './store';
 
@@ -210,17 +211,22 @@ export function signCandidate(state: GameState, personId: PersonId): SigningResu
   // And so is arriving at one.
   if (previousClub && previousClubId) {
     previousClub.squadIds = previousClub.squadIds.filter((id) => id !== person.id);
-    const existing = previousClub.rivalries[club.id];
-    const intensity = Math.max(6, Math.min(95, (existing?.intensity ?? 12) + rng.int(6, 14)));
-    previousClub.rivalries[club.id] = {
-      intensity,
-      note: `${club.identity.shortName} took ${person.firstName} ${person.surname} off them.`,
-    };
+    // Taking a player off a club has always left a mark, and it leaves it
+    // through the same arithmetic an afternoon's football does: the rivalry
+    // service owns the bounds, so a raid can no more turn two strangers bitter
+    // than a single result can. See `simulation/rivalries.ts`.
+    const hadNote = Boolean(club.rivalries[previousClubId]?.note);
+    applyOffFieldRivalry(
+      previousClub,
+      club,
+      rng.int(6, 14),
+      `${club.identity.shortName} took ${person.firstName} ${person.surname} off them.`,
+      state.date,
+    );
     const reverse = club.rivalries[previousClubId];
-    club.rivalries[previousClubId] = {
-      intensity: Math.max(intensity, reverse?.intensity ?? 0),
-      note: reverse?.note ?? `They are still unhappy about ${person.firstName} ${person.surname}.`,
-    };
+    if (reverse && !hadNote) {
+      reverse.note = `They are still unhappy about ${person.firstName} ${person.surname}.`;
+    }
   }
 
   person.clubId = club.id;

@@ -16,7 +16,7 @@ import { recordCommunicationHistory } from './communication/history';
 import { addLedgerEntry } from './finance';
 import { nextId } from './ids';
 import { createEvent } from './news';
-import { leagueClubIds, leagueCompetitions, tierFactor, tierOf, TIER_EXPECTATIONS } from './pyramid';
+import { divisionOf, leagueClubIds, tierFactor, tierOf, TIER_EXPECTATIONS } from './pyramid';
 import { applyRelationshipEvent, getRelationship } from './relationships';
 import { stream, type Rng } from './rng';
 
@@ -576,7 +576,9 @@ export function renewSponsorship(state: GameState, context: RenewalContext): Ren
     const tier = tierOf(state, clubId);
     const previousRecord = club.history.seasons.find((entry) => entry.seasonId === context.previousSeasonId);
     const finish = previousRecord?.finalPosition ?? null;
-    const divisionSize = leagueCompetitions(state).find((entry) => entry.tier === tier)?.clubIds.length ?? 12;
+    // The size of the division he actually plays in, rather than of the first
+    // division in the world that happens to carry his tier number.
+    const divisionSize = divisionOf(state, clubId)?.clubIds.length ?? 12;
     const struggling = finish !== null && finish > Math.max(1, divisionSize) - 3;
 
     if (deal) {

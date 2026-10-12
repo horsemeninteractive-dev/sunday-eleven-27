@@ -10,6 +10,21 @@ import { CareerImportConfirm, ExportCareerButton, ImportCareerButton } from '../
 import { Dialog } from './Dialog';
 
 const SLOTS = ['slot-1', 'slot-2', 'slot-3'];
+
+/**
+ * Whether the screen may still say it is reading the saved careers.
+ *
+ * The read happens once, so the answer is yes until it is over — and a read that
+ * failed is over as well. This used to be `saves === null`, which stayed true for
+ * the life of the dialog after a rejected `listSaves`: an alert saying the
+ * careers could not be listed sat directly above a status line still claiming to
+ * be reading them. The menu's own list of saves settles the same question the
+ * same way, and this is that rule.
+ */
+export function isReadingSaves(saves: SaveSlotInfo[] | null, failure: string | null): boolean {
+  return saves === null && failure === null;
+}
+
 export function SaveManager({ onClose }: { onClose: () => void }) {
   const [saves, setSaves] = useState<SaveSlotInfo[] | null>(null);
   const [overwrite, setOverwrite] = useState<SaveSlotInfo | null>(null);
@@ -47,11 +62,13 @@ export function SaveManager({ onClose }: { onClose: () => void }) {
     } catch { setFailure('The browser could not save this career. Your current club is still open.'); }
     finally { setBusy(false); }
   };
+  const reading = isReadingSaves(saves, failure);
   return <>
     <Dialog title="Saved careers" subtitle="Local to this browser · whole-world saves" narrow onClose={() => { if (!busy) onClose(); }}>
       {failure && <p className="tone tone--bad" role="alert">{failure}</p>}
       {saveFailure && <p className="callout callout--bad" role="alert"><span><strong className="callout__title">This career is not being written to disk</strong>{saveFailure}</span></p>}
-      {saves === null ? <p role="status">Reading saved careers…</p> : <ul className="save-list">
+      {reading && <p role="status">Reading saved careers…</p>}
+      {saves && <ul className="save-list">
         {SLOTS.map((slot, index) => { const stored = saves.find((entry) => entry.slot === slot); return <li key={slot} className="save-list__item">
           <div className="save-list__main"><strong>Slot {index + 1} · {stored?.clubName ?? 'Empty'}</strong><p className="small muted">{stored ? `${stored.seasonLabel} · ${formatShortDate(stored.date)}` : 'Ready for a snapshot of this career'}</p></div>
           <div className="row row--wrap"><Button disabled={busy} onClick={() => stored ? setOverwrite(stored) : void save(slot)}>{stored ? 'Replace' : 'Save here'}</Button><Button variant="ghost" disabled={busy || !stored} onClick={() => { onClose(); void loadCareer(slot); }}>Load</Button></div>

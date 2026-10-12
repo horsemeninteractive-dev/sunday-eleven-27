@@ -1,6 +1,6 @@
-import type { Club, ClubFinances, ClubHistory, ClubStructure } from '@/domain/club';
-import type { Business, Ground, GroundSurface, Town, World } from '@/domain/world';
-import type { ClubId, GroundId, ISODate, PersonId, PlayerId, TownId } from '@/domain/ids';
+import { defaultSupporters, type Club, type ClubFinances, type ClubHistory, type ClubStructure, type RivalryKind } from '@/domain/club';
+import { FOUNDING_REGION_ID, type Business, type Ground, type GroundSurface, type Region, type Town, type World } from '@/domain/world';
+import type { ClubId, GroundId, ISODate, PersonId, PlayerId, RegionId, TownId } from '@/domain/ids';
 import type { Official, Person, Player } from '@/domain/person';
 import { defaultTactics } from '@/domain/tactics';
 import { DEFAULT_PYRAMID } from '@/domain/competition';
@@ -278,7 +278,7 @@ function settlementDescription(rng: Rng, town: Town, river: string): string {
   return rng.pick(patterns);
 }
 
-function generateTowns(rng: Rng, river: string): { towns: Town[]; businesses: Business[] } {
+function generateTowns(rng: Rng, river: string, regionId: RegionId): { towns: Town[]; businesses: Business[] } {
   const usedNames = new Set<string>();
   const towns: Town[] = [];
   const businesses: Business[] = [];
@@ -305,6 +305,9 @@ function generateTowns(rng: Rng, river: string): { towns: Town[]; businesses: Bu
       population,
       x: rng.int(8, 92),
       y: rng.int(8, 92),
+      // Where the town is decides which football it plays, so this is written
+      // here, once, and never touched again for the life of the world.
+      regionId,
       description: '',
       businessIds: [],
     };
@@ -787,13 +790,43 @@ export function generateReferees(rng: Rng, towns: Town[], count = 10): Official[
   return referees;
 }
 
+/**
+ * The middle of a group of towns, in the same normalised space the towns carry.
+ *
+ * A region's centre is a fact about the map rather than a choice, so it is read
+ * off the settlements in it; a county with no settlements at all is the middle
+ * of its own map. Shared with the migration, so a region drawn by a migration
+ * and one drawn by the generator describe the same place.
+ */
+export function regionCentreFor(towns: readonly Town[]): { x: number; y: number } {
+  if (towns.length === 0) return { x: 50, y: 50 };
+  let x = 0;
+  let y = 0;
+  for (const town of towns) {
+    x += town.x;
+    y += town.y;
+  }
+  return { x: x / towns.length, y: y / towns.length };
+}
+
 export function generateWorld(options: GenerateWorldOptions): GeneratedWorld {
   const rng = new Rng(`${options.seed}::world`);
   const river = riverName(rng);
   const countyName = `${capitalise(generatePlaceName(rng, new Set()))}shire`;
   const regionName = `${rng.pick(['Wyre', 'Cale', 'Stour', 'Dene', 'Teme', 'Brue', 'Avon', 'Yare'])} Valley`;
 
-  const { towns, businesses } = generateTowns(rng, river);
+  // The county's region, drawn before the towns that sit in it and named after
+  // the valley the county already has. This is the founding region: it covers
+  // every town the generator makes, and its centre is the middle of those towns
+  // rather than a point somebody would have had to invent. Nothing here draws
+  // from the seed, so a world is exactly the world it was before regions existed.
+  const { towns, businesses } = generateTowns(rng, river, FOUNDING_REGION_ID);
+  const region: Region = {
+    id: FOUNDING_REGION_ID,
+    name: regionName,
+    centre: regionCentreFor(towns),
+  };
+  const regions: Record<RegionId, Region> = { [region.id]: region };
 
   const grounds: Record<GroundId, Ground> = {};
   const tasks: Array<{ town: Town }> = [];
@@ -907,6 +940,9 @@ export function generateWorld(options: GenerateWorldOptions): GeneratedWorld {
       tactics: defaultTactics('4-4-2'),
       active: true,
       rivalries: {},
+      // A crowd since the year the club was founded: nobody invented one, and
+      // the game does not need to pretend it watched the first game either.
+      supporters: defaultSupporters(`${identity.foundedYear}-08-01`),
     };
     clubs[clubId] = club;
   });
@@ -930,11 +966,21 @@ export function generateWorld(options: GenerateWorldOptions): GeneratedWorld {
         10,
         Math.min(95, Math.round(70 - distance * 0.9 + (sameTown ? 20 : 0) + rng.gaussian(0, 8))),
       );
-      club.rivalries[other.id] = {
+      // Geography is the waterline, not the weather: a relationship that exists
+      // before either club has kicked a ball is a derby (or the closest thing
+      // to one), and it is the thing that never cools. Everything the seasons
+      // add on top of it is heat. See `simulation/rivalries.ts`.
+      const rivalry = {
         intensity,
         note: sameTown ? 'Neighbours sharing a town and a car park.' : 'Closest away trip on the calendar.',
+        baseline: intensity,
+        kind: (intensity >= 55 ? 'derby' : 'competitive') as RivalryKind,
+        lastMetOn: null,
+        meetings: 0,
+        heat: 0,
       };
-      other.rivalries[club.id] = club.rivalries[other.id]!;
+      club.rivalries[other.id] = rivalry;
+      other.rivalries[club.id] = { ...rivalry };
     }
   }
 
@@ -957,6 +1003,8 @@ export function generateWorld(options: GenerateWorldOptions): GeneratedWorld {
     seed: options.seed,
     regionName,
     countyName,
+    regions,
+    regionIds: [region.id],
     towns: Object.fromEntries(towns.map((t) => [t.id, t])),
     townIds: towns.map((t) => t.id),
     grounds,

@@ -37,9 +37,14 @@ export function isMatchSimulationMode(value: unknown): value is MatchSimulationM
  * to `simulateFixture`; it is never inferred from anywhere but here.
  */
 export function simulationModeFor(
-  state: { readonly userClubId: ClubId },
+  state: { readonly userClubId: ClubId; readonly career?: { readonly status: string } | null },
   match: Match,
 ): MatchSimulationMode {
+  // A manager between jobs has no club, so no fixture is his: the whole county
+  // plays out in the background while he looks for work. This is the one rule
+  // that has to know he is out of work at all — every other reader asks the
+  // career for the club he manages and finds none.
+  if (state.career && state.career.status !== 'employed') return 'fast';
   const involvesUser =
     match.homeClubId === state.userClubId || match.awayClubId === state.userClubId;
   return involvesUser ? 'full' : 'fast';

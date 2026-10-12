@@ -112,13 +112,37 @@ export function inkForColours(...colours: string[]): string {
  */
 export const TEXT_CONTRAST_FLOOR = 4.5;
 
-/** Club-coloured text needs a different ink from paint on a crest or shirt. */
-export function readableClubColour(primary: string): string {
+/**
+ * The surface a club's colour is *written* on, per theme.
+ *
+ * `--club-text` is the club's colour mixed with the ink until it can be read as
+ * text, so it needs the surface it will be read against. In each theme that is
+ * the worst one the game has rather than a typical one: lightened by a dark
+ * surface's own lightest tone (`--panel-3`), darkened by a light one's darkest
+ * (`--bg`). Anything else and a word would pass on the panel it was measured on
+ * and fail on the page behind it. A test holds these two to the stylesheet.
+ */
+export const CLUB_TEXT_SURFACE: Record<'dark' | 'light', string> = {
+  dark: '#1f252c',
+  light: '#e2e5e9',
+};
+
+/**
+ * Club-coloured text needs a different ink from paint on a crest or shirt.
+ *
+ * Which way the colour is mixed depends on the surface, and the surface
+ * depends on the theme: a club's colour is lightened on the game's near-black
+ * pages and darkened on its light ones. Mixing one way and reading it on the
+ * other is the failure this exists to prevent, so the direction is taken from
+ * the surface itself rather than passed in beside it.
+ */
+export function readableClubColour(primary: string, surface = CLUB_TEXT_SURFACE.dark): string {
+  const ink = inkForColour(surface);
   for (let step = 0; step <= 20; step += 1) {
-    const ink = mixColours(primary, LIGHT_INK, step / 20);
-    if (contrastRatio(ink, '#1f252c') >= TEXT_CONTRAST_FLOOR) return ink;
+    const candidate = mixColours(primary, ink, step / 20);
+    if (contrastRatio(candidate, surface) >= TEXT_CONTRAST_FLOOR) return candidate;
   }
-  return LIGHT_INK;
+  return ink;
 }
 
 /**
@@ -151,6 +175,28 @@ export function flatClubInk(primary: string): string {
 /** The second colour, or the first when a club only has one. */
 export function secondaryColour(colours: ClubColours): string {
   return colours.secondary && colours.secondary.trim() ? colours.secondary : colours.primary;
+}
+
+/**
+ * The wash a photograph gets before any words are put on it.
+ *
+ * A heading printed on a picture is the one place the game cannot choose its own
+ * surface: the picture is whatever the photographer took, and the words on top
+ * of it have to read at every pixel. So the picture is washed first — heavily
+ * where the words begin, easing off towards the far edge, which is what keeps a
+ * grassroots pitch visible behind a title rather than turning it into a grey
+ * band.
+ *
+ * Which way the wash goes is the theme's business, and it is the same decision
+ * as the ink on top of it: with the lights off the picture is darkened and the
+ * words are lit, and with them on it is a *pale* picture with the page's own
+ * ink over it. Living here rather than in a component keeps the two call sites —
+ * a screen header and the matchday briefing — washing to the same recipe.
+ */
+export function photoVeil(theme: 'dark' | 'light' = 'dark'): string {
+  return theme === 'light'
+    ? 'linear-gradient(90deg, rgba(252, 253, 254, 0.94), rgba(252, 253, 254, 0.62))'
+    : 'linear-gradient(90deg, rgba(8, 9, 11, 0.92), rgba(8, 9, 11, 0.55))';
 }
 
 /* Diagonal stripes ---------------------------------------------------------
@@ -426,8 +472,14 @@ export function stripeColours(colours: ClubColours): string[] {
  * The club's colours, handed to CSS once for the whole shell. Lives here rather
  * than in a component file so hot reloading stays honest about what is a
  * component and what is a helper.
+ *
+ * The theme is an argument because one of the ten values is not a property of
+ * the club: `--club-text` is the club's colour made readable, and readable
+ * against what — a near-black panel or a light one — is the theme's business.
+ * Everything else the club wears is its own colour, mixed the same way
+ * whichever way the lights are on.
  */
-export function clubStyle(colours: ClubColours): Record<string, string> {
+export function clubStyle(colours: ClubColours, theme: 'dark' | 'light' = 'dark'): Record<string, string> {
   const primary = colours.primary;
   const secondary = secondaryColour(colours);
   // The fixture band is a shade of the club's colour rather than a hole cut in
@@ -437,7 +489,7 @@ export function clubStyle(colours: ClubColours): Record<string, string> {
   const band = mixColours(primary, '#000000', 0.22);
   return {
     '--club': primary,
-    '--club-text': readableClubColour(primary),
+    '--club-text': readableClubColour(primary, CLUB_TEXT_SURFACE[theme]),
     '--club-2': secondary,
     '--club-band': band,
     // The band is flat paint too, so its ink is chosen the same way: for that

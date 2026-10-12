@@ -96,6 +96,37 @@ play-service-account.json
 # down.
 discord.env
 
+# The deployed bot's own local values.
+#
+# `wrangler dev` reads this file for the Worker in `worker/`. It holds the Discord
+# application's public key — which is *not* a secret, but does belong to one
+# application, so it is a machine's business rather than the repository's — and,
+# when it is set, the channel webhook the vote buttons report to, which is a real
+# credential: anybody holding it can post to that channel. The live Worker's
+# values are Worker secrets, set with `wrangler secret put`, and live in
+# Cloudflare rather than in any file here.
+worker/.dev.vars
+
+# The key `npm run xiai -- --verify` signs with.
+#
+# Written by `--new-key`. It is not a credential for anything: an endpoint that has
+# been given its public half answers a signed PING with a PONG, which is how the
+# signature path is checked end to end against a local `wrangler dev` run — whose
+# public key comes out of `worker/.dev.vars` above. It is not, and must never be,
+# the live Worker's `DISCORD_PUBLIC_KEY`, which is Discord's own public key.
+# Ignored for the same reason as everything else here: a key in git is a key
+# everybody has.
+worker/.verify-key
+
+# What `wrangler dev` leaves behind.
+#
+# Miniflare's local copies of D1, R2 and KV, the bundles it writes to serve the
+# Worker, and the observability traces of a dev run: all of it is this machine's
+# state and none of it is the project's. It is regenerated from the source every
+# time the Worker is started, so committing it would only be a way to put a local
+# database and a set of build products in every clone.
+worker/.wrangler/
+
 # Signed store artifacts. They are built, uploaded and deleted, never kept:
 # Play distributes the bundle and the App Store distributes the archive.
 *.aab

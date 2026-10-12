@@ -1,4 +1,5 @@
 import type { ClubId, ISODate, MatchId, NewsId, PersonId } from './ids';
+import type { RumourStatus } from './press';
 
 /**
  * News is generated from *structured events*. The event carries the facts;
@@ -46,6 +47,16 @@ export type GameEventType =
   | 'social'
   /** Somebody else's world: a local club, a job moving, a rumour worth hearing. */
   | 'world'
+  /**
+   * A local reporter has heard something and printed it. Unverified by
+   * construction: the claim is a claim, and the paper says so.
+   */
+  | 'press-rumour'
+  /**
+   * The world settled a claim the press had filed: it turned out to be right,
+   * or it did not, or the question stopped mattering.
+   */
+  | 'press-verdict'
   /** Something the calendar wants the manager to notice about the coming days. */
   | 'calendar';
 
@@ -74,5 +85,47 @@ export interface NewsItem {
   personIds: PersonId[];
   matchId: MatchId | null;
   eventId: string;
+  /**
+   * What kind of thing happened, kept beside the item rather than only in the
+   * event it came from.
+   *
+   * `category` is a *column* — six of them, because a paper has six places to
+   * put a story — and every one of the event types this game writes is filed
+   * into one of those six. That is the right answer for a filter and the wrong
+   * one for a picture: a cup final, a postponement and a routine result are all
+   * three categories apart at most, and a signing, a release and an injury are
+   * one.
+   *
+   * So the type travels with the item. It cannot be recovered from `eventId`
+   * (an opaque counter) and the event itself is not kept — `publishEvents`
+   * writes items and nothing else — so this is the one place it can live.
+   *
+   * Optional, deliberately: a career saved before this field existed has items
+   * without it, and the interface falls back to the category rather than
+   * refusing to draw them. Missing means "filed under a column", not corrupt.
+   */
+  eventType?: GameEventType;
+  /**
+   * Who carried it, when it was carried by anybody.
+   *
+   * A story with no outlet is one nobody filed: a routine result the club knows
+   * about because it was there, not because a reporter wrote it down. The
+   * absence is meaningful rather than missing data — it is the difference
+   * between the paper running a line and a manager happening to know something.
+   */
+  outlet?: string;
+  /** The reporter's name, as it would appear under his own story. */
+  byline?: string;
+  /** Which reporter filed it, so the press record can be kept straight. */
+  journalistId?: PersonId;
+  /**
+   * How much of this is fact.
+   *
+   * Absent means "not a claim either way" — an ordinary report of something that
+   * happened. Present, it is the claim's standing: unconfirmed while it is live,
+   * and confirmed, disproved or gone quiet once the world has settled it. The
+   * interface draws the difference; the simulation never mixes the two.
+   */
+  confidence?: RumourStatus;
   read: boolean;
 }

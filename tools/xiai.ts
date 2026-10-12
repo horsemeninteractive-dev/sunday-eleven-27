@@ -9,6 +9,7 @@
  *     npm run xiai                      run the bot and answer /ask
  *     npm run xiai -- --register        register or refresh the command, then exit
  *     npm run xiai -- --check           connect, say who it is, disconnect
+ *     npm run xiai -- --verify [url]    check a deployed endpoint, and say what is wrong with it
  *     npm run xiai -- --ask "how long is a season"
  *
  * **Slash commands, on purpose.** Reading ordinary message content needs
@@ -17,6 +18,16 @@
  * needs none of that: this bot identifies with `intents: 0`, so it genuinely
  * cannot read what anybody types outside a question addressed to it. That is a
  * property, not a limitation.
+ *
+ * **The same answers, from two places.** Everything about what an answer *is*
+ * belongs to `src/platform/xiai.ts`, and everything about how an interaction is
+ * turned into one belongs to `worker/xiaiEndpoint.ts` — which this file imports, so the
+ * bot in the community server and the bot on a laptop cannot answer differently.
+ * The Worker is the one that matters in the long run: with the application's
+ * Interactions Endpoint URL set, Discord delivers interactions there and this
+ * process stops being asked anything at all. It stays useful for the two things
+ * that need the bot token — registering the commands, and configuring the server
+ * — and as a way to see the bot work before anything is deployed.
  *
  * **No new dependency.** Node's own `WebSocket` is the gateway client and Node's
  * own `fetch` is the REST client, which is why this file is a few hundred lines
@@ -27,15 +38,31 @@
  * reviewed, without a bot running and without anything reaching Discord.
  */
 
-import { answerFor, HELP, UNKNOWN } from '@/platform/xiai';
-import { credentials, type Credentials } from './discordEnv';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { ASK_COMMAND, HELP, MESSAGE_COMMAND, replyFor, TOPICS } from '@/platform/xiai';
+import {
+  newKeyPair,
+  readDiscordSetting,
+  readFingerprint,
+  readPing,
+  signedPing,
+  signerForOneRun,
+  signerFromSeed,
+  type Answer,
+  type Mark,
+  type SignedPing,
+  type Signer,
+} from '@/platform/xiaiVerify';
+import { answerInteraction, type Interaction } from '../worker/xiaiEndpoint';
+import { credentials, ROOT, type Credentials } from './discordEnv';
 
 const API = 'https://discord.com/api/v10';
 
 // --- Output -----------------------------------------------------------------
 
-type Mark = 'ok' | 'warn' | 'fail' | 'info';
-
+// `Mark` is `src/platform/xiaiVerify.ts`'s, because the check of the deployed
+// endpoint decides how its own lines read; this is only the glyphs.
 const MARKS: Record<Mark, string> = { ok: '✓', warn: '!', fail: '✗', info: '·' };
 
 function say(mark: Mark, text: string, detail?: string): void {
@@ -118,9 +145,9 @@ interface ApiCommand {
   name: string;
 }
 
-interface InteractionOption {
-  name: string;
-  value?: unknown;
+/** The one field of the application this tool reads: where Discord delivers interactions. */
+interface ApiApplication {
+  interactions_endpoint_url?: string | null;
 }
 
 /**
@@ -128,13 +155,13 @@ interface InteractionOption {
  *
  * `token` is not the bot's token: it is a one-use ticket for this one answer,
  * which is what makes a reply possible without the bot having any other way to
- * post in a channel it has not been asked in.
+ * post in a channel it has not been asked in. Everything else — what was asked
+ * and what to answer — is `worker/xiaiEndpoint.ts`'s, because that is where the
+ * deployed bot decides it.
  */
-interface Interaction {
+interface Question extends Interaction {
   id: string;
   token: string;
-  type: number;
-  data?: { name?: string; options?: InteractionOption[] };
 }
 
 // --- Who the bot is, and where it answers -----------------------------------
@@ -171,68 +198,78 @@ async function identity(creds: Credentials): Promise<{ user: ApiUser; guild: Api
  * a person rather than for the API — sliced here so that lengthening the help
  * text can never make the command unregisterable, which is a failure that would
  * otherwise only show up as a 400 at registration time.
+ *
+ * Neither option is required, which is what lets `/ask` on its own be a sensible
+ * thing to type: with no question and no topic it answers with what it can help
+ * with, which is also how somebody finds out what to ask. The topic list is
+ * `TOPICS` — the knowledge base's own titles, capped by Discord at 25 choices and
+ * held to it by a test.
  */
 function askCommand(): Record<string, unknown> {
   return {
-    name: 'ask',
+    name: ASK_COMMAND,
     description: HELP.slice(0, 100),
     options: [
       {
         type: 3, // STRING
         name: 'question',
         description: 'What do you want to know about the game?',
-        required: true,
+        required: false,
         max_length: 400,
+      },
+      {
+        type: 3, // STRING
+        name: 'topic',
+        description: 'Or pick one of the things I know about',
+        required: false,
+        choices: TOPICS.map((topic) => ({ name: topic.name, value: topic.factId })),
       },
     ],
   };
 }
 
 /**
- * Register `/ask` in the guild.
+ * The entry in a message's right-click menu.
+ *
+ * A context-menu command may be mixed case with spaces in it, and it is the only
+ * wording a person sees before clicking — so it says what it does. What it does
+ * *not* need is any vocabulary of its own: a message command receives the text
+ * of the message it was pointed at, which is the one and only way this bot is
+ * ever given words it did not ask for, and it still needs no intent to read them.
+ * A command of this type carries a name and a type and nothing else.
+ */
+function messageCommand(): Record<string, unknown> {
+  return { name: MESSAGE_COMMAND, type: 3 }; // 3 = MESSAGE
+}
+
+/**
+ * Register the bot's commands in the guild.
  *
  * A **guild** command rather than a global one: guild commands appear in the
  * server the moment they are registered, where a global command can take an hour
  * to show up — and this bot lives in one server anyway. `PUT` to the collection
  * replaces the application's commands for that guild, which is exactly the
- * idempotent behaviour wanted and needs no DELETE anywhere.
+ * idempotent behaviour wanted and needs no DELETE anywhere — and is also why both
+ * commands are sent together: a list of one would quietly unregister the other.
  */
-async function registerAsk(creds: Credentials, applicationId: string, guildId: string): Promise<string> {
+async function registerCommands(creds: Credentials, applicationId: string, guildId: string): Promise<string> {
   const commands = await request<ApiCommand[]>(
     creds,
     'PUT',
     `/applications/${applicationId}/guilds/${guildId}/commands`,
-    [askCommand()],
+    [askCommand(), messageCommand()],
   );
-  return commands.map((command) => `/${command.name}`).join(', ') || 'nothing';
+  return commands.map((command) => (command.name === ASK_COMMAND ? `/${command.name}` : command.name)).join(', ') || 'nothing';
 }
 
 // --- The answer -------------------------------------------------------------
-
-interface Reply {
-  content: string;
-  /** Which fact answered, for the log; `null` when the knowledge base said no. */
-  fact: string | null;
-}
-
-/**
- * What to send back, built from the knowledge base's own decision.
- *
- * Public rather than ephemeral, which is a choice worth making twice: the next
- * person with the same question should be able to find the answer instead of
- * asking it again, and a wrong answer should be correctable in front of everyone
- * rather than in a private window nobody else can see. The fact's source is
- * carried along as Discord subtext, so even a correct answer can be traced to
- * the document it came from.
- */
-function replyFor(question: string): Reply {
-  const answer = answerFor(question);
-  if (!answer) return { content: UNKNOWN, fact: null };
-  return {
-    content: `**${answer.fact.title}**\n\n${answer.fact.body}\n\n-# ${answer.fact.source}`,
-    fact: answer.fact.id,
-  };
-}
+//
+// There is no answer-building code here, and there deliberately is not: what a
+// question is about, what an answer says and how an interaction is turned into
+// one all live where the tests are — `src/platform/xiai.ts` for the knowledge,
+// `worker/xiaiEndpoint.ts` for the interaction. This file used to hold a copy of the
+// reply text, which is exactly how the same question ends up answered two
+// different ways in two places.
 
 // --- The gateway ------------------------------------------------------------
 
@@ -391,7 +428,7 @@ class Xiai {
       return;
     }
     if (frame.t === 'INTERACTION_CREATE') {
-      void this.interaction(frame.d as Interaction);
+      void this.interaction(frame.d as Question);
       return;
     }
   }
@@ -405,27 +442,28 @@ class Xiai {
    * answer is logged and swallowed — one lost answer must not end the run, since
    * the alternative is a bot that stops listening because somebody asked it
    * something at a bad moment.
+   *
+   * What to answer is not decided here. `answerInteraction` is the deployed
+   * bot's own decision, imported rather than re-implemented, so this process and
+   * the endpoint in the cloud answer a question identically — including the vote
+   * buttons and the right-click menu, which this path never sees because they are
+   * new.
    */
-  private async interaction(interaction: Interaction): Promise<void> {
-    if (interaction.type !== 2) return;
-    if (interaction.data?.name !== 'ask') return;
-    const asked = interaction.data.options?.find((option) => option.name === 'question')?.value ?? '';
-    const question = String(asked);
-    const reply = replyFor(question);
-    say(
-      reply.fact ? 'ok' : 'warn',
-      `${reply.fact ? 'answered' : 'did not know'}: ${question.slice(0, 90)}`,
-      reply.fact ? `from ${reply.fact}` : 'told them to ask in #general',
-    );
+  private async interaction(interaction: Question): Promise<void> {
+    const outcome = answerInteraction(interaction);
+    if (outcome.status !== 200) {
+      say('warn', outcome.line, 'nothing is sent: this bot does not answer that');
+      return;
+    }
+    // "did not know" is an outcome and not a failure, and it reads as a warning
+    // because that is the line worth noticing in a scroll of answers.
+    say(outcome.line.startsWith('did not know') ? 'warn' : 'ok', outcome.line);
     try {
       await request(
         this.creds,
         'POST',
         `/interactions/${interaction.id}/${interaction.token}/callback`,
-        {
-          type: 4, // CHANNEL_MESSAGE_WITH_SOURCE
-          data: { content: reply.content, allowed_mentions: { parse: [] } },
-        },
+        outcome.body,
         false,
       );
     } catch (error) {
@@ -481,12 +519,219 @@ class Xiai {
   }
 }
 
+// --- Checking a deployed endpoint -------------------------------------------
+//
+// What an answer from the deployed bot *means* belongs entirely to
+// `src/platform/xiaiVerify.ts`, and this is the effects: two requests, a key, and
+// a report. The split is worth more here than anywhere else in this file, because
+// the part that can be wrong quietly is reading a refusal as success when the
+// refusal is the right one — and that half is tested with no network.
+
+/** Where the key this check signs with is written down: beside the Worker's local values, and ignored by git. */
+const KEY_FILE = join(ROOT, 'worker', '.verify-key');
+
+/**
+ * How long a single request to the endpoint may take before it is a result.
+ *
+ * `fetch` will wait for ever: an address that accepts a connection and then says
+ * nothing — a Worker being redeployed, a proxy holding the socket — is a hang
+ * rather than an error, and a check that hangs is not a check. Generous against
+ * Discord's own three seconds, because this is measuring the endpoint and not
+ * being held to it.
+ */
+const PROBE_TIMEOUT_MS = 10_000;
+
+/**
+ * The token, or `null`.
+ *
+ * The check works with a URL alone, so a missing token is not a failure here. A
+ * *reason* is still a reason, though: `discordEnv.ts` refuses outright when the
+ * token has ever been committed, and that refusal must not arrive as "no token".
+ */
+function tryCredentials(): Credentials | null {
+  try {
+    return credentials();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    say('warn', 'the bot token was not used', message.split('\n')[0]);
+    return null;
+  }
+}
+
+/** The key to sign with: the one written down, or a pair made up for this run. */
+function checkKey(): { signer: Signer; held: boolean } {
+  const written = existsSync(KEY_FILE) ? readFileSync(KEY_FILE, 'utf8') : '';
+  let seed = '';
+  if (written !== '') {
+    try {
+      seed = String((JSON.parse(written) as { seed?: unknown }).seed ?? '');
+    } catch {
+      say(
+        'warn',
+        'worker/.verify-key could not be read',
+        'run `npm run xiai -- --new-key` to write a new one — this run signs with a key made up for it',
+      );
+    }
+  }
+  const held = signerFromSeed(seed);
+  return held ? { signer: held, held: true } : { signer: signerForOneRun(), held: false };
+}
+
+/**
+ * One request to an address that is not Discord's, read the way the check needs
+ * it: the status, the body and the time it took — or the fact that nothing came
+ * back, which is a result too.
+ *
+ * Deliberately not `request()` above: that one is Discord's REST API, with the
+ * base URL, the auth and the rate-limit handling that belong to it. This is a
+ * fetch against a Worker, and its failures are the check's own subject rather
+ * than an exception to be thrown.
+ */
+async function probe(url: string, signed?: SignedPing): Promise<Answer> {
+  const started = performance.now();
+  try {
+    const response = await fetch(url, {
+      method: signed ? 'POST' : 'GET',
+      headers: signed?.headers,
+      body: signed?.body,
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+    });
+    return {
+      status: response.status,
+      body: await response.text(),
+      contentType: (response.headers.get('content-type') ?? '').toLowerCase(),
+      ms: performance.now() - started,
+    };
+  } catch (error) {
+    return {
+      status: null,
+      body: '',
+      contentType: '',
+      ms: null,
+      failure: why(error),
+    };
+  }
+}
+
+/**
+ * Why a request did not happen, in words somebody can act on.
+ *
+ * `fetch` reports every transport failure as the same `TypeError: fetch failed`
+ * and puts the real reason — a name that does not resolve, a port with nothing on
+ * it, a certificate that is not valid — on `cause`. Printing the wrapper alone
+ * would make the most common result of a mistyped address the least useful line
+ * in the report.
+ */
+function why(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  if (error.name === 'TimeoutError') return `nothing came back within ${PROBE_TIMEOUT_MS / 1000} s`;
+  const cause = (error as { cause?: unknown }).cause;
+  const detail = cause instanceof Error ? cause.message : '';
+  return detail !== '' && !error.message.includes(detail) ? `${error.message}: ${detail}` : error.message;
+}
+
+/**
+ * `--verify`: the deployed endpoint, checked from here, and what is wrong with it.
+ *
+ * The address is the argument when there is one and otherwise the application's
+ * own Interactions Endpoint URL, read from Discord — which is the one worth being
+ * able to check without remembering it, and is also the check for the mistake
+ * this has been waiting to catch: an endpoint deployed and answering that Discord
+ * has never been told about, in which case the bot in the server is still the
+ * process on somebody's laptop.
+ */
+async function verifyEndpoint(given: string | undefined): Promise<void> {
+  const creds = tryCredentials();
+  const saved: string | undefined = creds
+    ? ((await request<ApiApplication>(creds, 'GET', '/applications/@me')).interactions_endpoint_url ?? '')
+    : undefined;
+
+  const url = given ?? saved ?? '';
+  if (url === '') {
+    throw new Error(
+      'nothing to check: no address was given and the application has no Interactions Endpoint URL either. ' +
+        'Pass one (`npm run xiai -- --verify https://…`) or set it in the Portal — step 3 in DISCORD.md.',
+    );
+  }
+  if (!/^https?:\/\//i.test(url)) throw new Error(`that is not an http(s) address: ${url}`);
+
+  const local = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(?::\d+)?(?:\/|$)/i.test(url);
+  say('info', `checking ${url}`, local ? 'an endpoint on this machine' : 'a deployed endpoint');
+
+  // A GET first, because it is the one request the endpoint answers without a
+  // signature — and "nothing is deployed here" and "something else is deployed
+  // here" are different problems with different fixes. Nothing is signed against
+  // an address that is not the bot at all.
+  const fingerprint = readFingerprint(await probe(url));
+  say(fingerprint.mark, fingerprint.text, fingerprint.detail);
+
+  let ok = fingerprint.mark !== 'fail';
+  if (ok) {
+    const { signer, held } = checkKey();
+    const check = readPing(await probe(url, signedPing(signer)), { local, held, publicKey: signer.publicKey });
+    for (const verdict of check.verdicts) say(verdict.mark, verdict.text, verdict.detail);
+    ok = check.ok;
+    if (!held) {
+      say(
+        'info',
+        'this run signed with a key made up for it',
+        'which is all a deployed endpoint needs: it should refuse it. `npm run xiai -- --new-key` writes down a key a local endpoint can be configured to accept, and then a PONG is a real one',
+      );
+    }
+  }
+
+  const setting = readDiscordSetting(saved, url);
+  say(setting.mark, setting.text, setting.detail);
+
+  if (!ok) process.exitCode = 1;
+}
+
+/** `--new-key`: the key this check signs with, written down so that a signature of its can be accepted. */
+function newKey(): void {
+  const existed = existsSync(KEY_FILE);
+  const pair = newKeyPair();
+  writeFileSync(
+    KEY_FILE,
+    `${JSON.stringify(
+      {
+        why:
+          'The key `npm run xiai -- --verify` signs with, so that an endpoint can answer it with a PONG. ' +
+          'For a local run: DISCORD_PUBLIC_KEY=<publicKey> in worker/.dev.vars, then `npm run xiai:dev`. ' +
+          'Never the live Worker’s secret — that one is Discord’s public key, and replacing it would stop the bot answering anything.',
+        publicKey: pair.publicKey,
+        seed: pair.seed,
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  say('ok', `${existed ? 'replaced' : 'wrote'} the check key in worker/.verify-key`, 'it is ignored by git');
+  say('info', `its public half is ${pair.publicKey}`);
+  say(
+    'info',
+    'for a local endpoint, this is the only place it belongs:',
+    'worker/.dev.vars → DISCORD_PUBLIC_KEY=<that key> — then `npm run xiai:dev`',
+  );
+  say(
+    'warn',
+    'that key is for this machine, not for the deployment',
+    'the live Worker verifies Discord’s signatures against Discord’s public key: replacing it with this one would stop the bot answering anything at all',
+  );
+  say('info', 'and then check it:', 'npm run xiai -- --verify http://127.0.0.1:8787   (the port `xiai:dev` prints)');
+}
+
 // --- The commands -----------------------------------------------------------
 
 const USAGE = [
   '   usage: npm run xiai                       run the bot: it answers /ask while it is running',
+  '          npm run xiai:deploy               deploy the always-on endpoint (worker/wrangler.toml)',
+  '          npm run xiai:dev                  run that endpoint locally',
+  '          npm run xiai:logs                 watch what the live endpoint answers',
+  '          npm run xiai:verify               check the deployed endpoint from here',
   '          npm run xiai -- --register         register or refresh /ask, then exit',
   '          npm run xiai -- --check            connect to Discord, say who it is, disconnect',
+  '          npm run xiai -- --verify [url]     check an endpoint: the one given, or the one Discord is pointed at',
+  '          npm run xiai -- --new-key          write the key `--verify` signs with, for local runs',
   '          npm run xiai -- --ask "question"   answer one question here, with no bot and no token',
 ].join('\n');
 
@@ -503,12 +748,12 @@ function answerHere(question: string): void {
   process.stdout.write('\n');
 }
 
-/** `--register`: the command on its own, for when the bot is already running elsewhere. */
+/** `--register`: the commands on their own, for when the bot is already running elsewhere. */
 async function registerOnly(): Promise<void> {
   const creds = credentials();
   const { user, guild } = await identity(creds);
   say('ok', `${user.username} (${user.id}) in ${guild.name} (${guild.id})`);
-  const command = await registerAsk(creds, user.id, guild.id);
+  const command = await registerCommands(creds, user.id, guild.id);
   say('ok', `registered ${command} in that server`, 'guild commands appear at once, which is why it is not global');
 }
 
@@ -541,7 +786,7 @@ async function run(): Promise<void> {
   const creds = credentials();
   const { user, guild } = await identity(creds);
   say('ok', `${user.username} (${user.id}) in ${guild.name} (${guild.id})`);
-  const command = await registerAsk(creds, user.id, guild.id);
+  const command = await registerCommands(creds, user.id, guild.id);
   say('ok', `registered ${command} in that server`, 'guild commands appear at once, which is why it is not global');
 
   const bot = new Xiai(creds);
@@ -576,6 +821,14 @@ async function main(): Promise<void> {
     }
     answerHere(question);
     return;
+  }
+
+  if (argv.includes('--new-key')) return newKey();
+
+  const verifyAt = argv.indexOf('--verify');
+  if (verifyAt >= 0) {
+    const next = argv[verifyAt + 1];
+    return verifyEndpoint(next && !next.startsWith('--') ? next : undefined);
   }
 
   if (argv.includes('--check')) return check();

@@ -1,7 +1,8 @@
 import { ageOn } from '@/domain/manager';
 import { formatShortDate } from '@/simulation/calendar';
 import { ordinal } from '@/simulation/news';
-import { formOf, leaguePosition, managerCareerRecord, userClub, userManager } from '@/simulation/queries';
+import { managingClubId } from '@/simulation/career';
+import { formOf, leaguePosition, managerCareerRecord, userManager } from '@/simulation/queries';
 import { rollSeed } from '@/simulation/generation/seeds';
 import { gameActions, useGame } from '../hooks';
 import { Button, Fact, FormPips, PageHeader, Panel, Pill } from '../components/primitives';
@@ -17,15 +18,23 @@ import { randomFaceChoices, rolledFaceChoices } from '../face';
 export function ManagerView() {
   const game = useGame();
   if (!game) return null;
-  const club = userClub(game);
+  // Which club he is in charge of, asked of the career rather than assumed: a
+  // manager between jobs has not got one, and this screen is his, so it has to be
+  // able to say so.
+  const clubId = managingClubId(game);
+  const club = clubId ? game.clubs[clubId]! : null;
+  const lastClub = game.career?.lastClubId ? game.clubs[game.career.lastClubId] : undefined;
   const profile = game.managerProfile;
   const official = userManager(game);
   const record = managerCareerRecord(game);
   const age = ageOn(profile.birthday, game.date);
-  const tenure = club.history.managers.find(entry => entry.personId === 'user_manager');
+  const tenure = club?.history.managers.find(entry => entry.personId === 'user_manager');
   const inChargeSince = tenure?.from ?? game.season.startDate;
-  const position = leaguePosition(game, club.id);
-  const thisSeason = club.history.seasons.find(season => season.seasonId === game.season.id);
+  const position = club ? leaguePosition(game, club.id) : null;
+  const thisSeason = club?.history.seasons.find(season => season.seasonId === game.season.id);
+  const lastSpell = lastClub
+    ? [...(game.career?.spells ?? [])].reverse().find(spell => spell.clubId === lastClub.id)
+    : undefined;
 
   return <div className="stack manager-screen">
     <div className="manager-identity">
@@ -39,7 +48,7 @@ export function ManagerView() {
         eyebrow="Your managerial career"
         title={`${profile.firstName} ${profile.surname}`}
         photo="/photos/profile-boots.webp"
-        subtitle={`${profile.occupation || 'Volunteer'} · manager of ${club.identity.name}`}
+        subtitle={club ? `${profile.occupation || 'Volunteer'} · manager of ${club.identity.name}` : `${profile.occupation || 'Volunteer'} · between jobs`}
         meta={<>
           <span className="small muted">Age {age} · born {formatShortDate(profile.birthday)}</span>
           {profile.nickname && <span className="small muted">Known as “{profile.nickname}”</span>}
@@ -47,7 +56,7 @@ export function ManagerView() {
           {official && <span className="small muted">{Math.round(official.reputation)} local standing</span>}
         </>}
       />
-      <ClubBadge club={club} size={88} />
+      {club ? <ClubBadge club={club} size={88} /> : null}
     </div>
     <TileGrid min={175}>
       <MetricTile label="Seasons" value={record.seasons} note="Including this one" />
@@ -55,7 +64,7 @@ export function ManagerView() {
       <MetricTile label="Win rate" value={record.played > 0 ? `${record.winPercent}%` : '—'} note={`${record.points} points earned`} />
     </TileGrid>
     <AdaptivePanels name="manager" panels={[
-      { id: 'job', label: 'Current job', content: <Panel title="The current job" className="workspace-panel">
+      { id: 'job', label: 'Current job', content: club ? <Panel title="The current job" className="workspace-panel">
         <div className="manager-job"><ClubBadge club={club} size={48} /><div><ClubLink clubId={club.id} /><p className="small muted">In charge since {formatShortDate(inChargeSince)}</p></div></div>
         <dl className="facts">
           <Fact label="Season" value={game.season.label} />
@@ -63,6 +72,17 @@ export function ManagerView() {
           <Fact label="This season" value={thisSeason ? `${thisSeason.won}W · ${thisSeason.drawn}D · ${thisSeason.lost}L (${thisSeason.points} pts)` : 'Not started'} />
         </dl>
         <div className="manager-form"><span className="small muted">Recent form</span><FormPips form={formOf(game, club.id, 5)} /></div>
+      </Panel> : <Panel title="Between jobs" className="workspace-panel">
+        {/* The same panel, telling the truth about the job: there is not one. What
+            he still has is the record, the face and the posts he can apply for,
+            and the club screens are closed to him until a committee calls. */}
+        {lastClub && <div className="manager-job"><ClubBadge club={lastClub} size={48} /><div><ClubLink clubId={lastClub.id} /><p className="small muted">{lastSpell?.to ? `Left ${formatShortDate(lastSpell.to)}` : 'No club'} — the most recent job</p></div></div>}
+        <dl className="facts">
+          <Fact label="Season" value={game.season.label} />
+          <Fact label="Open posts" value={game.career?.openings?.length ?? 0} />
+          <Fact label="Clubs managed" value={game.career?.spells?.length ?? 0} />
+        </dl>
+        <p className="empty">There is no squad to pick and no bank balance to answer for. Home has the job board; the days passing is what brings a committee here.</p>
       </Panel> },
       { id: 'record', label: 'Career record', content: <Panel title="Career record" className="workspace-panel">
         {record.played > 0 ? <>
@@ -91,9 +111,9 @@ export function ManagerView() {
           onReset={official.face ? () => gameActions().setManagerFace(null) : undefined}
         /> : <p className="empty">There is no manager in the dugout to draw.</p>}
       </Panel> },
-      { id: 'honours', label: 'Club honours', wide: true, content: <Panel title="Club honours" className="workspace-panel" actions={<Button variant="ghost" size="sm" onClick={() => gameActions().setView('history')}>Club history</Button>}>
+      ...(club ? [{ id: 'honours', label: 'Club honours', wide: true, content: <Panel title="Club honours" className="workspace-panel" actions={<Button variant="ghost" size="sm" onClick={() => gameActions().setView('history')}>Club history</Button>}>
         <div className="honours-display"><Glyph name="league" /><div>{club.history.honours.length ? <div className="row row--wrap">{club.history.honours.map(honour => <Pill key={honour} tone="accent">{honour}</Pill>)}</div> : <p className="muted">Nothing in the cabinet yet. The story is still being written.</p>}<p className="small muted">The club's honours, not a claim that you won them all.</p></div></div>
-      </Panel> },
+      </Panel> }] : []),
     ]} />
   </div>;
 }

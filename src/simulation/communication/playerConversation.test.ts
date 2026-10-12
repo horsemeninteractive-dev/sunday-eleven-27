@@ -100,6 +100,11 @@ describe('a player answers about his availability', () => {
   it('tells the manager he is available when the record says he is', () => {
     const game = createTestGame('pc-available');
     const player = withAvailability(game, 0, 'available');
+    // His *tone* is a separate question with its own suite below; what this
+    // pins is that the record decides the answer. He is made warm toward the
+    // manager so the tone cannot stand in front of the fact being tested — his
+    // regard for the man asking is allowed to colour this, never to decide it.
+    withRelationship(game, player.id, { friendship: 70, trust: 70, tension: 0 });
 
     const { reply } = ask(game.state, player.id, 'ASK_AVAILABILITY');
     expect(reply).not.toBeNull();
@@ -183,14 +188,24 @@ describe('a player answers about his availability', () => {
   });
 
   it('varies the wording between two men, and between two conversations', () => {
+    // The one test here whose subject *is* the prose, because the property it
+    // guards is that a manager never learns a man's lines. The variant is a
+    // random pick from three or four, so two men can genuinely draw the same
+    // one and demanding that any given pair differ would fail on a coin toss.
+    // What is true, and worth pinning, is that the pool is actually used: put a
+    // squad in the *same* situation — available, and on good terms with the
+    // manager, so the state they answer from is identical — and the words still
+    // differ.
     const game = createTestGame('pc-variety');
-    const [a, b] = squad(game);
-    withAvailability(game, 0, 'available');
-    withAvailability(game, 1, 'available');
+    const players = squad(game).slice(0, 8);
+    players.forEach((_, index) => {
+      const player = withAvailability(game, index, 'available');
+      withRelationship(game, player.id, { friendship: 70, trust: 70, tension: 0 });
+    });
 
-    const first = ask(game.state, a.id, 'ASK_AVAILABILITY').reply!.body;
-    const second = ask(game.state, b.id, 'ASK_AVAILABILITY').reply!.body;
-    expect(first).not.toBe(second);
+    const replies = players.map((player) => ask(game.state, player.id, 'ASK_AVAILABILITY').reply!);
+    for (const reply of replies) expect(reply.context.replyState).toBe('available-confident');
+    expect(new Set(replies.map((reply) => reply.body)).size).toBeGreaterThan(1);
   });
 
   it('answers a fitness question about the state the man is actually in', () => {

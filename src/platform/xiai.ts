@@ -241,7 +241,13 @@ export const KNOWLEDGE: readonly Fact[] = [
     title: 'Moving a career between devices',
     triggers: [
       'move a career',
-      'transfer a save',
+      // `transfer a save` used to be here, and it was the wrong kind of generous:
+      // a trigger's *words* are what match, so `transfer` alone was enough, and
+      // "is there a transfer window" was answered with how to move a career
+      // between machines. A question about transfers is better refused than
+      // answered with something else, so the word is gone and the question it
+      // was standing in for still works through `save`.
+      'move a save',
       'another device',
       'switch device',
       'export',
@@ -349,13 +355,10 @@ export const KNOWLEDGE: readonly Fact[] = [
       'squad',
       'tactics',
       'training',
-      'staff',
       'recruitment',
       'transfers',
       'signings',
-      'finances',
       'wages',
-      'sponsors',
       'kit',
       'badge',
     ],
@@ -535,6 +538,230 @@ export const KNOWLEDGE: readonly Fact[] = [
     source: 'The server\'s own `#playtesting` pinned post (src/platform/discord.ts)',
   },
   {
+    id: 'cup-draws',
+    title: 'A level cup tie',
+    triggers: [
+      'draw',
+      'a draw in the cup',
+      'cup tie level',
+      'level after ninety',
+      'extra time',
+      'penalties',
+      'penalty shootout',
+      'shootout',
+      'spot kicks',
+      'sudden death',
+    ],
+    body: [
+      'A knockout tie that is level after ninety minutes is not decided by which dressing room it was played',
+      'in. Extra time is played — the two fifteen-minute periods the clock model was always built for — and if',
+      'it is still level there is a shootout: five kicks each, taken by the men on the pitch, then sudden death',
+      'until one side misses.',
+      '',
+      'The winner is written onto the match and into the result\'s penalty score, so the cup reads who actually',
+      'went through.',
+    ].join('\n'),
+    source: 'CHANGELOG.md — 0.5.0, "A level cup tie is settled on the pitch"',
+  },
+  {
+    id: 'cards-and-injuries',
+    title: 'Sending offs and injuries',
+    triggers: [
+      'red card',
+      'yellow card',
+      'second yellow',
+      'sent off',
+      'sending off',
+      'booked',
+      'booking',
+      'injury',
+      'injured',
+      'injuries',
+      'hamstring',
+      'how long is he out',
+      'suspension',
+      'suspended',
+    ],
+    body: [
+      'A second yellow is a sending off, and so is a straight red. A sent-off man keeps his place on the team',
+      'sheet — the ten who remain keep their shape — but he plays no part: his side is down to ten and weaker',
+      'for losing him, and he cannot be replaced.',
+      '',
+      'A match can also hurt a man. Tired legs on a bad pitch turn an ankle or pull a hamstring, and the injury is',
+      'written onto his record, where the season turns it into time out — so the manager hears about it the way he',
+      'hears about a card. A man who cannot run it off comes off at the next chance, whoever he is and whatever',
+      'the minute, and the best-placed substitute takes his job.',
+    ].join('\n'),
+    source: 'CHANGELOG.md — 0.5.0, "Men leave the pitch: cards and injuries"',
+  },
+  {
+    id: 'the-committee',
+    title: 'Who runs the club',
+    triggers: [
+      'committee',
+      'chairman',
+      'secretary',
+      'who runs the club',
+      'who owns the club',
+      'the board',
+      'the people who run the club',
+      'who do i answer to',
+    ],
+    body: [
+      'The club is run by people rather than by a screen: a committee — a chairman, a secretary and the rest —',
+      'each with a name, an expectation of the club and things he is worried about. The Staff screen\'s *The',
+      'chairman* panel says who he is, what he expects, what is troubling him, and the matters of record.',
+      '',
+      'The manager can talk to them, and what he says is a conversation: a reply arrives in the inbox as a',
+      'message. A message only ever *acts* where the manager has decided something, so nothing about the club',
+      'changes by talking alone.',
+    ].join('\n'),
+    source: 'CHANGELOG.md — 0.7.0, "The committee is made of people"; "The manager can talk to the people who run the club"',
+  },
+  {
+    id: 'club-money',
+    title: 'Where the money comes from and goes',
+    triggers: [
+      'money',
+      'finances',
+      'bank balance',
+      'balance',
+      'in the red',
+      'ledger',
+      'weekly costs',
+      'running costs',
+      'heading for',
+      'where does the money come from',
+    ],
+    body: [
+      'Money is a ledger of dated lines, and the books are the only authority on it: a sponsor\'s instalment, a',
+      'match\'s subs, a night\'s takings are each one line, written once and dated.',
+      '',
+      'The outgoings come round every seven days — pitch hire, insurance and the hall — which is why the weeks',
+      'left are counted in weeks rather than in matchdays. The Finances screen also carries a *heading for*',
+      'figure: the balance carried forward at the club\'s weekly rate to the end of the season. That is a run',
+      'rate and it is labelled as one — a cup run, the subs still to be collected and the equipment kitty are',
+      'outside it, because none of them is money the club is due on a schedule.',
+    ].join('\n'),
+    source: 'CHANGELOG.md — 0.6.0, "The weeks left, in weeks"; the Finances screen',
+  },
+  {
+    id: 'sponsorship',
+    title: 'How a sponsor works',
+    triggers: [
+      'sponsor',
+      'sponsors',
+      'sponsorship',
+      'sponsor deal',
+      'get a sponsor',
+      'renewal',
+      'backing',
+      'a business backing the club',
+    ],
+    body: [
+      'A sponsor is a business that already exists in the world — the same pub, builder or garage a club is named',
+      'after — and the deal is real: the club, the start and end dates, the instalment, its terms, and the',
+      'sponsor\'s own goodwill toward the club. It runs a lifecycle: the club looks, an offer is accepted, the',
+      'deal goes active and pays, it comes up for renewal at the end of its term, and it can lapse or be replaced.',
+      'A club can go without one until it finds another.',
+      '',
+      'Every instalment is **one ledger line**, dated by the agreement and keyed to it, so a day is never paid',
+      'twice. A business brings its own cadence with it: a pub, a café or a butcher pays on the Friday, a builder,',
+      'garage or plumber on the 28th of the month. A missed payment dents the sponsor\'s goodwill and, if it keeps',
+      'happening, ends the deal — and the finances screen shows the current sponsor, the income, the renewal date',
+      'and any one pressing issue.',
+    ].join('\n'),
+    source: 'CHANGELOG.md — 0.7.0, "A sponsor is somebody, not a number"; 0.6.0, "A sponsor can pay by the month"',
+  },
+  {
+    id: 'subs-and-match-costs',
+    title: 'Subs, and what a match costs a man',
+    triggers: [
+      'subs',
+      'subs money',
+      'match fee',
+      'match fees',
+      'player subs',
+      'who pays the players',
+      'unused substitute',
+      'money from a match',
+    ],
+    body: [
+      'Player subs are a matchday liability rather than a weekly squad tax. A man is charged for the match he',
+      'actually played, taken from the match engine\'s own participation record: a starter pays the full starter',
+      'rate, a substitute who came on pays the reduced rate, and an unused substitute, an unselected player or an',
+      'unavailable one pays nothing. Squad membership on its own creates no debt.',
+      '',
+      'Each match raises its own liability against the man who played it, so a player can owe from several games',
+      'at once and the club can always say which. A payment settles the oldest outstanding debt first and the',
+      'history stays. The two rates belong to the club — £5 and £3 by default.',
+    ].join('\n'),
+    source: 'CHANGELOG.md — 0.7.0, "Matchday subs, not a weekly squad tax"',
+  },
+  {
+    id: 'staff-roles',
+    title: 'The people at the club',
+    triggers: [
+      'staff',
+      'staff screen',
+      'physio',
+      'scout',
+      'assistant',
+      'coach',
+      'treasurer',
+      'volunteer',
+      'who works at the club',
+      'what do the staff do',
+      'do i need a coach',
+    ],
+    body: [
+      'The club\'s week is run by people in real roles rather than by a list of words: an assistant, a coach, a',
+      'physio, a secretary, a treasurer, a scout and a volunteer, each an ordinary person with his own name, age,',
+      'day job and reputation. Clubs are staffed *plausibly* rather than professionally — a Sunday club might have',
+      'a secretary and nothing else, a bigger one a physio and a scout — and one man can hold two roles: the',
+      'chairman who keeps the books, or the secretary who turns out at right back. A player-manager is the same',
+      'person on the pitch and in the dugout, never a duplicate record.',
+      '',
+      'They change what happens in the week. A coach who is around takes Thursday night\'s session, and the',
+      'assistant covers when he cannot. A physio improves fitness and gives an estimate of how long a knock will',
+      'keep somebody out — closer and more confident the better he is — though he does not touch the injury',
+      'itself, so a ten-day injury is ten days wherever the man plays. A scout goes and watches somebody and',
+      'reports through the same recruitment knowledge as every other source, landing on the candidate list you',
+      'already use: a better scout travels further, watches more often, and comes back with a fuller, truer read.',
+      '',
+      'Anyone can be unavailable on a given week — a shift, a holiday, a family do — and being a man down never',
+      'removes the role or stops the club: it makes the week a little harder. The committee turns over with the',
+      'seasons, a few men stepping down or retiring, and the posts they leave behind are filled from the town.',
+    ].join('\n'),
+    source: 'CHANGELOG.md — 0.7.0, "The committee is made of people", "The committee now changes the football"',
+  },
+  {
+    id: 'the-summer',
+    title: 'Where each summer\'s squad comes from',
+    triggers: [
+      'youth intake',
+      'summer signings',
+      'signings',
+      'new players',
+      'where do players come from',
+      'squad changes',
+      'journeyman',
+      'why is my squad worse',
+    ],
+    body: [
+      'Every summer brings a club its signings, its youth intake and a journeyman top-up, and all three are',
+      'generated against the level the club plays at — read from its standing rather than from the squad it',
+      'happens to have. So a club never signs a man better than the club itself is: a side below its standard can',
+      'climb back to it, and a side above it cannot keep climbing, because there is nothing above the standard to',
+      'sign.',
+      '',
+      'An arrival is **one player, not an average**. He draws the same roll of the dice the rest of the squad was',
+      'drawn with, so the squad that leaves the summer has the spread of the one that was generated — which is',
+      'what stops a county ratcheting itself upward season after season while nobody is at the controls.',
+    ].join('\n'),
+    source: 'CHANGELOG.md — 0.8.0, "an arrival was better than the club it joined"',
+  },
+  {
     id: HELP_FACT_ID,
     title: 'What XIAI can answer',
     // A greeting has no words to match on at all, so the entry that answers
@@ -622,6 +849,110 @@ function wordCounts(facts: readonly Fact[]): Map<string, number> {
 }
 
 /**
+ * A word reduced to the part its own family has in common: `saves` and `save`
+ * are the same word, and so are `matches` and `match`.
+ *
+ * This is the whole of the stemming, and it is deliberately this small. A real
+ * stemmer — Porter, Lancaster — is a large amount of code and a set of rules
+ * nobody can hold in their head, and what it buys over this is the long tail of
+ * English. What the questions in this server actually look like is a plural or a
+ * participle: people ask about **cups**, about **saves**, about **postponed**
+ * fixtures. Those are the rules below, and nothing else is guessed at.
+ *
+ * Both sides of a comparison are stemmed the same way, so a rule only has to be
+ * *consistent* to help — `saves` reducing to `sav` is fine, because `save`
+ * reduces to `sav` too.
+ */
+export function stemmed(word: string): string {
+  if (word.length <= 3) return word;
+  let stem = word;
+  if (stem.endsWith('ies') && stem.length > 4) stem = `${stem.slice(0, -3)}y`;
+  else if (stem.endsWith('sses')) stem = stem.slice(0, -2);
+  else if (/(?:ch|sh|x|z|s)es$/.test(stem)) stem = stem.slice(0, -2);
+  else if (stem.endsWith('s') && !stem.endsWith('ss')) stem = stem.slice(0, -1);
+  if (stem.endsWith('ing') && stem.length > 5) stem = stem.slice(0, -3);
+  else if (stem.endsWith('ed') && stem.length > 4) stem = stem.slice(0, -2);
+  if (stem.endsWith('e') && stem.length > 3) stem = stem.slice(0, -1);
+  return stem;
+}
+
+/**
+ * How many single-character edits turn one word into another.
+ *
+ * Plain Levenshtein, plus the one insertion people actually make: a pair of
+ * letters the wrong way round — `wrok` for `work` — counts as one edit rather
+ * than two, because that is how it was typed. The whole table is computed; the
+ * words here are at most twenty characters and there are only ever a handful.
+ */
+function edits(a: string, b: string): number {
+  let above: number[] = Array.from({ length: b.length + 1 }, (_, index) => index);
+  const before: number[] = [];
+  for (let i = 1; i <= a.length; i++) {
+    const row: number[] = [i];
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      let value = Math.min(above[j]! + 1, row[j - 1]! + 1, above[j - 1]! + cost);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        value = Math.min(value, (before[j - 2] ?? Number.POSITIVE_INFINITY) + 1);
+      }
+      row.push(value);
+    }
+    before.length = 0;
+    before.push(...above);
+    above = row;
+  }
+  return above[b.length]!;
+}
+
+/**
+ * Whether a word the knowledge base is looking for, and a word somebody typed,
+ * are the same word.
+ *
+ * Three ways to be the same word, and the third one is where the care is:
+ *
+ *   1. **exactly the same** — the case the matcher has always handled;
+ *   2. **the same word, folded** — a plural or a participle of it. A question
+ *      that asks about "seasons" is asking about the season;
+ *   3. **one slip of the fingers.** The forgiving rule, and the one that needed
+ *      thinking about, because one edit away is very close indeed in a short
+ *      word: `spare` is one letter from `share`, `team` is one from `term`,
+ *      `steam` and `tear`, and `2027` is one digit from `2026` — so a question
+ *      about a spare ticket would be answered with how to share a career file,
+ *      which is exactly the kind of confident nonsense this bot exists not to
+ *      do. So a swapped pair of letters is forgiven from four letters up (`wrok`
+ *      is `work`, and a transposition is very rarely another word), and any
+ *      other single edit only from six letters up, in words that are nothing but
+ *      letters. `promoton` and `relegaton` are still caught; `spare` is not
+ *      offered up as `share`; and no number is ever treated as another number.
+ */
+export function sameWord(wanted: string, asked: string): boolean {
+  if (wanted === asked) return true;
+  if (stemmed(wanted) === stemmed(asked)) return true;
+  if (!/^[a-z]+$/.test(wanted) || !/^[a-z]+$/.test(asked)) return false;
+  if (swapped(wanted, asked)) return true;
+  if (wanted.length < 6 || asked.length < 6) return false;
+  return edits(wanted, asked) <= 1;
+}
+
+/**
+ * Whether the only difference is two letters the wrong way round — `wrok` for
+ * `work`, which is one slip at a keyboard but two edits to Levenshtein.
+ */
+function swapped(a: string, b: string): boolean {
+  if (a.length !== b.length || a.length < 4) return false;
+  const differs: number[] = [];
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) differs.push(i);
+  const [first, second] = differs;
+  return (
+    differs.length === 2 &&
+    first !== undefined &&
+    second === first + 1 &&
+    a[first] === b[second] &&
+    a[second] === b[first]
+  );
+}
+
+/**
  * The best answer for a question, or `null` when nothing matches at all.
  *
  * The bar is deliberately low — one recognisable word is enough, because a bot
@@ -644,7 +975,6 @@ export function answerFor(question: string, facts: readonly Fact[] = KNOWLEDGE):
     const help = facts.find((fact) => fact.id === HELP_FACT_ID);
     return help ? { fact: help, score: 0, matched: [] } : null;
   }
-  const normalised = ` ${words.join(' ')} `;
   const asked = rawWords(question);
   const counts = wordCounts(facts);
   let best: Answer | null = null;
@@ -656,8 +986,10 @@ export function answerFor(question: string, facts: readonly Fact[] = KNOWLEDGE):
       // is skipped rather than scored: the knowledge base's own test is what
       // stops one being written in the first place.
       if (wanted.length === 0) continue;
-      // A word has to appear as a word: "cup" must not match "cupboard".
-      const matched = wanted.filter((word) => normalised.includes(` ${word} `));
+      // A word has to appear as a word: "cup" must not match "cupboard". What
+      // counts as the same word is `sameWord`'s business above — itself, a plural
+      // or participle of itself, or one slip of the fingers in a long enough word.
+      const matched = wanted.filter((word) => words.some((typed) => sameWord(word, typed)));
       if (matched.length === 0) continue;
       // How rare the words are, plus a point for the trigger appearing as the
       // phrase it is written as. **The best trigger decides, not the total:** an
@@ -665,7 +997,10 @@ export function answerFor(question: string, facts: readonly Fact[] = KNOWLEDGE):
       // accurate way, and adding them up is what makes a bot answer "can i play
       // on my phone" with where to play instead of the phone.
       const rarity = matched.reduce((total, word) => total + 1 / (counts.get(word) ?? 1), 0);
-      const score = rarity + (asked.includes(rawWords(trigger)) ? 1 : 0);
+      // A word that is really there is worth slightly more than one that had to
+      // be forgiven a typo, so an exact answer never loses to a near one.
+      const exact = matched.filter((word) => words.includes(word)).length;
+      const score = rarity + exact * 0.25 + (asked.includes(rawWords(trigger)) ? 1 : 0);
       // The first fact wins a tie, so the same question always gets the same
       // answer — a bot that answers differently on Tuesday is a bot nobody trusts.
       if (best === null || score > best.score) best = { fact, score, matched };
@@ -686,3 +1021,122 @@ export const UNKNOWN = [
 /** The help text, which is also the description of the `/ask` command. */
 export const HELP =
   'Ask about the game: the season, cups, saves, platforms and what is not built yet.';
+
+/**
+ * The two commands, named once.
+ *
+ * `ask` is the slash command and `Ask XIAI` is the entry in a message's
+ * right-click menu. Both names are checked against Discord's own rules by the
+ * tests, because a name Discord will not accept fails at registration time,
+ * which is a long way from the line that wrote it.
+ */
+export const ASK_COMMAND = 'ask';
+export const MESSAGE_COMMAND = 'Ask XIAI';
+
+/**
+ * One answer, as the message Discord is sent.
+ *
+ * The source line is Discord subtext (`-#`), so it is readable but quiet: the
+ * point of printing where an answer came from is that a wrong one can be traced
+ * to a document, not that it should compete with the answer for attention.
+ */
+export function answerText(fact: Fact): string {
+  return `**${fact.title}**\n\n${fact.body}\n\n-# ${fact.source}`;
+}
+
+/** The fact a name refers to, for the `/ask` topic picker and for a vote. */
+export function factById(id: string, facts: readonly Fact[] = KNOWLEDGE): Fact | null {
+  return facts.find((fact) => fact.id === id) ?? null;
+}
+
+export interface Reply {
+  /** What Discord is sent. */
+  content: string;
+  /** The fact that answered, for the log; `null` when the knowledge base said no. */
+  fact: string | null;
+}
+
+/**
+ * What to send back for a question.
+ *
+ * Shared by the command line and by the endpoint in the cloud, so an answer can
+ * never be worded one way on a laptop and another way in the server — which is
+ * the kind of drift nobody notices until somebody posts two screenshots.
+ */
+export function replyFor(question: string): Reply {
+  const answer = answerFor(question);
+  if (!answer) return { content: UNKNOWN, fact: null };
+  return { content: answerText(answer.fact), fact: answer.fact.id };
+}
+
+/**
+ * The `/ask` topic picker: which answers it offers, in the order it offers them.
+ *
+ * The membership is chosen here and the wording is not: a topic's label is the
+ * answer's own title, so a menu entry can never describe something different from
+ * what it answers with. Membership is deliberately *not* derived from every fact,
+ * for two reasons — Discord refuses a command with more than 25 choices, and a
+ * menu of thirty entries is a wall. The four that decide where something belongs
+ * (`#bug-reports`, `#ideas`, playtesting) and the one that answers "what can you
+ * answer" are the ones left out; they are answers to a sentence somebody has
+ * already started, not topics anybody browses.
+ */
+export const PICKER: readonly string[] = [
+  'what-is-it',
+  'where-to-play',
+  'price',
+  'season-structure',
+  'promotion',
+  'cups',
+  'cup-draws',
+  'cards-and-injuries',
+  'postponements',
+  'what-you-manage',
+  'the-committee',
+  'staff-roles',
+  'club-money',
+  'sponsorship',
+  'subs-and-match-costs',
+  'saves-where',
+  'move-a-career',
+  'determinism',
+  'world-continues',
+  'match-modes',
+  'phone',
+  'desktop',
+  'version',
+];
+
+export const TOPICS: ReadonlyArray<{ name: string; factId: string }> = PICKER.flatMap((id) => {
+  const fact = factById(id);
+  return fact ? [{ name: fact.title.slice(0, 100), factId: fact.id }] : [];
+});
+
+/** Which way a manager voted on an answer. */
+export type Vote = 'up' | 'down';
+
+/**
+ * The buttons' shared id, which is how a click finds the answer it belongs to.
+ *
+ * It carries the fact's name rather than the question: a button outlives the
+ * message that carried it (Discord keeps components clickable for as long as the
+ * message is there), so the id has to say what was being rated — and nothing
+ * about the person who asked.
+ */
+const VOTE_PREFIX = 'xiai:vote:1:';
+
+export function voteCustomId(vote: Vote, factId: string): string {
+  return `${VOTE_PREFIX}${vote}:${factId}`;
+}
+
+/** The vote an id names, or `null` when the id is not one of ours. */
+export function parseVote(customId: string): { vote: Vote; factId: string } | null {
+  if (!customId.startsWith(VOTE_PREFIX)) return null;
+  const rest = customId.slice(VOTE_PREFIX.length);
+  const at = rest.indexOf(':');
+  if (at <= 0) return null;
+  const vote = rest.slice(0, at);
+  const factId = rest.slice(at + 1);
+  if ((vote !== 'up' && vote !== 'down') || factId === '') return null;
+  return { vote, factId };
+}

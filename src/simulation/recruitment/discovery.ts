@@ -253,6 +253,17 @@ export function lookAtFiveASide(state: GameState): DiscoveryResult {
 }
 
 /**
+ * What an open session costs to put on: the pitch, the floodlights and the
+ * advertising.
+ *
+ * Named here, beside the ledger entry that charges it, because the screen that
+ * offers the session quotes the price before the manager presses the button —
+ * and a number written into two files is a number that ends up in two answers.
+ * The range is what the night comes to; it is spent in whole pounds.
+ */
+export const OPEN_SESSION_COST = { min: 18, max: 42 } as const;
+
+/**
  * An open session: the manager hires the pitch, puts the word out, and whoever
  * turns up turns up. Some of them can play. Several cannot.
  */
@@ -268,7 +279,7 @@ export function holdOpenSession(state: GameState): DiscoveryResult {
   const rng = rngFor(state, 'open-session', state.date);
   store.lastOpenSessionOn = state.date;
 
-  const cost = rng.int(18, 42);
+  const cost = rng.int(OPEN_SESSION_COST.min, OPEN_SESSION_COST.max);
   addLedgerEntry(state, club.id, {
     date: state.date,
     description: 'Open session — pitch hire and floodlights',

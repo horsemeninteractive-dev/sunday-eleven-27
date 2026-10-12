@@ -16,6 +16,7 @@ import { useGame, gameActions } from '../hooks';
 import { Button, Panel, Pill } from './primitives';
 import { ClubLink, PlayerLink } from './Links';
 import { Portrait } from './Portrait';
+import { Bubble } from './Bubble';
 import { Dialog } from '../dialogs/Dialog';
 
 /**
@@ -86,33 +87,26 @@ export function NegotiationModal({ personId }: { personId: string }) {
                 without a face: a face belongs beside something a man actually
                 said. */}
             {transcript.length === 0 && (
-              <div className="bubble bubble--them">
-                <div className="bubble__words">
-                  <span className="bubble__from">You</span>
-                  Nothing has been said yet. Whatever you do here will be remembered.
-                </div>
-              </div>
+              <Bubble from="You">
+                Nothing has been said yet. Whatever you do here will be remembered.
+              </Bubble>
             )}
             {transcript.map((entry, index) => {
               const mine = /^You\b/.test(entry.description);
               const line = entry.description.replace(/^You\s+/, '');
+              // His face on his own lines, and none on the manager's: the man being
+              // talked round is the one the transcript has to keep straight.
               return (
-                <div className={`bubble ${mine ? 'bubble--you' : 'bubble--them'}`} key={`${entry.date}-${index}`}>
-                  {/* His face on his own lines, and none on the manager's: the man
-                      being talked round is the one the transcript has to keep
-                      straight. */}
-                  {!mine && (
-                    <span className="bubble__face">
-                      <Portrait person={person} size="sm" />
-                    </span>
-                  )}
-                  <div className="bubble__words">
-                    <span className="bubble__from">
-                      {mine ? 'You say' : `${person.firstName} ${person.surname}`} · {formatShortDate(entry.date)}
-                    </span>
-                    {mine ? `${line.charAt(0).toUpperCase()}${line.slice(1)}` : entry.description}
-                  </div>
-                </div>
+                <Bubble
+                  key={`${entry.date}-${index}`}
+                  mine={mine}
+                  face={!mine ? <Portrait person={person} size="sm" /> : undefined}
+                  from={<>
+                    {mine ? 'You say' : `${person.firstName} ${person.surname}`} · {formatShortDate(entry.date)}
+                  </>}
+                >
+                  {mine ? `${line.charAt(0).toUpperCase()}${line.slice(1)}` : entry.description}
+                </Bubble>
               );
             })}
             {latestQuote && <p className="muted small">Last time you spoke: “{latestQuote}”</p>}

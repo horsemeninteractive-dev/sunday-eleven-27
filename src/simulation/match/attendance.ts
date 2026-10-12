@@ -1,10 +1,16 @@
 import type { Club } from '@/domain/club';
 import type { MatchConditions } from '@/domain/match';
 import type { Ground } from '@/domain/world';
+import { supporterAttendanceFactor } from '../support';
 
 /**
  * Sunday League crowds are small, local and weather-dependent: a decent
  * rivalry or a title race can double a gate, heavy rain can halve it.
+ *
+ * One input is what the home crowd currently *thinks* of the side — the
+ * aggregate supporter confidence the club carries — which is worth a bounded
+ * fraction of the gate either way and is the only thing here that changes over
+ * a season rather than from one Sunday to the next.
  */
 export function estimateAttendance(params: {
   home: Club;
@@ -15,8 +21,10 @@ export function estimateAttendance(params: {
   rivalryIntensity: number;
   /** Player's club involvement draws a few more friends and family. */
   involvesUserClub: boolean;
+  /** 0-100: how the home crowd is feeling about the side. See `simulation/support.ts`. */
+  supporterConfidence: number;
 }): number {
-  const { home, away, ground, conditions, matchday, rivalryIntensity, involvesUserClub } = params;
+  const { home, away, ground, conditions, matchday, rivalryIntensity, involvesUserClub, supporterConfidence } = params;
 
   const base = 22 + home.reputation * 0.75 + away.reputation * 0.3 + rivalryIntensity * 0.5;
   let attendance = base;
@@ -44,6 +52,7 @@ export function estimateAttendance(params: {
   if (matchday <= 2) attendance *= 1.08; // New season optimism.
   if (involvesUserClub) attendance *= 1.05;
   if (ground.hasClubhouse) attendance *= 1.06;
+  attendance *= supporterAttendanceFactor(supporterConfidence);
 
   return Math.max(12, Math.round(Math.min(ground.capacity * 1.6, attendance)));
 }

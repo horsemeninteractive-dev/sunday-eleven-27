@@ -5,13 +5,26 @@ import { DEFAULT_STARTER_SUB, DEFAULT_SUBSTITUTE_SUB, ensurePlayerSubs } from '@
 import { ensureClubStaff, generateClubStaff } from '@/simulation/staff';
 import { refreshSubSummary } from '@/domain/person';
 import { emptyAdminState } from '@/domain/admin';
+import { defaultSupporters, type RivalryKind } from '@/domain/club';
+import { emptyFacilitiesState } from '@/domain/facilities';
+import { ensurePress } from '@/simulation/press';
 import { emptyGovernanceState } from '@/domain/governance';
+import { emptyCareerState } from '@/domain/career';
+import { emptyFundraisingState } from '@/domain/fundraising';
 import { emptySponsorshipState } from '@/domain/sponsorship';
 import { emptyCommunicationStore } from '@/domain/communication';
 import { emptyRecruitmentStore } from '@/domain/recruitment';
-import { DEFAULT_PYRAMID, FRIENDLY_COMPETITION_ID, type Competition, type FixtureList, type PyramidConfig } from '@/domain/competition';
+import {
+  DEFAULT_PYRAMID,
+  FOUNDING_PYRAMID_ID,
+  FRIENDLY_COMPETITION_ID,
+  type Competition,
+  type FixtureList,
+  type Pyramid,
+  type PyramidConfig,
+} from '@/domain/competition';
 import type { ClubId, CompetitionId } from '@/domain/ids';
-import type { Ground } from '@/domain/world';
+import { FOUNDING_REGION_ID, type Ground, type Region } from '@/domain/world';
 import { defaultTactics } from '@/domain/tactics';
 import {
   generateInitialRelationships,
@@ -26,6 +39,7 @@ import {
   emptyHistory,
   generateChairman,
   generateManager,
+  regionCentreFor,
 } from '@/simulation/generation/worldGenerator';
 import { rebuildRelationshipIndex, relationshipStore } from '@/simulation/relationships';
 import { pruneCandidates } from '@/simulation/recruitment/store';
@@ -35,7 +49,7 @@ import { ensureLineupRoles } from '@/simulation/match/roles';
 import { overallAbility } from '@/simulation/training/development';
 import { buildSeasonCalendarWithCups, yearOf } from '@/simulation/calendar';
 import { matchdayCount } from '@/simulation/generation/fixtureGenerator';
-import { drawCupRound, cupRoundSlots, mainCupPlan, newCupState, platePlan, seedOrder } from '@/simulation/cup';
+import { cupRoundOf, drawCupRound, cupRoundSlots, mainCupPlan, newCupState, platePlan, seedOrder } from '@/simulation/cup';
 import {
   divisionCompetitionId,
   divisionNameFor,
@@ -422,10 +436,73 @@ function migrateSave(file: SaveFile): SaveFile {
   // should not wake up already under pressure.
   if (!state.governance || !Array.isArray(state.governance.events)) state.governance = emptyGovernanceState();
 
+  // A save written before the manager had a career of his own is one where he is
+  // in charge of the club he is already managing. Nobody had been sacked yet, so
+  // nobody wakes up out of work — the first dismissal a save can see is one it
+  // plays through.
+  if (!state.career) {
+    state.career = {
+      ...emptyCareerState(),
+      clubId: state.userClubId,
+      spells: [{ clubId: state.userClubId, from: state.season.startDate, to: null, ending: null }],
+    };
+  } else {
+    if (!Array.isArray(state.career.spells)) state.career.spells = [];
+    if (!Array.isArray(state.career.openings)) state.career.openings = [];
+    if (!Array.isArray(state.career.applied)) state.career.applied = [];
+  }
+
+  // A save written before fundraising existed has an empty record rather than a
+  // seeded one: the money its nights raised is already in its ledger, and
+  // inventing the nights themselves would invent a history it never had.
+  if (!state.fundraising || !Array.isArray(state.fundraising.runs)) state.fundraising = emptyFundraisingState();
+
+  // A save written before the club could work on its own ground has commissioned
+  // nothing and pays nothing towards it. It is given an empty record rather than
+  // a contractor halfway through a job it never ordered, and its pitches keep
+  // the surface, the drainage and the facilities they already had — which is
+  // exactly what the baseline its own work is measured from means.
+  if (!state.facilities || !Array.isArray(state.facilities.projects)) state.facilities = emptyFacilitiesState();
+  if (!state.facilities.upkeep || typeof state.facilities.upkeep !== 'object') state.facilities.upkeep = {};
+  if (!state.facilities.upkeepPaidOn || typeof state.facilities.upkeepPaidOn !== 'object') {
+    state.facilities.upkeepPaidOn = {};
+  }
+
   // A save written before sponsorship agreements existed has no deals. It is
   // given an empty log, not a seeded one: an agreement that was never signed is
   // not an agreement, and the world will sign its own as the seasons turn.
   if (!state.sponsorship || !Array.isArray(state.sponsorship.deals)) state.sponsorship = emptySponsorshipState();
+
+  // The local press. A save written before it existed wakes up with the papers,
+  // stations and fanzines of its own world, generated from its own seed — the
+  // same reporters, on the same patches, that it would have had if the press had
+  // always been in the build — and with nothing filed and nothing claimed about
+  // anybody, because a career that had no press has no stories in it yet.
+  //
+  // The two things the press reads around are given the same treatment:
+  //
+  //   - a club written before crowds were modelled has a crowd, and it is one
+  //     of no strong opinion: nobody's confidence is invented from nothing;
+  //   - a rivalry written before waterlines existed keeps exactly the intensity
+  //     it had, treated as the part of it that does not cool. Nothing is
+  //     re-guessed, so an old career's derbies stay its derbies, and a rivalry
+  //     it never had is not invented for it.
+  ensurePress(state);
+  for (const club of Object.values(state.clubs)) {
+    if (!club.supporters || typeof club.supporters.confidence !== 'number') {
+      club.supporters = defaultSupporters(state.date);
+    }
+    if (!Array.isArray(club.supporters.recent)) club.supporters.recent = [];
+    for (const rivalry of Object.values(club.rivalries ?? {})) {
+      if (typeof rivalry.baseline !== 'number') rivalry.baseline = rivalry.intensity;
+      if (rivalry.kind !== 'derby' && rivalry.kind !== 'historic' && rivalry.kind !== 'competitive') {
+        rivalry.kind = (rivalry.intensity >= 55 ? 'derby' : 'competitive') satisfies RivalryKind;
+      }
+      if (rivalry.lastMetOn === undefined) rivalry.lastMetOn = null;
+      if (typeof rivalry.meetings !== 'number') rivalry.meetings = 0;
+      if (typeof rivalry.heat !== 'number') rivalry.heat = Math.max(0, rivalry.intensity - rivalry.baseline);
+    }
+  }
 
   // A career that predates training has no session history, no plans and no
   // per-player familiarity: all three are rebuilt from the world itself, so the
@@ -473,6 +550,13 @@ function migrateSave(file: SaveFile): SaveFile {
     if (match.originalDate === undefined) match.originalDate = null;
     if (match.replacedByMatchId === undefined) match.replacedByMatchId = null;
     if (match.lateCallMade === undefined) match.lateCallMade = false;
+    // `aftermathNoted` is deliberately *not* filled in here. Absent already means
+    // "nobody has settled this afternoon's off-pitch consequences", which is the
+    // right answer for a save written before the field existed — its played
+    // fixtures are never settled again, and its unplayed ones are yet to be. It
+    // is also the only answer that keeps a save round trip an identity: writing a
+    // `false` into a career that had no field at all is a difference a round trip
+    // must not invent, which is what the soak's `save-round-trips` checks.
   }
 
   // A save written before a manager could build a shape of his own has an
@@ -482,10 +566,66 @@ function migrateSave(file: SaveFile): SaveFile {
 
   rebuildRelationshipIndex(state);
   pruneCandidates(state);
-  migrateToPyramid(state);
+  // The ladder first, then the model the ladder is described with: a save that
+  // had to be given a pyramid has just had its divisions built, and those are
+  // what the founding pyramid's record is made of.
+  const ladderConfig = migrateToPyramid(state);
+  if (from < 23) migrateToRegionsAndPyramids(state, ladderConfig);
+  // Round identity came after the pyramid, so this runs on the competitions the
+  // world now has: a save that had to be given a pyramid has just had its cup
+  // drawn, and those ties already carry their round.
+  if (from < 22) backfillCupRounds(state);
+  dropRivalriesOfDeadClubs(state);
   file.version = GAME_STATE_VERSION;
   state.version = GAME_STATE_VERSION;
   return file;
+}
+
+/**
+ * Give every cup tie saved before round identity existed the round it was drawn
+ * for.
+ *
+ * The round used to live only in the matchday number, and the arithmetic that
+ * read it back out is exactly what these ties were already being read with — so
+ * writing it down changes nothing about the bracket, the dates or the results,
+ * and the competition carries on from where it was. Both cups are covered
+ * because the arithmetic carries each one's own offset.
+ *
+ * A tie the arithmetic cannot place — anything not numbered above the league's
+ * own matchdays, which is not a cup tie at all — is left without a round and
+ * stays on the fallback. Nothing is invented for it. League fixtures and
+ * friendlies have no round to be given, and a tie that already knows its round
+ * keeps it, so loading a save twice is the same as loading it once.
+ */
+function backfillCupRounds(state: GameState): void {
+  for (const match of Object.values(state.matches)) {
+    if (typeof match.cupRound === 'number') continue;
+    const competition = state.competitions[match.competitionId];
+    if (!competition?.cup) continue;
+    const round = cupRoundOf(state, competition, match);
+    if (round > 0) match.cupRound = round;
+  }
+}
+
+/**
+ * A club that has folded is not anybody's rival.
+ *
+ * A save written before clubs could come back carries the whole cycle's
+ * debris: the fold emptied the club and left every other club's book still
+ * keyed on its id, so a rivalry went on being cooled and drawn for a club that
+ * no longer played. The lifecycle moves those relationships now — onto the club
+ * that comes back, where one does, and off the dead id where none does — and
+ * this is the same rule applied once to a career that predates it. Idempotent,
+ * and harmless on a save that never had the problem.
+ */
+function dropRivalriesOfDeadClubs(state: GameState): void {
+  for (const club of Object.values(state.clubs)) {
+    if (!club.rivalries) continue;
+    for (const otherId of Object.keys(club.rivalries)) {
+      const other = state.clubs[otherId];
+      if (!other || !other.active) delete club.rivalries[otherId];
+    }
+  }
 }
 
 /**
@@ -542,12 +682,18 @@ function ensurePlayerDevelopment(state: GameState): void {
  * in the only division there was, and the migration says so rather than
  * rewriting history it does not have the context to rewrite.
  */
-function migrateToPyramid(state: GameState): void {
-  const legacy = state as GameState & { fixtures?: unknown };
-  if (state.pyramid && state.pyramid.tiers > 1) return;
+function migrateToPyramid(state: GameState): PyramidConfig {
+  const legacy = state as GameState & { fixtures?: unknown; pyramid?: PyramidConfig };
+  // A career that already describes its football as pyramids has had this
+  // migration: its ladder was cut then, and cutting it again would mint a second
+  // set of clubs for a ladder that is already full. What it is shaped by is the
+  // configuration it already carries.
+  if (state.pyramidIds?.length) return legacy.pyramid ?? { ...DEFAULT_PYRAMID };
+  // A career that already has a ladder keeps the one it was generated with, and
+  // the migration that follows is told what that ladder is.
+  if (legacy.pyramid && legacy.pyramid.tiers > 1) return legacy.pyramid;
 
   const config = { ...DEFAULT_PYRAMID };
-  state.pyramid = config;
 
   // --- The ladder -----------------------------------------------------------
   const divisions = expandIntoPyramid(state, config);
@@ -573,7 +719,7 @@ function migrateToPyramid(state: GameState): void {
     const tier = index + 1;
     if (clubIds.length === 0) return;
     const competition: Competition = {
-      id: divisionCompetitionId(tier),
+      id: divisionCompetitionId(FOUNDING_PYRAMID_ID, tier),
       name: divisionNameFor(state.world.regionName, tier),
       kind: 'league',
       tier,
@@ -622,8 +768,8 @@ function migrateToPyramid(state: GameState): void {
     if (match.knockout === undefined) match.knockout = false;
     if (match.shootoutWinnerId === undefined) match.shootoutWinnerId = undefined;
     if (match.competitionId === OLD_LEAGUE_ID || !state.competitions[match.competitionId]) {
-      match.competitionId = divisionCompetitionId(1);
-      match.competitionName = competitions[divisionCompetitionId(1)]?.name ?? match.competitionName;
+      match.competitionId = divisionCompetitionId(FOUNDING_PYRAMID_ID, 1);
+      match.competitionName = competitions[divisionCompetitionId(FOUNDING_PYRAMID_ID, 1)]?.name ?? match.competitionName;
     }
     if (match.competitionId === FRIENDLY_COMPETITION_ID) {
       fixtures[match.competitionId] ??= { competitionId: match.competitionId, byMatchday: {}, matchdayOf: {} };
@@ -637,11 +783,11 @@ function migrateToPyramid(state: GameState): void {
   // Division One's own played fixtures, from whatever the old list held.
   const oldFixtures = legacy.fixtures as unknown as FixtureList | undefined;
   if (oldFixtures && typeof oldFixtures === 'object' && 'byMatchday' in oldFixtures) {
-    const list = fixtures[divisionCompetitionId(1)]!;
+    const list = fixtures[divisionCompetitionId(FOUNDING_PYRAMID_ID, 1)]!;
     for (const [matchday, ids] of Object.entries(oldFixtures.byMatchday ?? {})) {
       for (const id of ids as string[]) {
         const match = state.matches[id];
-        if (!match || match.competitionId !== divisionCompetitionId(1)) continue;
+        if (!match || match.competitionId !== divisionCompetitionId(FOUNDING_PYRAMID_ID, 1)) continue;
         list.byMatchday[Number(matchday)] = [...(list.byMatchday[Number(matchday)] ?? []), id];
         list.matchdayOf[id] = Number(matchday);
       }
@@ -670,10 +816,84 @@ function migrateToPyramid(state: GameState): void {
     }
   }
   for (const snapshot of state.standingHistory ?? []) {
-    if (snapshot.competitionId === undefined) snapshot.competitionId = divisionCompetitionId(1);
+    if (snapshot.competitionId === undefined) snapshot.competitionId = divisionCompetitionId(FOUNDING_PYRAMID_ID, 1);
   }
   if (!state.promotionHistory) state.promotionHistory = [];
   if (state.fixtures === undefined) state.fixtures = fixtures;
+  return config;
+}
+
+/**
+ * A career written before the county could hold more than one region or ladder.
+ *
+ * The world it already has is kept exactly as it is. One region is drawn around
+ * the towns the county already holds and every one of them is put in it, and the
+ * ladder it is already playing becomes the founding pyramid, whose id is
+ * `league` — the prefix every competition in the save already carries
+ * (`comp_league_t1`, `comp_league_cup`, `comp_plate`). Nothing is renamed, no
+ * match is re-homed, no club changes division and no date moves: it is a new way
+ * of describing the world the manager already had.
+ *
+ * `config` is the shape the ladder is now in, handed over by the migration that
+ * decided it, so the pyramid record describes the world that actually exists
+ * rather than the one the save was written with.
+ */
+function migrateToRegionsAndPyramids(state: GameState, config: PyramidConfig): void {
+  migrateToRegions(state);
+  migrateToPyramids(state, config);
+}
+
+/**
+ * One region, drawn around every town the county already has.
+ *
+ * A career's towns do not move: they keep their names, positions and population
+ * and are simply placed in the founding region, which is the one piece of the
+ * map every town in a one-county world is in anyway. Idempotent — a world that
+ * already has its regions is only repaired, and only where a town is missing one.
+ */
+function migrateToRegions(state: GameState): void {
+  const existing = state.world.regionIds?.filter((id) => Boolean(state.world.regions?.[id])) ?? [];
+  if (existing.length > 0) {
+    for (const town of Object.values(state.world.towns)) {
+      if (!town.regionId) town.regionId = existing[0]!;
+    }
+    return;
+  }
+
+  const towns = Object.values(state.world.towns);
+  const regionId = FOUNDING_REGION_ID;
+  const region: Region = { id: regionId, name: state.world.regionName, centre: regionCentreFor(towns) };
+  state.world.regions = { [regionId]: region };
+  state.world.regionIds = [regionId];
+  for (const town of towns) town.regionId = regionId;
+}
+
+/**
+ * The ladder a career is already playing becomes the founding pyramid.
+ *
+ * It owns the divisions the world has right now, in tier order, and the cups it
+ * has drawn. The old singular configuration is dropped once it has been read
+ * rather than left beside the pyramid that now carries it: two places holding one
+ * shape is how they come to disagree. Idempotent, so loading a save twice is the
+ * same as loading it once.
+ */
+function migrateToPyramids(state: GameState, config: PyramidConfig): void {
+  const legacy = state as GameState & { pyramid?: PyramidConfig };
+  if (!state.pyramidIds?.length || !state.pyramids) {
+    const regionId = state.world.regionIds?.[0] ?? FOUNDING_REGION_ID;
+    const pyramid: Pyramid = {
+      id: FOUNDING_PYRAMID_ID,
+      name: `${state.world.regionName} Sunday League`,
+      regionId,
+      level: 1,
+      config,
+      competitionIds: leagueCompetitions(state).map((competition) => competition.id),
+      cupIds: [LEAGUE_CUP_ID, PLATE_ID].filter((id) => Boolean(state.competitions?.[id])),
+    };
+    state.pyramids = { [FOUNDING_PYRAMID_ID]: pyramid };
+    state.pyramidIds = [FOUNDING_PYRAMID_ID];
+  }
+  delete legacy.pyramid;
 }
 
 /**
@@ -812,6 +1032,7 @@ function generateLowerTierClubs(state: GameState, count: number): ClubId[] {
       tactics: defaultTactics('4-4-2'),
       active: true,
       rivalries: {},
+      supporters: defaultSupporters(`${identity.foundedYear}-08-01`),
     };
     created.push(clubId);
   }

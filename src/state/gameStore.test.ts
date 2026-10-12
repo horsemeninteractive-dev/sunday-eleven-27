@@ -512,6 +512,28 @@ describe('choosing the kit', () => {
   });
 });
 
+describe('turning the season over with no club', () => {
+  it('tells a manager between jobs what the summer is for, not about a kit', () => {
+    const game = newCareer('season-over-between-jobs');
+    game.career!.status = 'unemployed';
+    game.career!.clubId = null;
+    game.career!.lastClubId = game.userClubId;
+    game.phase = 'complete';
+
+    useGameStore.getState().rollOverSeason();
+
+    const after = useGameStore.getState();
+    // The season really has turned, and he is still out of work inside it.
+    expect(after.game!.season.label).not.toBe(game.season.label);
+    expect(after.game!.phase).not.toBe('complete');
+    expect(after.game!.career!.status).toBe('unemployed');
+    // The summer's news for him is who is hiring — the kit that came in belongs
+    // to the club he left, and it is not his to be told about.
+    expect(after.notice ?? '').not.toMatch(/kit/i);
+    expect(after.notice ?? '').toMatch(/looking for a manager|hiring/i);
+  });
+});
+
 describe('the manager changes his own face', () => {
   it('writes it on the man and on the profile, and takes it off both again', () => {
     const game = newCareer('manager-face');

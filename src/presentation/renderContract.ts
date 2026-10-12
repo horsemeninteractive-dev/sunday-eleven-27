@@ -1,6 +1,6 @@
 import type { ComponentType } from 'react';
-import type { ClubId } from '@/domain/ids';
-import type { MatchAction, MatchBallState, MatchPeriod, MatchPhase, PlayerState } from '@/domain/match';
+import type { ClubId, PlayerId } from '@/domain/ids';
+import type { MatchAction, MatchBallState, MatchPeriod, MatchPhase, MatchSurface, PlayerState } from '@/domain/match';
 import type { Celebration } from '@/domain/match';
 import type { Side } from '@/domain/matchState';
 import type { Player } from '@/domain/person';
@@ -82,6 +82,46 @@ export interface RenderTeam {
 }
 
 /**
+ * The dead balls a match can be restarted from.
+ *
+ * The renderer's own vocabulary rather than the engine's: a picture says "a
+ * throw-in, to this side, taken by this man", which is the same sentence in
+ * either resolution and does not depend on how the engine spells it.
+ */
+export type MatchRestartKind = 'kickoff' | 'throw-in' | 'goal-kick' | 'corner' | 'free-kick' | 'penalty';
+
+/**
+ * The restart being taken, as a renderer sees it.
+ *
+ * A restart is the football that is *not* being played: the ball is out of play
+ * at the line it left from, one man goes to it, and everybody else is arranged
+ * around where it is going. None of that can be read off positions — which man
+ * takes it is a decision, not a reading — so the restart is handed over as it
+ * is: which dead ball it is, whose it is, who is over it, and where it is played
+ * from.
+ *
+ * `takerId` is null only when the side taking it has nobody to take it, which is
+ * the engine's own answer rather than a picture's guess.
+ */
+export interface MatchRestart {
+  kind: MatchRestartKind;
+  /** The side taking it, and therefore the side attacking while it is arranged. */
+  side: Side;
+  takerId: PlayerId | null;
+  /**
+   * The spot the dead ball is played from, in the simulation's frame.
+   *
+   * For every restart taken from the grass this is where the ball is, and a
+   * picture that drew the mark under the ball would be right by accident. A
+   * throw-in is the one that is not: it is taken from *outside* the field of
+   * play, with the ball in the thrower's hands on the ground behind the line, so
+   * the ball and the spot are two different places — the man with the ball, and
+   * the point on the line the ball comes back in from.
+   */
+  spot: { x: number; y: number };
+}
+
+/**
  * The match, as a renderer sees it.
  *
  * One object, built once per render, holding everything a renderer may draw and
@@ -126,8 +166,30 @@ export interface MatchRenderState {
   actions: readonly MatchAction[];
   /** The goal being celebrated right now, if any. */
   celebration: Celebration | null;
+  /**
+   * The dead ball being taken right now, or null during open play.
+   *
+   * Read rather than stored, for the same reason {@link MatchRenderState.alpha}
+   * is: a restart begins and ends *within* a minute of football, so there is no
+   * React render around it, and a value copied when the state was built would be
+   * stale by the time the picture drew it — the taker walking to the ball long
+   * after the throw had been taken. A renderer calls this in its own draw loop,
+   * exactly as it interpolates with `alpha`.
+   */
+  restart: () => MatchRestart | null;
   /** Both teams' identity and colours. */
   teams: Record<Side, RenderTeam>;
+  /**
+   * The grass the match is being played on.
+   *
+   * A renderer may not work this out for itself — it has no ground and no
+   * weather, and a picture that inferred a heavy pitch from the football would be
+   * inventing one. So the ground's own reading is handed over with everything
+   * else: what the surface is, what the day has done to it, how much grass is on
+   * it and how far into its next point of wear it is. The 2D pitch draws it (see
+   * `ui/match/pitchSurface.ts`); a 3D renderer would shade it.
+   */
+  surface: MatchSurface;
   /** Non-critical incidents for this match, in the order they happened. */
   incidents: readonly string[];
   /**

@@ -1,23 +1,24 @@
 import type { Competition, CupState, FixtureList } from '@/domain/competition';
 import type { GameState } from '@/domain/game';
-import type { ClubId, CompetitionId, ISODate, MatchId } from '@/domain/ids';
+import type { ClubId, CompetitionId, ISODate, MatchId, PyramidId } from '@/domain/ids';
 import type { Match } from '@/domain/match';
 import type { SeasonCalendarEntry } from '@/domain/world';
 import {
-  buildSeasonCalendarWithCups,
   kickOffTimeFor,
+  placeCupRounds,
+  type CupRoundPlacement,
   type CupRoundSlot,
 } from './calendar';
 import { allCupRoundSlots, cupRoundSlots, drawCupRound, mainCupPlan, newCupState, platePlan, seedOrder } from './cup';
 import { generateFixtures, matchdayCount } from './generation/fixtureGenerator';
 import { createMatchRecord } from './matchday';
+import { scheduleEvent } from './schedule';
 import {
+  cupCompetitionId,
   divisionCompetitionId,
   divisionNameFor,
-  LEAGUE_CUP_ID,
+  foundingPyramidId,
   LEAGUE_CUP_NAME,
-
-  PLATE_ID,
   PLATE_NAME,
   pyramidOf,
 } from './pyramid';
@@ -48,15 +49,16 @@ export interface SeasonStructure {
 /** A fresh competition record for a division, with the boundary places set. */
 function divisionCompetition(
   state: GameState,
+  pyramidId: PyramidId,
   tier: number,
   seasonId: string,
   clubIds: ClubId[],
   regionName: string,
 ): Competition {
-  const config = pyramidOf(state);
+  const config = pyramidOf(state, pyramidId).config;
   const topTier = config.tiers;
   return {
-    id: divisionCompetitionId(tier),
+    id: divisionCompetitionId(pyramidId, tier),
     name: divisionNameFor(regionName, tier),
     kind: 'league',
     tier,
@@ -94,8 +96,12 @@ export function clubsForLadder(state: GameState): ClubId[] {
 }
 
 /** Cut a ranked list of clubs into divisions of the configured size. */
-export function divideIntoTiers(state: GameState, ranked: readonly ClubId[]): ClubId[][] {
-  const config = pyramidOf(state);
+export function divideIntoTiers(
+  state: GameState,
+  ranked: readonly ClubId[],
+  pyramidId: PyramidId = foundingPyramidId(state),
+): ClubId[][] {
+  const config = pyramidOf(state, pyramidId).config;
   const divisions: ClubId[][] = [];
   for (let tier = 1; tier <= config.tiers; tier += 1) {
     divisions.push(ranked.slice((tier - 1) * config.clubsPerTier, tier * config.clubsPerTier));
@@ -111,10 +117,72 @@ export interface BuildSeasonOptions {
   firstLeagueDate: ISODate;
   /** Divisions after any movement, tier 1 first. */
   divisions: ClubId[][];
+  /**
+   * The ladder the season is being built for: the founding pyramid unless the
+   * caller says otherwise. The calendar is the world's, but the divisions, the
+   * cups and the ids the season writes all belong to one pyramid.
+   */
+  pyramidId?: PyramidId;
   /** The region's name, for division names. */
   regionName: string;
   /** Announce the first cup draws as news. */
   announceDraws?: boolean;
+}
+
+/**
+ * A cup round with no date is a cup that can never be drawn, and a competition
+ * that can never be drawn is one that never reaches a winner.
+ *
+ * The calendar used to drop a slot it could not date and say nothing about it.
+ * The season then ran to its end with a trophy nobody could win: no error, no
+ * warning, and the only symptom a cup with no final. A round is asked for by the
+ * competition's own plan, so the count of what was asked for and what was placed
+ * can be compared here, where the season is built, while there is still something
+ * to be done about it.
+ */
+function requireCupRoundsPlaced(
+  state: GameState,
+  placement: CupRoundPlacement,
+  owners: readonly CompetitionId[],
+  seasonLabel: string,
+  ownerNames: ReadonlyMap<CompetitionId, string>,
+): void {
+  const unplaced = placement.slots
+    .map((slot, index) => ({ slot, owner: owners[index] ?? null }))
+    .filter((entry) => entry.slot.date === null);
+  if (unplaced.length === 0) return;
+
+  const nameOf = (owner: CompetitionId | null): string =>
+    (owner ? ownerNames.get(owner) : undefined) ?? 'A cup';
+  const listed = unplaced
+    .map(
+      ({ slot, owner }) =>
+        `   - ${nameOf(owner)} round ${slot.round} (before league matchday ${slot.beforeMatchday}): ${
+          slot.reason ?? 'no date could be found'
+        }`,
+    )
+    .join('\n');
+  const summary = `${unplaced.length} of ${placement.slots.length} cup round(s) could not be given a date in the ${seasonLabel} calendar:\n${listed}`;
+
+  // Development and tests: a season that cannot crown a cup winner is refused
+  // where it is built, rather than played through quietly.
+  if (import.meta.env?.DEV === true) {
+    throw new Error(`The ${seasonLabel} calendar has no room for every cup round.\n${summary}`);
+  }
+
+  // A build: the manager is told the way the world tells him anything it has
+  // done on its own - a stop on the day it happens, naming the competition and
+  // the reason. Never a line in the news he can scroll past, because the
+  // competition it names will never reach a final.
+  scheduleEvent(state, {
+    date: state.date,
+    kind: 'season-start',
+    priority: 'important',
+    source: 'season',
+    title: 'The season cannot be completed',
+    detail: `${summary}\nThe rounds listed above have no date, so the competitions they belong to cannot be drawn to a finish this season.`,
+    data: { unplaced: unplaced.length, requested: placement.slots.length },
+  });
 }
 
 /**
@@ -127,7 +195,10 @@ export interface BuildSeasonOptions {
  */
 export function buildSeasonStructure(options: BuildSeasonOptions): SeasonStructure {
   const { state, seasonId, seasonLabel, firstLeagueDate, divisions, regionName } = options;
-  const config = pyramidOf(state);
+  const pyramidId = options.pyramidId ?? foundingPyramidId(state);
+  const cupId = cupCompetitionId(pyramidId, 'cup');
+  const plateId = cupCompetitionId(pyramidId, 'plate');
+  const config = pyramidOf(state, pyramidId).config;
 
   // --- The calendar ---------------------------------------------------------
   // Every division has the same number of matchdays, so the league calendar is
@@ -145,7 +216,26 @@ export function buildSeasonStructure(options: BuildSeasonOptions): SeasonStructu
   // round-advance and the screens all read one description of the tournament.
   const mainPlan = config.leagueCup ? mainCupPlan(cupField) : [];
   const plateRounds = config.leagueCup && config.consolationCup ? platePlan(mainPlan) : [];
-  const calendar = buildSeasonCalendarWithCups(firstLeagueDate, leagueMatchdays, cupSlots);
+  // Which competition each slot belongs to, read off the order they were laid
+  // out in: `allCupRoundSlots` lists the League Cup's rounds first and the
+  // Plate's after them, so a slot's position — not its round number, which both
+  // competitions start at one — is what says whose round it is.
+  const slotOwners: CompetitionId[] = [
+    ...mainPlan.map(() => cupId),
+    ...plateRounds.map(() => plateId),
+  ];
+  const placement = placeCupRounds(firstLeagueDate, leagueMatchdays, cupSlots);
+  requireCupRoundsPlaced(
+    state,
+    placement,
+    slotOwners,
+    seasonLabel,
+    new Map([
+      [cupId, LEAGUE_CUP_NAME],
+      [plateId, PLATE_NAME],
+    ]),
+  );
+  const calendar = placement.calendar;
   // The calendar is ordered by *date*, not by matchday: a cup round sits on the
   // Sunday before the league matchday it precedes, so its matchday number is
   // higher than the league rounds around it. A fixture's date must therefore be
@@ -160,7 +250,7 @@ export function buildSeasonStructure(options: BuildSeasonOptions): SeasonStructu
   divisions.forEach((clubIds, index) => {
     const tier = index + 1;
     if (clubIds.length === 0) return;
-    const competition = divisionCompetition(state, tier, seasonId, clubIds, regionName);
+    const competition = divisionCompetition(state, pyramidId, tier, seasonId, clubIds, regionName);
     competitions[competition.id] = competition;
   });
 
@@ -169,17 +259,27 @@ export function buildSeasonStructure(options: BuildSeasonOptions): SeasonStructu
   // is empty and reading it would size the cup field at zero.
   const ladderClubs = divisions.flat();
   if (config.leagueCup && cupSlots.length > 0) {
-    competitions[LEAGUE_CUP_ID] = cupCompetition(
-      LEAGUE_CUP_ID,
+    competitions[cupId] = cupCompetition(
+      cupId,
       LEAGUE_CUP_NAME,
       seasonId,
       seedOrder(state, ladderClubs),
       newCupState(mainPlan),
     );
     if (config.consolationCup) {
-      competitions[PLATE_ID] = cupCompetition(PLATE_ID, PLATE_NAME, seasonId, [], newCupState(plateRounds, LEAGUE_CUP_ID, plateOffset));
+      competitions[plateId] = cupCompetition(plateId, PLATE_NAME, seasonId, [], newCupState(plateRounds, cupId, plateOffset));
     }
   }
+
+  // The pyramid's own list of what it owns, written where its competitions are
+  // made. It is the source of truth the lookups read, so it is kept here rather
+  // than derived later: one writer, and no way for the record and the world to
+  // disagree about which ladder a division belongs to.
+  const pyramid = pyramidOf(state, pyramidId);
+  pyramid.competitionIds = divisions
+    .map((_, index) => divisionCompetitionId(pyramidId, index + 1))
+    .filter((id) => Boolean(competitions[id]));
+  pyramid.cupIds = [cupId, plateId].filter((id) => Boolean(competitions[id]));
 
   // --- The fixtures ---------------------------------------------------------
   const matches: Record<MatchId, Match> = {};
@@ -235,7 +335,7 @@ export function buildSeasonStructure(options: BuildSeasonOptions): SeasonStructu
   // that happened on the morning of the tie would be an announcement nobody had
   // heard.
   if (config.leagueCup && cupSlots.length > 0) {
-    drawCupRound(state, competitions[LEAGUE_CUP_ID]!, {
+    drawCupRound(state, competitions[cupId]!, {
       seasonId,
       seasonLabel,
       leagueMatchdays,
@@ -287,6 +387,7 @@ export function openSeasonRecords(state: GameState, seasonId: string, seasonLabe
  */
 export function applyMovements(
   state: GameState,
+  pyramidId: PyramidId,
   divisions: readonly (readonly ClubId[])[],
   config: { promotionPlaces: number; relegationPlaces: number },
 ): void {
@@ -305,7 +406,7 @@ export function applyMovements(
   }
 
   divisions.forEach((_, index) => {
-    const competition = state.competitions[divisionCompetitionId(index + 1)];
+    const competition = state.competitions[divisionCompetitionId(pyramidId, index + 1)];
     if (competition) competition.clubIds = [...next[index]!];
   });
 }

@@ -6,7 +6,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent,
 } from 'react';
-import type { BenchSlot, LineupSlot, MatchLineup } from '@/domain/match';
+import { BENCH_SIZE, type BenchSlot, type LineupSlot, type MatchLineup } from '@/domain/match';
 import { availabilityRank, isPlayer } from '@/domain/person';
 import {
   FORMATION_IDS,
@@ -361,7 +361,7 @@ export function TeamSelectionView() {
       // bench has a place for him.
       if (over?.closest('.team-selection__bench')) {
         if (!benched) return;
-        if (lineup.bench.length >= 5) {
+        if (lineup.bench.length >= BENCH_SIZE) {
           setAnnouncement(`${playerName(benched)} stays on — the bench is full.`);
           return;
         }
@@ -413,7 +413,7 @@ export function TeamSelectionView() {
       // only if there is somewhere to put him, and the strip says so rather
       // than quietly doing nothing.
       if (state.from === 'bench') return;
-      if (lineup.bench.length >= 5) {
+      if (lineup.bench.length >= BENCH_SIZE) {
         setAnnouncement('The bench is full — take somebody off it first.');
         return;
       }
@@ -880,7 +880,9 @@ export function TeamSelectionView() {
               manager writes them on a teamsheet: the other end of a drag, and
               the place a man comes off to. */}
           <div className={`team-selection__bench${overBench ? ' team-selection__bench--over' : ''}`}>
-            <h4 className="subhead">Subs ({lineup.bench.length}/5)</h4>
+            <h4 className="subhead">
+              Subs ({lineup.bench.length}/{BENCH_SIZE})
+            </h4>
             <ul className="bench-stack">
               {lineup.bench.map((slot: BenchSlot) => {
                 const player = players(slot.playerId);
@@ -1076,8 +1078,8 @@ export function TeamSelectionView() {
                         ) : (
                           <Button
                             size="sm"
-                            disabled={lineup.bench.length >= 5}
-                            title={lineup.bench.length >= 5 ? 'The bench is full — take somebody off it first' : undefined}
+                            disabled={lineup.bench.length >= BENCH_SIZE}
+                            title={lineup.bench.length >= BENCH_SIZE ? 'The bench is full — take somebody off it first' : undefined}
                             ariaLabel={`Bench ${playerName(player)}`}
                             onClick={() => {
                               withLineup((current) => assignToBench(current, player.id, player));

@@ -28,6 +28,9 @@ import {
   readCupRound,
 } from './cup';
 import { prepareMatchday } from './matchday';
+import { runPressDay } from './press';
+import { applyMatchRivalry } from './rivalries';
+import { applyMatchSupport } from './support';
 import { simulateFixture, simulationModeFor } from './fastMatch';
 import { matchEnvironment } from './matchday';
 import { rollWeeklyAvailabilityForAll } from './gameSetup';
@@ -38,6 +41,9 @@ import { everyFixtureSettled, finishSeason } from './season';
 import { snapshotStandings } from './gameSetup';
 import { eventsOn, markNotifiedThrough, nextFixtureFor, recursOn, recurringEvents } from './schedule';
 import { runDueFollowUps } from './communication/playerConversation';
+import { isEmployed, managingClubId, runCareerDay } from './career';
+import { runFundraisingDay } from './fundraising';
+import { runGroundDay } from './grounds';
 import { announceAvailabilityChange } from './communication/availabilityComms';
 import { announceOverdueSubs, paymentStandingFor } from './communication/paymentComms';
 import { runOrganisationComms } from './communication/organisationComms';
@@ -177,24 +183,55 @@ export function* processDaySteps(
 
   events.push(...applyWorldDay(state, date));
 
-  // The secretary's day: log the club's correspondence, and mark anything whose
-  // deadline has gone by. Informational only — it never moves a fixture or a
-  // result, so it can run here whatever else the day does.
-  events.push(...runSecretary(state, date).events);
+  // The manager's own career, from the day loop: a post whose window has closed
+  // is filled, and any club left without a manager gets one. A no-op while he
+  // is employed.
+  events.push(...runCareerDay(state, date));
 
-  // The people who run the club, writing to the manager about the day just
-  // simulated — the treasurer about the money, the secretary about the post, the
-  // chairman about the committee, the staff about the football, and the sponsor
-  // through the man who signed them. Event-driven, deduplicated, and silent on a
-  // day that changed nothing.
-  runOrganisationComms(state, date);
+  // A fundraising night falling today settles here as one ledger line — the
+  // quiz night, the raffle or the do at the pub. Nothing on most days, and
+  // nothing at all until the manager has booked one.
+  events.push(...runFundraisingDay(state, date));
 
-  // A player who said he would let the manager know has now had his chance to:
-  // anybody the calendar says is owed a chase is written to today, and the
-  // answer is read from the record as it stands now rather than from last
-  // week's roll. This is the only place follow-ups are triggered, so nothing
-  // else has to remember them.
-  runDueFollowUps(state, date);
+  // The ground's own business: any work commissioned on the club's pitch is
+  // handed over on the day it was promised for, the week's upkeep is charged on
+  // the Friday it falls on, and the football played today is counted against
+  // the surface. Dated by the calendar like everything else, so a day processed
+  // twice cannot finish a job twice or bill a week twice.
+  events.push(...runGroundDay(state, date));
+
+  // The club's own correspondence is written to the man in the job: the
+  // secretary's post, the treasurer's worries, the committee's view, the staff's
+  // concerns and the sponsor's business are all about a club, and a manager
+  // between jobs has not got one. The desk falls silent until a committee takes
+  // him on — the world carries on without him, which is the point of the state.
+  if (isEmployed(state)) {
+    // The secretary's day: log the club's correspondence, and mark anything whose
+    // deadline has gone by. Informational only — it never moves a fixture or a
+    // result, so it can run here whatever else the day does.
+    events.push(...runSecretary(state, date).events);
+
+    // The people who run the club, writing to the manager about the day just
+    // simulated — the treasurer about the money, the secretary about the post, the
+    // chairman about the committee, the staff about the football, and the sponsor
+    // through the man who signed them. Event-driven, deduplicated, and silent on a
+    // day that changed nothing.
+    runOrganisationComms(state, date);
+
+    // A player who said he would let the manager know has now had his chance to:
+    // anybody the calendar says is owed a chase is written to today, and the
+    // answer is read from the record as it stands now rather than from last
+    // week's roll. This is the only place follow-ups are triggered, so nothing
+    // else has to remember them.
+    runDueFollowUps(state, date);
+  }
+
+  // The press: whatever the world has settled since a claim was filed is settled
+  // here, and on a quiet day somebody hears something new. It runs after the
+  // football, the career moves and the ground because a claim is answered by
+  // what actually happened, and it is the only place claims are created or
+  // resolved — so nothing else can print one twice.
+  events.push(...runPressDay(state, date));
 
   const nextDate = addDays(date, 1);
   events.push(...applyStandingsSnapshot(state, date, nextDate));
@@ -302,7 +339,7 @@ function applyDatedMoney(state: GameState, date: ISODate): GameEvent[] {
 
   for (const clubId of leagueClubIds(state)) {
     applyStandingCosts(state, clubId, date);
-    if (clubId === state.userClubId && (state.clubs[clubId]?.finances.balance ?? 0) < 0) {
+    if (clubId === managingClubId(state) && (state.clubs[clubId]?.finances.balance ?? 0) < 0) {
       events.push(
         createEvent(state, {
           type: 'finances-warning',
@@ -329,8 +366,9 @@ function applyDatedMoney(state: GameState, date: ISODate): GameEvent[] {
  */
 export function settleSubsFor(state: GameState, match: Match): void {
   settleMatchdaySubs(state, match);
-  if (match.homeClubId !== state.userClubId && match.awayClubId !== state.userClubId) return;
-  const squad = state.clubs[state.userClubId]?.squadIds ?? [];
+  const userClubId = managingClubId(state);
+  if (!userClubId || (match.homeClubId !== userClubId && match.awayClubId !== userClubId)) return;
+  const squad = state.clubs[userClubId]?.squadIds ?? [];
   for (const playerId of squad) {
     if (!paymentStandingFor(state, playerId)) continue;
     announceOverdueSubs(state, playerId);
@@ -356,7 +394,7 @@ function applyRecovery(state: GameState): { events: GameEvent[]; notes: string[]
     const before = player.injury?.description ?? null;
     const support = player.clubId ? physioByClub.get(player.clubId) ?? 0 : 0;
     const recovery = recoverPlayerDaily(player, { physioSupport: support });
-    if (recovery.returned && player.clubId === state.userClubId) {
+    if (recovery.returned && player.clubId !== null && player.clubId === managingClubId(state)) {
       events.push(
         createEvent(state, {
           type: 'injury',
@@ -391,7 +429,7 @@ function applyRecovery(state: GameState): { events: GameEvent[]; notes: string[]
  */
 function applyDailyLife(state: GameState, date: ISODate): GameEvent[] {
   const events: GameEvent[] = [];
-  const clubId = state.userClubId;
+  const clubId = managingClubId(state);
   const fixtures = Object.values(state.matches).filter(
     (match) => !match.played && match.status === 'scheduled',
   );
@@ -448,7 +486,7 @@ function applyDailyLife(state: GameState, date: ISODate): GameEvent[] {
     // found him says nothing, and only the manager's own squad is written to,
     // because the rest of the county is simulated in silence. The announcement
     // reads the record the roll just wrote; it never writes one.
-    if (player.clubId === clubId && statusBefore !== player.availability.status) {
+    if (clubId !== null && player.clubId === clubId && statusBefore !== player.availability.status) {
       if (change.kind !== 'clears') {
         announceAvailabilityChange(state, player.id, {
           kind: change.kind,
@@ -458,7 +496,7 @@ function applyDailyLife(state: GameState, date: ISODate): GameEvent[] {
       }
     }
 
-    if (player.clubId !== clubId) continue;
+    if (clubId === null || player.clubId !== clubId) continue;
     if (change.kind === 'clears') {
       events.push(
         createEvent(state, {
@@ -504,7 +542,8 @@ function applyTraining(state: GameState, date: ISODate, notes: string[]): GameEv
   events.push(...outcome.events);
   if (outcome.session) {
     const session = outcome.session;
-    const club = state.clubs[state.userClubId];
+    const userClubId = managingClubId(state);
+    const club = userClubId ? state.clubs[userClubId] : undefined;
     notes.push(
       session.cancelled
         ? `Training was called off: ${session.summary}`
@@ -552,6 +591,10 @@ function* applyFixturesSteps(
     (match) => match.date === date && isActiveFixture(match),
   );
   if (todays.length === 0) return outcome;
+  // The club the manager actually manages; null while he is between jobs. Every
+  // question below — is this his game, is it his bench — is answered against
+  // this, so a man out of work has no match, no late calls and no side to pick.
+  const userClubId = managingClubId(state);
 
   // --- The pitch inspection -------------------------------------------------
   const playable: Match[] = [];
@@ -561,7 +604,7 @@ function* applyFixturesSteps(
       playable.push(match);
       continue;
     }
-    const involvesUser = match.homeClubId === state.userClubId || match.awayClubId === state.userClubId;
+    const involvesUser = match.homeClubId === userClubId || match.awayClubId === userClubId;
     const replacement = postponeFixture(state, match, date, decision.reason);
     const home = state.clubs[match.homeClubId]?.identity.shortName ?? 'Home';
     const away = state.clubs[match.awayClubId]?.identity.shortName ?? 'Away';
@@ -593,11 +636,11 @@ function* applyFixturesSteps(
   // The manager's own game is never in this count: he plays it himself, or sends
   // it to the bench, so it is not work the progress bar is waiting on.
   const othersToPlay = playable.filter(
-    (match) => match.homeClubId !== state.userClubId && match.awayClubId !== state.userClubId,
+    (match) => match.homeClubId !== userClubId && match.awayClubId !== userClubId,
   );
   let played = 0;
   for (const match of playable) {
-    const involvesUser = match.homeClubId === state.userClubId || match.awayClubId === state.userClubId;
+    const involvesUser = match.homeClubId === userClubId || match.awayClubId === userClubId;
     const home = state.clubs[match.homeClubId]?.identity.shortName ?? 'Home';
     const away = state.clubs[match.awayClubId]?.identity.shortName ?? 'Away';
     if (involvesUser && !options.resolveUserMatch) {
@@ -667,6 +710,7 @@ function* applyFixturesSteps(
     // A cup tie that went the wrong way for the big club is the story of a cup
     // round, so it is written before the round is read back and advanced.
     outcome.events.push(...cupTieNews(state, match));
+    outcome.events.push(...applyMatchAftermath(state, match));
     applyMatchdayFinances(state, match);
     settleSubsFor(state, match);
 
@@ -674,13 +718,13 @@ function* applyFixturesSteps(
       outcome.events.push(matchReportEvent(state, match, 3));
       const reported = match.result;
       if (reported) {
-        const mine = match.homeClubId === state.userClubId ? reported.homeGoals : reported.awayGoals;
-        const theirs = match.homeClubId === state.userClubId ? reported.awayGoals : reported.homeGoals;
-        const opponentId = match.homeClubId === state.userClubId ? match.awayClubId : match.homeClubId;
+        const mine = match.homeClubId === userClubId ? reported.homeGoals : reported.awayGoals;
+        const theirs = match.homeClubId === userClubId ? reported.awayGoals : reported.homeGoals;
+        const opponentId = match.homeClubId === userClubId ? match.awayClubId : match.homeClubId;
         const verdict = mine > theirs ? 'won' : mine === theirs ? 'drew' : 'lost';
         outcome.notes.push(
           `You ${verdict} ${mine}–${theirs} ${
-            match.homeClubId === state.userClubId ? 'at home to' : 'away at'
+            match.homeClubId === userClubId ? 'at home to' : 'away at'
           } ${state.clubs[opponentId]?.identity.name ?? 'the opposition'}.`,
         );
       }
@@ -725,6 +769,29 @@ function* applyFixturesSteps(
 }
 
 /**
+ * What an afternoon did to the world around it.
+ *
+ * Two things happen to two clubs after a match that have nothing to do with the
+ * scoreline and everything to do with it: their relationship moves — a cup tie, a
+ * tight game, a sending off — and so does what their crowds think of them. Both
+ * are bounded, both are read from the fixture that was actually played, and both
+ * are settled here rather than at each call site, because a result can be settled
+ * by more than one route: the day loop simulates the division, and the manager's
+ * own match can be watched, sent to the bench or left to the clock.
+ *
+ * The flag on the fixture makes those routes agree. Whichever settles it first
+ * claims the afternoon; every later one is a no-op. That is the same trick
+ * `lateCallMade` plays for the morning phone calls, and it is what stops a
+ * watched match counting twice — once when the whistle goes and once when the
+ * calendar catches up with it.
+ */
+export function applyMatchAftermath(state: GameState, match: Match): GameEvent[] {
+  if (match.aftermathNoted) return [];
+  match.aftermathNoted = true;
+  return [...applyMatchRivalry(state, match).events, ...applyMatchSupport(state, match)];
+}
+
+/**
  * The late withdrawal.
  *
  * Not "he is unavailable this week" — "he has just rung you". At most one per
@@ -735,7 +802,9 @@ export function callLateWithdrawals(state: GameState, match: Match, date: ISODat
   const events: GameEvent[] = [];
   if (match.lateCallMade) return events;
   match.lateCallMade = true;
-  const squad = state.clubs[state.userClubId]?.squadIds ?? [];
+  const userClubId = managingClubId(state);
+  if (!userClubId) return events;
+  const squad = state.clubs[userClubId]?.squadIds ?? [];
   const rng = stream(state.seed, 'late-withdrawal', match.id, date);
   if (!rng.chance(0.16)) return events;
 
@@ -768,12 +837,12 @@ export function callLateWithdrawals(state: GameState, match: Match, date: ISODat
     createEvent(state, {
       type: 'player-unavailable',
       importance: 3,
-      clubIds: [state.userClubId],
+      clubIds: [userClubId],
       personIds: [unlucky.id],
       matchId: match.id,
       data: {
         player: `${unlucky.firstName} ${unlucky.surname}`,
-        club: state.clubs[state.userClubId]?.identity.shortName ?? 'the club',
+        club: state.clubs[userClubId]?.identity.shortName ?? 'the club',
         note,
       },
     }),
@@ -836,7 +905,7 @@ function applyWorldDay(state: GameState, date: ISODate): GameEvent[] {
 
   if (!rng.chance(0.09)) return events;
 
-  const others = Object.values(state.clubs).filter((club) => club.id !== state.userClubId);
+  const others = Object.values(state.clubs).filter((club) => club.id !== managingClubId(state));
   if (others.length === 0) return events;
   const club = rng.pick(others);
   const town = state.world.towns[club.townId]?.name ?? 'the village';
@@ -884,9 +953,14 @@ function applyStandingsSnapshot(state: GameState, date: ISODate, nextDate: ISODa
   const snapshots = snapshotStandings(state);
   state.standingHistory.push(...snapshots);
 
+  // A manager between jobs has no table to climb: the snapshots above are the
+  // archive's, and the line below is only for a club he is actually in charge
+  // of.
+  const userClubId = managingClubId(state);
+  if (!userClubId) return [];
   // The news is about the manager's own division, so the movement is read from
   // that division's two most recent snapshots rather than from the county's.
-  const division = divisionOf(state, state.userClubId);
+  const division = divisionOf(state, userClubId);
   if (!division) return [];
   const own = state.standingHistory.filter((entry) => entry.competitionId === division.id);
   const previous = own[own.length - 2];
@@ -899,9 +973,9 @@ function applyStandingsSnapshot(state: GameState, date: ISODate, nextDate: ISODa
     createEvent(state, {
       type: 'league-movement',
       importance: 1,
-      clubIds: [state.userClubId],
+      clubIds: [userClubId],
       data: {
-        club: state.clubs[state.userClubId]?.identity.shortName ?? 'the club',
+        club: state.clubs[userClubId]?.identity.shortName ?? 'the club',
         position: current.playerClubPosition,
         movement: delta > 0 ? 'climb' : 'slip',
         competition: division.name,
@@ -946,9 +1020,23 @@ function advanceCups(state: GameState): GameEvent[] {
     cup.clubIds = [...outcome.survivors];
     cupState.round += 1;
 
-    const slots = allCupRoundSlots(leagueCupField(state), leagueMatchdayCount(state), Boolean(cupState.consolationFor));
-    const slot = slots.find((entry) => entry.round === cupState.round);
-    if (!slot) {
+    // Whether this cup has another round to play at all. The competition's own
+    // plan is the authority, because both cups number their rounds from one: the
+    // shared slot list answered the League Cup's round for the Plate's, so a
+    // Plate that had played its final could be told it had another round left
+    // because the main cup still had one. Reading the cup's own plan is what
+    // makes a round belong to the competition that drew it; a save written before
+    // plans existed keeps the old reading, which is all it has.
+    const plan = cupState.plan ?? [];
+    const hasNextRound =
+      plan.length > 0
+        ? plan.some((entry) => entry.round === cupState.round)
+        : allCupRoundSlots(
+            leagueCupField(state),
+            leagueMatchdayCount(state),
+            Boolean(cupState.consolationFor),
+          ).some((entry) => entry.round === cupState.round);
+    if (!hasNextRound) {
       cupState.complete = true;
       continue;
     }
@@ -1125,9 +1213,12 @@ export function* continueTimeSteps(
     }
 
     const today = state.date;
-    const blocking = eventsOn(state, today).filter(
-      (item) => item.priority === 'critical' && item.resolvedOn === null,
-    );
+    // A man between jobs has no fixture to be stopped for: the critical and
+    // flagged events the calendar holds are about a club he no longer manages.
+    const employed = isEmployed(state);
+    const blocking = employed
+      ? eventsOn(state, today).filter((item) => item.priority === 'critical' && item.resolvedOn === null)
+      : [];
     if (blocking.length > 0) {
       outcome.stop = {
         date: today,
@@ -1139,9 +1230,9 @@ export function* continueTimeSteps(
       return outcome;
     }
 
-    const flagged = eventsOn(state, today).filter(
-      (item) => item.priority === 'important' && item.resolvedOn === null,
-    );
+    const flagged = employed
+      ? eventsOn(state, today).filter((item) => item.priority === 'important' && item.resolvedOn === null)
+      : [];
     const alreadyTold = (state.schedule?.notifiedThrough ?? null) !== null && state.schedule.notifiedThrough! >= today;
     if (flagged.length > 0 && !alreadyTold) {
       // He has now been shown it, so the day counts as told.
@@ -1219,6 +1310,9 @@ function seasonStop(state: GameState): ContinueStop {
  */
 export function currentAttention(state: GameState): ContinueStop | null {
   if (state.phase === 'complete') return seasonStop(state);
+  // A manager between jobs has nothing on his own calendar: no team to pick and
+  // no fixture he must not miss, so the clock is free to run.
+  if (!isEmployed(state)) return null;
   const today = state.date;
   const blocking = eventsOn(state, today).filter(
     (item) => item.priority === 'critical' && item.resolvedOn === null,
@@ -1249,7 +1343,8 @@ export function currentAttention(state: GameState): ContinueStop | null {
 
 /** The next fixture the manager has to think about. */
 export function upcomingFixture(state: GameState): Match | null {
-  return nextFixtureFor(state, state.userClubId, state.date);
+  const clubId = managingClubId(state);
+  return clubId ? nextFixtureFor(state, clubId, state.date) : null;
 }
 
 // ---------------------------------------------------------------------------

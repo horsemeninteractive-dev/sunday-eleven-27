@@ -13,6 +13,18 @@ export function moneyWhole(value: number): string {
   return `${sign}£${Math.round(Math.abs(value)).toLocaleString('en-GB')}`;
 }
 
+/**
+ * A price the game has not settled yet: "£18–£42".
+ *
+ * What something will come to is a range the simulation owns — a pitch hire, a
+ * hall booked because the weather turned — and the screen quotes it before the
+ * manager commits to it. Printed from the range itself rather than typed into
+ * the sentence, so the two cannot drift apart.
+ */
+export function moneyRange(range: { min: number; max: number }): string {
+  return `${moneyWhole(range.min)}–${moneyWhole(range.max)}`;
+}
+
 export function moneyShort(value: number): string {
   const sign = value < 0 ? '-' : '';
   const abs = Math.abs(value);

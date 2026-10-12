@@ -2,8 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { GameState } from '@/domain/game';
 import { useGameStore, type ViewId } from '@/state/gameStore';
 import { viewArchetype } from '../archetype';
-import { clubStyle } from '../colour';
-import { gameActions } from '../hooks';
+import { gameActions, useClubColours } from '../hooks';
 import { useCommandState } from '../commandActions';
 import { DesktopTopBar, MobileCommandStrip, MobileTopBar } from './TopBar';
 import { AppNotice, useNoticeTimeout } from './AppNotice';
@@ -26,7 +25,22 @@ import { NegotiationModal } from '../components/NegotiationModal';
  * The matchday screen is a takeover: it covers the shell entirely, because a
  * match is not a page in a website.
  */
-export function AppShell({ game, view, children }: { game: GameState; view: ViewId; children: ReactNode }) {
+export function AppShell({
+  game,
+  view,
+  children,
+  outOfWork = false,
+}: {
+  game: GameState;
+  view: ViewId;
+  children: ReactNode;
+  /**
+   * The manager has no club. The shell still draws — messages, the calendar and
+   * Continue all still work — but it names him by his situation rather than by
+   * the club he last managed.
+   */
+  outOfWork?: boolean;
+}) {
   const notice = useGameStore((state) => state.notice);
   const session = useGameStore((state) => state.session);
   const plannerOpen = useGameStore((state) => state.plannerOpen);
@@ -42,6 +56,10 @@ export function AppShell({ game, view, children }: { game: GameState; view: View
   const handleNavOpenChange = useCallback((open: boolean) => setNavOpen(open), []);
   const mainRef = useRef<HTMLElement | null>(null);
   const command = useCommandState();
+  // The club's colours, resolved for the theme in force. Read once, here, so
+  // that the shell is the only thing that has to know which way the lights are
+  // on: everything under it inherits the tokens.
+  const colours = useClubColours(game.clubs[game.userClubId]!.identity.colours);
 
   // A notice says its piece and goes: nothing the manager has to tidy away.
   const dismissNotice = useCallback(() => gameActions().setNotice(null), []);
@@ -106,7 +124,7 @@ export function AppShell({ game, view, children }: { game: GameState; view: View
   }, [view, focus]);
 
   return (
-    <div className="app" style={clubStyle(game.clubs[game.userClubId]!.identity.colours)}>
+    <div className="app" style={colours}>
       <a className="skip-link" href="#main">
         Skip to the main content
       </a>
@@ -117,6 +135,7 @@ export function AppShell({ game, view, children }: { game: GameState; view: View
         <SideNav
           view={view}
           hasSession={Boolean(session)}
+          outOfWork={outOfWork}
           onNavigate={navigate}
           onOpenChange={handleNavOpenChange}
         />
@@ -140,7 +159,7 @@ export function AppShell({ game, view, children }: { game: GameState; view: View
       <footer className="app__footer">
         <Breadcrumbs
           view={view}
-          clubName={game.clubs[game.userClubId]!.identity.name}
+          clubName={outOfWork ? 'Between jobs' : game.clubs[game.userClubId]!.identity.name}
           onNavigate={navigate}
         />
         <AppNotice notice={notice} />
@@ -152,7 +171,7 @@ export function AppShell({ game, view, children }: { game: GameState; view: View
       <div className="app__mobilefooter">
         <Breadcrumbs
           view={view}
-          clubName={game.clubs[game.userClubId]!.identity.name}
+          clubName={outOfWork ? 'Between jobs' : game.clubs[game.userClubId]!.identity.name}
           onNavigate={navigate}
         />
         {command && <MobileCommandStrip command={command} />}
@@ -161,6 +180,7 @@ export function AppShell({ game, view, children }: { game: GameState; view: View
           <MobileNav
             view={view}
             hasSession={Boolean(session)}
+            outOfWork={outOfWork}
             open={moreOpen}
             onOpenChange={setMoreOpen}
             onNavigate={navigate}

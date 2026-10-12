@@ -2,19 +2,33 @@ import { createElement } from 'react';
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { NewsCategory } from '@/domain/news';
-import { NEWS_PLATE_HEIGHT, NEWS_PLATE_PATHS, NEWS_PLATE_WIDTH, NewsPlate } from './NewsPlate';
+import { NEWS_PLATE_HEIGHT, NEWS_PLATE_PATHS, NEWS_PLATE_WIDTH, NewsPlate, type NewsPlateKey } from './NewsPlate';
 
 /**
  * The picture on a story.
  *
  * What is pinned here is not what a drawing of a stand looks like — that is a
- * judgement, and it is made by looking at the contact sheet of all six — but the
- * three things a picture on a sheet of fixed size can be *wrong* about: that it
- * runs off the edge of the sheet it is drawn on, that it is not actually a
- * drawing of the thing it claims to be, and that six kinds of story end up
- * wearing one picture between them.
+ * judgement, and it is made by looking at the contact sheet — but the three
+ * things a picture on a sheet of fixed size can be *wrong* about: that it runs
+ * off the edge of the sheet it is drawn on, that it is not actually a drawing of
+ * the thing it claims to be, and that two kinds of story end up wearing one
+ * picture between them.
+ *
+ * The set is keyed on the *story* rather than on the column, so there are two
+ * things to hold down as well: that the six columns are all still here — a career
+ * saved before a story knew what it was draws the column's picture and must not
+ * lose it — and that the drawing a story wears is chosen from the event rather
+ * than from the column, which is `newsStory.test.ts`'s job rather than this
+ * one's.
  */
 
+/** Every picture in the set, and nothing else. */
+const PLATES: NewsPlateKey[] = [
+  'Match', 'Squad', 'Club', 'League', 'World', 'Finances',
+  'Cup', 'Transfer', 'Absence', 'Training', 'Milestone', 'CalledOff', 'Rows',
+];
+
+/** The columns, which every story has whether or not it knows what it is. */
 const CATEGORIES: NewsCategory[] = ['Match', 'Squad', 'Club', 'League', 'World', 'Finances'];
 
 /** How many numbers each command carries. Uppercase only: every coordinate in
@@ -92,30 +106,40 @@ function spans(d: string): { x: number; y: number } {
 
 describe('a story carries a picture of what kind of story it is', () => {
   it('draws one for every kind of story the paper prints, and a different one each time', () => {
-    expect(Object.keys(NEWS_PLATE_PATHS).sort()).toEqual([...CATEGORIES].sort());
-    for (const category of CATEGORIES) {
+    expect(Object.keys(NEWS_PLATE_PATHS).sort()).toEqual([...PLATES].sort());
+    for (const plate of PLATES) {
       // A picture rather than a glyph: one or two strokes are a symbol, and
       // these are meant to be places.
-      expect(NEWS_PLATE_PATHS[category].length, category).toBeGreaterThanOrEqual(4);
+      expect(NEWS_PLATE_PATHS[plate].length, plate).toBeGreaterThanOrEqual(4);
     }
-    // Six kinds of story in six drawings. A paper whose match report and whose
-    // finance warning wore the same picture would have told the manager nothing
-    // by drawing it.
-    const drawn = CATEGORIES.map((category) => JSON.stringify(NEWS_PLATE_PATHS[category]));
-    expect(new Set(drawn).size).toBe(CATEGORIES.length);
+    // Thirteen kinds of story in thirteen drawings. A paper whose cup tie and
+    // whose training night wore the same picture would have told the manager
+    // nothing by drawing it, and the *point* of drawing more than the six
+    // columns was that a cup final and a routine result are not one story.
+    const drawn = PLATES.map((plate) => JSON.stringify(NEWS_PLATE_PATHS[plate]));
+    expect(new Set(drawn).size).toBe(PLATES.length);
+  });
+
+  it('keeps the column a story is filed under, for a story that does not know what it is', () => {
+    // Every item written before the event type travelled with it has a category
+    // and nothing else. Those stories draw the column's picture, so all six have
+    // to still be in the set: a fallback removed is a fallback that throws.
+    for (const category of CATEGORIES) {
+      expect(NEWS_PLATE_PATHS[category], category).toBeDefined();
+    }
   });
 
   it('keeps every picture on its own sheet', () => {
     // A picture that runs off its sheet is clipped, and a clipped drawing reads
     // as a mistake rather than as anything. One unit in from every edge, because
     // the line itself has weight.
-    for (const category of CATEGORIES) {
-      for (const d of NEWS_PLATE_PATHS[category]) {
+    for (const plate of PLATES) {
+      for (const d of NEWS_PLATE_PATHS[plate]) {
         for (const point of reach(d)) {
-          expect(point.x, `${category} draws off the left or right of the sheet: ${d}`).toBeGreaterThanOrEqual(1);
-          expect(point.x, `${category} draws off the left or right of the sheet: ${d}`).toBeLessThanOrEqual(NEWS_PLATE_WIDTH - 1);
-          expect(point.y, `${category} draws off the top or bottom of the sheet: ${d}`).toBeGreaterThanOrEqual(1);
-          expect(point.y, `${category} draws off the top or bottom of the sheet: ${d}`).toBeLessThanOrEqual(NEWS_PLATE_HEIGHT - 1);
+          expect(point.x, `${plate} draws off the left or right of the sheet: ${d}`).toBeGreaterThanOrEqual(1);
+          expect(point.x, `${plate} draws off the left or right of the sheet: ${d}`).toBeLessThanOrEqual(NEWS_PLATE_WIDTH - 1);
+          expect(point.y, `${plate} draws off the top or bottom of the sheet: ${d}`).toBeGreaterThanOrEqual(1);
+          expect(point.y, `${plate} draws off the top or bottom of the sheet: ${d}`).toBeLessThanOrEqual(NEWS_PLATE_HEIGHT - 1);
         }
       }
     }
@@ -140,13 +164,17 @@ describe('a story carries a picture of what kind of story it is', () => {
   });
 
   it('draws it as a drawing, and leaves the reading to the words beside it', () => {
-    const markup = renderToStaticMarkup(createElement(NewsPlate, { category: 'Match' }));
+    const markup = renderToStaticMarkup(createElement(NewsPlate, { plate: 'Match' }));
     expect(markup).toContain(`viewBox="0 0 ${NEWS_PLATE_WIDTH} ${NEWS_PLATE_HEIGHT}"`);
     expect(markup).toContain('class="news-plate"');
     expect(markup).toContain('aria-hidden="true"');
     expect((markup.match(/<path/g) ?? []).length).toBe(NEWS_PLATE_PATHS.Match.length);
-    // The wider lead story draws the same picture, bigger, through a class.
-    const lead = renderToStaticMarkup(createElement(NewsPlate, { category: 'Club', className: 'news-plate--lead' }));
+    // The wider lead story draws the same picture, bigger, through a class — and
+    // so does a story given a column of its own, at a size between the two.
+    const lead = renderToStaticMarkup(createElement(NewsPlate, { plate: 'Club', className: 'news-plate--lead' }));
     expect(lead).toContain('class="news-plate news-plate--lead"');
+    const feature = renderToStaticMarkup(createElement(NewsPlate, { plate: 'Cup', className: 'news-plate--feature' }));
+    expect(feature).toContain('class="news-plate news-plate--feature"');
+    expect((feature.match(/<path/g) ?? []).length).toBe(NEWS_PLATE_PATHS.Cup.length);
   });
 });

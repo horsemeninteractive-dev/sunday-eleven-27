@@ -75,6 +75,26 @@ export const RESTART_SETUP_SECONDS: Record<RestartKind, number> = {
 export const TOUCHLINE = { near: MIN_Y, far: MAX_Y } as const;
 
 /**
+ * How far off the field of play the thrower stands, as a fraction of the pitch.
+ *
+ * A throw-in is the one restart taken from *outside* the field: the thrower
+ * stands on the ground behind the line, ball in his hands, and throws it back
+ * in. Just under two per cent of a pitch is about a yard and a half of it at
+ * match size, which is where a thrower actually plants himself — far enough back
+ * that the picture can draw him on the ground beyond the line rather than on the
+ * grass, and no further than the strip of ground a pitch is drawn with.
+ */
+export const THROW_IN_STAND_OFF = 0.018;
+
+/**
+ * Which touchline a spot on the near or far line belongs to, as a sign: -1 for
+ * the near line (y = 0) and +1 for the far one (y = 1).
+ */
+function offSide(spotY: number): -1 | 1 {
+  return spotY <= 0.5 ? -1 : 1;
+}
+
+/**
  * The spot a dead ball is placed on, given where the ball left play.
  *
  * Both resolutions place a restart here; neither is free to invent a geometry of
@@ -107,6 +127,20 @@ export function restartSpotFor(
     case 'penalty':
       return penaltySpot(otherSide(side));
   }
+}
+
+/**
+ * Where the thrower stands, given the spot the ball is played from.
+ *
+ * The spot is on the line ({@link restartSpotFor}); this is the ground behind it
+ * that the man stands on, and the two are deliberately not the same place. He
+ * stands over the spot along the line — the same x, so the throw goes back in
+ * where the ball went out — and the stand-off is measured from the painted line
+ * itself, y = 0 or y = 1, and not from the spot a shade inside it: the line is
+ * what a thrower stands behind and what the pitch is drawn by.
+ */
+export function throwInStandSpot(spot: { x: number; y: number }): { x: number; y: number } {
+  return { x: spot.x, y: offSide(spot.y) < 0 ? -THROW_IN_STAND_OFF : 1 + THROW_IN_STAND_OFF };
 }
 
 /**

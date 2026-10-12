@@ -1,5 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { firstSnapshotDifference, runSoak, type SoakSnapshot } from './soak';
+import { FRIENDLY_COMPETITION_ID } from '@/domain/competition';
+import type { GameState } from '@/domain/game';
+import type { MatchId } from '@/domain/ids';
+import type { Match } from '@/domain/match';
+import { addDays } from './calendar';
+import { LEAGUE_CUP_ID, registerFixture } from './pyramid';
+import {
+  CALENDAR_INVARIANTS,
+  checkCalendarIntegrity,
+  firstSnapshotDifference,
+  runSoak,
+  seasonSnapshot,
+  type SoakSnapshot,
+  type SoakViolation,
+} from './soak';
+import { createTestGame } from './testSupport';
 
 /**
  * The soak, in miniature.
@@ -37,6 +52,173 @@ import { firstSnapshotDifference, runSoak, type SoakSnapshot } from './soak';
  * one-fixture and one-season tests; set, this is the same deliberate check it
  * always was, on demand.
  */
+
+/**
+ * The calendar and competition invariants, in miniature.
+ *
+ * These are the three checks `runSoak` makes at the close of every season, read
+ * here against worlds built to break each one. They are not gated: a season does
+ * not have to be played to ask whether a cup that reached no winner is a
+ * failure, and a broken calendar should be found by the cheap test that
+ * describes it rather than only by the two-season run.
+ *
+ * `cup-decided` is read at the close of a season, which is what "by the end of
+ * the season" means — so a world that is still mid-season with a cup halfway
+ * through it is a world whose cup has not been decided *yet*, and the tests
+ * below say so by building the shapes that are wrong at any point of the year.
+ */
+describe('the calendar and competition invariants', () => {
+  /** The failures of one named invariant, on the world built for the case. */
+  function failures(state: GameState, invariant: string): SoakViolation[] {
+    return checkCalendarIntegrity(state, seasonSnapshot(state)).filter((item) => item.invariant === invariant);
+  }
+
+  it('names its invariants, so a clean run can still list them', () => {
+    expect([...CALENDAR_INVARIANTS].sort()).toEqual(
+      ['cup-decided', 'cup-round-has-date', 'every-fixture-in-a-competition'].sort(),
+    );
+  });
+
+  it('holds on a freshly built world, friendlies included', () => {
+    const { state } = createTestGame('invariants-clean');
+    // Every fixture is on a competition's list, under the matchday it is played
+    // on, and every drawn cup round is numbered on a day the calendar has.
+    expect(failures(state, 'every-fixture-in-a-competition')).toEqual([]);
+    expect(failures(state, 'cup-round-has-date')).toEqual([]);
+    // A friendly is deliberately not a competition in the world, and is not an
+    // orphan listed in one.
+    expect(Object.values(state.matches).some((match) => match.competitionId === FRIENDLY_COMPETITION_ID)).toBe(true);
+    expect(state.competitions[FRIENDLY_COMPETITION_ID]).toBeUndefined();
+    expect(failures(state, 'every-fixture-in-a-competition')).toEqual([]);
+  });
+
+  it('fails cup-decided for a cup that began the season and reached no winner', () => {
+    const { state } = createTestGame('invariants-cup-unfinished');
+    // The opening round has been drawn and played; nothing after it has. At the
+    // close of a season this is a competition that cannot be won.
+    const cup = state.competitions[LEAGUE_CUP_ID]!;
+    expect(Object.keys(state.fixtures[LEAGUE_CUP_ID]!.matchdayOf).length).toBeGreaterThan(0);
+    cup.cup = { ...cup.cup!, complete: false, winnerClubId: null };
+
+    const found = failures(state, 'cup-decided');
+    expect(found).toHaveLength(1);
+    expect(found[0]!.subject).toBe(LEAGUE_CUP_ID);
+    expect(found[0]!.detail).toContain('reached no winner');
+    expect(found[0]!.severity).toBe('fail');
+  });
+
+  it('fails cup-decided for a bracket marked complete that crowns nobody', () => {
+    const { state } = createTestGame('invariants-cup-headless');
+    const cup = state.competitions[LEAGUE_CUP_ID]!;
+    cup.cup = { ...cup.cup!, complete: true, winnerClubId: null };
+
+    const found = failures(state, 'cup-decided');
+    expect(found).toHaveLength(1);
+    expect(found[0]!.detail).toContain('crowns nobody');
+  });
+
+  it('fails cup-decided for a cup that crowns somebody whose final was never drawn', () => {
+    const { state } = createTestGame('invariants-cup-no-final');
+    const cup = state.competitions[LEAGUE_CUP_ID]!;
+    const champion = Object.values(state.clubs).find((club) => club.active)!.id;
+    cup.cup = { ...cup.cup!, complete: true, winnerClubId: champion };
+
+    // The opening round was drawn; the five after it in the competition's own plan
+    // never were. A "winner" here is whoever happened to be left standing.
+    const found = failures(state, 'cup-decided');
+    expect(found.length).toBeGreaterThan(1);
+    expect(found.every((item) => item.detail.includes('never drawn'))).toBe(true);
+    expect(found.map((item) => item.detail).join(' ')).toContain('round 2');
+  });
+
+  it('fails cup-round-has-date for a tie with no usable date', () => {
+    const { state } = createTestGame('invariants-cup-undated');
+    const tie = state.matches[Object.keys(state.fixtures[LEAGUE_CUP_ID]!.matchdayOf)[0]!]!;
+    tie.date = '';
+
+    const found = failures(state, 'cup-round-has-date');
+    expect(found.map((item) => item.subject)).toContain(tie.id);
+    expect(found[0]!.detail).toContain('no usable date');
+  });
+
+  it('fails cup-round-has-date for a round whose slot is not in the calendar', () => {
+    const { state } = createTestGame('invariants-cup-lost-slot');
+    const cup = state.competitions[LEAGUE_CUP_ID]!;
+    const round = cup.cup!.round;
+    // The slot the round is numbered on, taken out of the calendar: the round was
+    // drawn, so it exists, and there is no day for it to be played on.
+    const matchday = state.matches[Object.keys(state.fixtures[LEAGUE_CUP_ID]!.matchdayOf)[0]!]!.matchday;
+    state.season.calendar = state.season.calendar.filter((entry) => entry.matchday !== matchday);
+    expect(state.season.calendar.some((entry) => entry.matchday === matchday)).toBe(false);
+
+    const found = failures(state, 'cup-round-has-date');
+    expect(found.some((item) => item.detail.includes(`round ${round} is numbered on matchday ${matchday}`))).toBe(true);
+    expect(found.some((item) => item.detail.includes('not in the season calendar'))).toBe(true);
+  });
+
+  it('fails every-fixture-in-a-competition for a fixture in a competition that is not there', () => {
+    const { state } = createTestGame('invariants-orphan-competition');
+    const tie = state.matches[Object.keys(state.fixtures[LEAGUE_CUP_ID]!.matchdayOf)[0]!]!;
+    tie.competitionId = 'comp_nowhere' as Match['competitionId'];
+
+    const found = failures(state, 'every-fixture-in-a-competition');
+    expect(found.some((item) => item.subject === tie.id && item.detail.includes('not a competition in the world'))).toBe(true);
+    expect(found.some((item) => item.detail.includes('but belongs to comp_nowhere'))).toBe(true);
+  });
+
+  it('fails every-fixture-in-a-competition for a fixture on no list, and for a matchday that disagrees', () => {
+    const { state } = createTestGame('invariants-registration');
+    const list = state.fixtures[LEAGUE_CUP_ID]!;
+    const id = Object.keys(list.matchdayOf)[0]!;
+
+    // The list says the tie is played on a different matchday from the one the
+    // match itself is on: the day loop and the world would disagree about when.
+    list.matchdayOf[id] = list.matchdayOf[id]! + 1;
+    const found = failures(state, 'every-fixture-in-a-competition');
+    expect(found.some((item) => item.subject === id && item.detail.includes('but is played on matchday'))).toBe(true);
+
+    // And a fixture in the world that no competition's list has ever heard of.
+    const { state: other } = createTestGame('invariants-unregistered');
+    const stray: Match = {
+      ...other.matches[Object.keys(other.fixtures[LEAGUE_CUP_ID]!.matchdayOf)[0]!]!,
+      id: 'match_stray' as MatchId,
+    };
+    other.matches[stray.id] = stray;
+    const strays = checkCalendarIntegrity(other, seasonSnapshot(other)).filter(
+      (item) => item.invariant === 'every-fixture-in-a-competition' && item.subject === stray.id,
+    );
+    expect(strays.some((item) => item.detail.includes('on no competition'))).toBe(true);
+  });
+
+  it('reads a rearranged tie, and the one it replaced, as one settled pair', () => {
+    const { state } = createTestGame('invariants-rearranged');
+    const tie = state.matches[Object.keys(state.fixtures[LEAGUE_CUP_ID]!.matchdayOf)[0]!]!;
+    // Called off on the day, rearranged for a spare Sunday three weeks later. Both
+    // records are real: the original keeps the date it was due and is marked off,
+    // and the replay is the live tie in the same round.
+    tie.status = 'postponed';
+    tie.postponementReason = 'a waterlogged pitch';
+    tie.postponedOn = tie.date;
+    const replay: Match = {
+      ...tie,
+      id: `${tie.id}_r1` as MatchId,
+      date: addDays(tie.date, 21),
+      status: 'scheduled',
+      originalDate: tie.date,
+      replacedByMatchId: null,
+      cupRound: tie.cupRound,
+    };
+    tie.replacedByMatchId = replay.id;
+    state.matches[replay.id] = replay;
+    registerFixture(state, LEAGUE_CUP_ID, replay.id, replay.matchday);
+
+    // Neither check has anything to say about either record: a called-off tie that
+    // has been rearranged is not a fixture waiting for a date, and two records of
+    // one tie on one matchday are not a duplicate registration.
+    expect(failures(state, 'cup-round-has-date')).toEqual([]);
+    expect(failures(state, 'every-fixture-in-a-competition')).toEqual([]);
+  });
+});
 
 const SOAK_ENABLED = Boolean(process.env.SOAK) || process.env.npm_lifecycle_event === 'test:soak';
 const SEASONS = 2;

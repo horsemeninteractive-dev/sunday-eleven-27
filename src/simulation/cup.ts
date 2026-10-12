@@ -392,6 +392,9 @@ export function drawCupRound(
       competitionId: competition.id,
       competitionName: competition.name,
       kickOff: CUP_KICKOFF,
+      // The round is written onto the tie as well as into its matchday, so a
+      // round is an identity rather than a number shared out across a season.
+      cupRound: round,
     });
     // A knockout tie is level at ninety minutes, so it goes to extra time and
     // then penalties. This is the only place the flag is ever set.
@@ -610,14 +613,46 @@ export function readCupRound(state: GameState, competition: Competition): CupRou
 /**
  * Every tie in a round of a cup, one entry per tie.
  *
+ * A tie carries the round it was drawn for ({@link Match.cupRound}), which is
+ * what makes a round an identity rather than a share of the matchday numbering.
+ * Two cups can play on the same Sunday — and one day will — without either
+ * competition's ties being read as the other's round, which the old arithmetic
+ * could not tell apart.
+ *
+ * A save written before the field existed has ties without it, and for those the
+ * matchday arithmetic is still the answer: that is the round those ties were
+ * already being read as, so an in-progress career carries on through its bracket
+ * rather than stopping at it.
+ *
  * A postponed tie leaves two fixtures on the same matchday: the original, which
  * will never be played, and the rearranged game that replaces it. Only the live
  * one counts — reading both would give the round two winners for one tie, and a
  * club would go out twice.
  */
 export function matchesForRound(state: GameState, competition: Competition, round: number): Match[] {
-  return tiesOnMatchday(state, competition, cupRoundMatchday(state, competition, round))
-    .filter((match) => !match.replacedByMatchId);
+  const explicit = tiesWithRound(state, competition, round);
+  if (explicit.length > 0) return explicit.filter((match) => !match.replacedByMatchId);
+  return tiesOnMatchday(state, competition, cupRoundMatchday(state, competition, round)).filter(
+    (match) => !match.replacedByMatchId,
+  );
+}
+
+/**
+ * This competition's ties that say outright which round they are.
+ *
+ * Read out of the competition's own fixture list rather than out of the whole
+ * world of matches, so a tie can never be attributed to a competition it is not
+ * in — the two cups in this world would otherwise be one competition drawn twice.
+ */
+function tiesWithRound(state: GameState, competition: Competition, round: number): Match[] {
+  const list: FixtureList | undefined = state.fixtures?.[competition.id];
+  if (!list) return [];
+  const matches: Match[] = [];
+  for (const id of Object.keys(list.matchdayOf)) {
+    const match = state.matches[id];
+    if (match && match.cupRound === round) matches.push(match);
+  }
+  return matches;
 }
 
 /**
@@ -789,14 +824,16 @@ export function roundDrawDate(state: GameState, competition: Competition, round:
  * The round number a cup tie belongs to, or 0 if it is not one of this
  * competition's.
  *
- * A cup round is numbered on a matchday above the league's own, so the round is
- * read back out of the same arithmetic rather than stored on the tie: there is
- * nowhere to keep it that a postponed or rearranged game would have to be
- * updated in as well.
+ * The tie's own `cupRound` is the answer wherever it has one, and it is carried
+ * onto a rearranged game with the tie it replaces. A tie saved before the field
+ * existed falls back to the arithmetic that used to be the only answer — a cup
+ * round is numbered on a matchday above the league's own, with an offset per
+ * competition — which is exactly the round that save was already reading.
  */
 export function cupRoundOf(state: GameState, competition: Competition, match: Match): number {
   const cup = competition.cup;
   if (!cup || match.competitionId !== competition.id) return 0;
+  if (typeof match.cupRound === 'number' && match.cupRound > 0) return match.cupRound;
   const league = state.season.calendar.filter((entry) => isLeagueMatchday(state, entry.matchday));
   const base = league.length || state.season.calendar.length;
   return match.matchday - (base + (cup.matchdayOffset ?? 0));

@@ -15,8 +15,11 @@ import {
   HANDBOOK,
   PERMISSIONS,
   PRESET_VALUES,
+  RELEASE_DOWNLOADS,
   ROLES,
   announcementFrom,
+  announcementMessage,
+  downloadsFor,
   hasPermissions,
   overwritesFor,
   permissions,
@@ -524,5 +527,115 @@ describe('announcing a release', () => {
 
   it('has no windows in a version it cannot find, either way round', () => {
     expect(announcementFrom(changelog.replace(/\n/g, '\r\n'), '9.9.9')).toBeNull();
+  });
+});
+
+describe('the downloads a release ships', () => {
+  it('carries the two builds 0.12.0 uploaded, as they were uploaded', () => {
+    const downloads = downloadsFor('0.12.0');
+    expect(downloads.map((download) => download.label)).toEqual(['Android (.apk)', 'Windows (.exe)']);
+    expect(downloads.map((download) => download.file)).toEqual([
+      'SE27-V0.12.0.apk',
+      'Sunday-Eleven-27-Setup-0.12.0.exe',
+    ]);
+    expect(downloads.map((download) => download.url)).toEqual([
+      'https://www.mediafire.com/file/9qozszw0vw114r8/SE27-V0.12.0.apk/file',
+      'https://www.mediafire.com/file/bdnvmwnl4b2utka/Sunday-Eleven-27-Setup-0.12.0.exe/file',
+    ]);
+  });
+
+  it('says nothing about downloads for a release that shipped none', () => {
+    // The game is played in a browser, so most releases have nothing to
+    // install, and an announcement for one of those must not offer the last
+    // release's files — which is why the answer is about one version at a time.
+    expect(downloadsFor('0.11.1')).toEqual([]);
+    expect(downloadsFor('9.9.9')).toEqual([]);
+  });
+
+  it('links the file it names, under a version the file name carries', () => {
+    // Every link is typed by hand, and the failure that costs somebody a
+    // download is a link that quietly points at the previous release: the last
+    // segment of a file host's URL is the file's name, so the two have to agree,
+    // and the name has to carry the version it is filed under.
+    for (const [version, downloads] of Object.entries(RELEASE_DOWNLOADS)) {
+      expect(downloads.length).toBeGreaterThan(0);
+      for (const download of downloads) {
+        expect(download.url).toMatch(/^https:\/\//);
+        expect(decodeURIComponent(new URL(download.url).pathname).split('/').at(-2)).toBe(download.file);
+        expect(download.file).toContain(version);
+        expect(download.label).not.toBe('');
+      }
+    }
+  });
+
+  it('only files downloads under a version the changelog has', () => {
+    // A typo here is an announcement that links nothing, silently: the key has
+    // to be the same string the changelog heading and `package.json` use.
+    for (const version of Object.keys(RELEASE_DOWNLOADS)) {
+      expect(announcementFrom(changelogRaw, version)).not.toBeNull();
+    }
+  });
+
+  it('is documented, like everything else the tool does', () => {
+    expect(doc).toMatch(/downloads/i);
+  });
+});
+
+describe('the message an announcement is', () => {
+  const release = announcementFrom(changelogRaw, '0.12.0')!;
+  const roleId = '1558155135245488210';
+
+  it('sends the notes under the key Discord reads, and not one of its own', () => {
+    // The first release this tool announced went out with no notes in it at all,
+    // because the embed was sent as `embed` rather than `embeds`: Discord ignores
+    // keys it does not know, answers 200, and the run reports success. This is
+    // the assertion that fails when that happens again.
+    const message = announcementMessage(release, downloadsFor('0.12.0'), roleId);
+    expect(Object.keys(message)).toContain('embeds');
+    expect(message).not.toHaveProperty('embed');
+    expect(message.embeds).toHaveLength(1);
+    expect(message.embeds[0]!.description).toContain(release.body.slice(0, 200));
+    expect(message.embeds[0]!.url).toBe('https://sundayeleven.pages.dev/');
+  });
+
+  it('carries each download as a field whose text is the file itself', () => {
+    const message = announcementMessage(release, downloadsFor('0.12.0'), roleId);
+    const fields = message.embeds[0]!.fields!;
+    expect(fields.map((field) => field.name)).toEqual(['Android (.apk)', 'Windows (.exe)']);
+    for (const download of downloadsFor('0.12.0')) {
+      const field = fields.find((candidate) => candidate.name === download.label)!;
+      expect(field.value).toBe(`[${download.file}](${download.url})`);
+    }
+  });
+
+  it('says nothing about downloads for a release that shipped none', () => {
+    const message = announcementMessage(release, [], roleId);
+    // Absent rather than empty: an embed with no fields and an embed with an
+    // empty field list look different in a client, and neither should appear.
+    expect(message.embeds[0]!).not.toHaveProperty('fields');
+  });
+
+  it('pings the one role somebody opted into, and resolves nothing else', () => {
+    const message = announcementMessage(release, [], roleId);
+    expect(message.allowed_mentions).toEqual({ roles: [roleId] });
+    expect(message.content).toContain(`<@&${roleId}>`);
+    // With no such role, no mention is written down and nothing may resolve — a
+    // changelog that happens to name a person is not a notification for them.
+    const pingless = announcementMessage(release, [], null);
+    expect(pingless.allowed_mentions).toEqual({ parse: [] });
+    expect(pingless.content).not.toContain('<@');
+  });
+
+  it('names the release on the first line, and invents nothing for a nameless one', () => {
+    const named = announcementMessage(release, [], roleId);
+    expect(named.content.split('\n')[0]).toBe(`**Sunday Eleven 27 0.12.0** — ${release.title}`);
+    const nameless = announcementMessage({ version: '1.0.0', title: '', body: 'Notes.' }, [], null);
+    // An em dash followed by nothing reads as a mistake.
+    expect(nameless.content).toBe('**Sunday Eleven 27 1.0.0**');
+  });
+
+  it('cuts the notes to the length Discord accepts', () => {
+    const long = announcementMessage({ version: '1.0.0', title: '', body: 'x'.repeat(9000) }, [], null);
+    expect(long.embeds[0]!.description).toHaveLength(4096);
   });
 });

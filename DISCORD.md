@@ -105,6 +105,7 @@ npm run xiai -- --new-key                      # write the key `--verify` signs 
 | `--icon <file.png>` | set the server icon from a PNG (Discord takes up to 256 KB; 512×512 is the size it wants) |
 | `--invite` | create a permanent invite to `#welcome` and print it — the link that belongs on the website |
 | `--announce [version]` | post that version's entry from `CHANGELOG.md`; with no version, the one `package.json` carries |
+| `--dry-run` | with `--announce`: print the message that would be posted — the version line, the notes and the downloads — and post nothing. It goes **after** npm's own `--` (`npm run discord:announce -- --dry-run`), because npm has a `--dry-run` of its own and swallows the flag without it |
 
 The plan is printed before anything is written, and it is the same run either way:
 the tool reads the server, works out what differs, and only `--apply` acts on it.
@@ -189,6 +190,24 @@ The announcement mentions `@Release Notes` and nothing else
 them, and a changelog that happens to name a person does not become a
 notification for that person. If `#announcements` is a real announcement channel,
 the post is crossposted so followers get it in their own servers.
+
+**A release that shipped builds carries them too.** The game is played in a
+browser, so a release may have nothing to install, and the two files it
+sometimes has — a signed `.apk` to sideload, and the Windows installer — are
+listed in `RELEASE_DOWNLOADS` in [`src/platform/discord.ts`](src/platform/discord.ts),
+**keyed by version**: the announcement for `0.12.0` links `0.12.0`'s files, and an
+announcement for a release with no entry says nothing about downloads rather than
+offering the last release's. Each is an embed field whose text is the file's own
+name, so what a person reads in the client is the thing they are about to
+install. A test holds every link to the file it names — the last segment of the
+URL has to be the file name, and the name has to carry the version it is filed
+under — because the mistake that costs somebody a download is a link that
+quietly points at the release before this one.
+
+`npm run discord:announce -- --dry-run` prints the message — the version line, the
+notes, and the downloads — and posts nothing, which is the only way to see it
+before it exists: an announcement is never edited afterwards, since a release
+announcement that edits itself later is one nobody was notified about.
 
 ### XIAI answers questions
 
@@ -354,6 +373,8 @@ safe to run after editing `src/platform/discord.ts`: the edit is the change.
 | The planner | creates everything on an empty server; blocks `#announcements` without Community and unblocks it with; keeps what matches, updates a drifted topic / slow mode / type / role permission and says which; never proposes a deletion or a rename |
 | The invite link | `DISCORD.md`'s link is rebuilt from `BOT_PERMISSIONS` and compared with the document, so the number you click and the number the code needs cannot disagree |
 | The announcement reader | takes one version's section, stops before the next one and before `Unreleased`, cannot invent a version the changelog lacks, and trims at a paragraph boundary — including on a **CRLF** changelog, which is what the file is |
+| The announcement message | the notes go under the key Discord reads (`embeds`, and **not** `embed` — the check that fails when that happens again), each download as a field whose text is the file's own name, no fields at all for a release that shipped none, one role resolvable and nothing else, the version line naming the release or inventing nothing for a nameless one, and the notes cut to Discord's 4096 |
+| The downloads a release ships | every link's last path segment **is** the file it is labelled with, and every file name carries the version it is filed under — the mistake that would otherwise cost somebody a download is a link quietly pointing at the release before this one. A release with no entry answers with nothing rather than with the last release's files, and every version a download is filed under is a version the changelog has |
 | `npm run discord:plan` with no `discord.env` | exits 1, prints the five setup steps, and names the file the token belongs in |
 | `npm run discord:plan` with a token Discord refuses | the API's own answer is reported (`GET /users/@me/guilds → 401 ... 401: Unauthorized`), the usage is printed once, and the process exits **1** |
 | `npm run discord:announce 9.9.9` | exits 1 and lists the versions the changelog actually has |
@@ -363,7 +384,7 @@ safe to run after editing `src/platform/discord.ts`: the edit is the change.
 | **The endpoint, run in workerd** | **verified end to end.** `npm run xiai:dev` started the Worker on a loopback port and a real signed request, signed by a real key pair held for the purpose, was answered: a PING came back `{"type":1}`; `/ask` answered a question, a topic and neither; the message command answered from the message it was pointed at; a 👍 came back with `flags: 64`; and an unsigned request, a ten-minute-old one, a non-JSON one and a GET answered 401, 401, 400 and 405. `worker/.dev.vars` is read from the config file's own directory, which is what the local workflow assumes. |
 | **What workerd found that the tests could not** | a real defect, **fixed**: the entry module exported a *value* beside its handler, and the runtime refuses to start one that does — `Incorrect type for map entry 'NO_WORDS'`. The endpoint now lives in `worker/xiaiEndpoint.ts` and `worker/index.ts` re-exports the handler alone, which is the real reason the two files are split |
 | The matcher's rules | a rare word beats a common one, a trigger appearing as the phrase it is written beats its words floating about, and the **best** trigger decides rather than the total — otherwise “can i play on my phone” answers with where to play, which is the case that produced the rule |
-| **`npm run discord:apply` against the live server** | **run, exit 0.** `#ask-xiai`, `#touchline` and `#known-issues` were created, their pinned posts written, and the run ended with *the server matches the spec in `src/platform/discord.ts`*. `#announcements` is still skipped, because Community is not enabled yet |
+| **`npm run discord:apply` against the live server** | **run, exit 0.** `#ask-xiai`, `#touchline` and `#known-issues` were created, their pinned posts written, and the run ended with *the server matches the spec in `src/platform/discord.ts`*, and `#announcements` is a real announcement channel now that Community is enabled — the channel the 0.12.0 post above was crossposted from |
 | **`npm run xiai -- --register`** | **run.** `/ask` was registered in the guild and read back in `--check` (`registered commands: /ask`) — guild commands appear at once, which is why it is not global |
 | **`npm run xiai -- --check`** | **run.** The bot identified itself, connected to the gateway, and Discord said **READY** — which is every handshake in the protocol succeeding at once |
 | **`npm run xiai -- --verify` against the deployed endpoint** | **run, exit 0.** It answered a `GET` the way only this Worker does (405, `Allow: POST`), refused a real Ed25519-signed PING with a **401** — the right answer from a deployment, whose key is the application's — and did it in **73 ms** of the three seconds Discord allows. Discord's own `interactions_endpoint_url` was read back and is that same address |
@@ -407,10 +428,11 @@ document makes.
 | **The bot left running for a long time** | **not done here.** `--check` connects and disconnects on purpose, and the bot has run for minutes rather than days: no reconnect after a real network drop, no rate limit, no resumed session |
 | `--icon` | **never run.** The allow/deny arithmetic is tested; the upload is not |
 | `--invite` | **never run** |
-| `npm run discord:announce` | **never run.** A release has never been posted or crossposted |
-| The welcome screen | **never run** — it needs Community, which this server does not have yet |
+| **`npm run discord:announce 0.12.0`** | **run, exit 0 — and its first ever run found a defect, which is fixed.** The first message went out as the version line, the `@Release Notes` ping and **nothing else**: the notes were sent under the key `embed`, and Discord does not refuse a key it does not know, it ignores it — 200 OK, and the run reported success while the notes and the downloads were never sent. The message is now built by `announcementMessage` in the spec, under `embeds`, with a test over the shape. Posted again from the fixed code, and **read back out of Discord's own API** rather than taken from the tool's report: the message id, the version line, the `@Release Notes` mention, **1512 characters of notes** under `embeds[0].description`, **both downloads as fields** (`Android (.apk)` → `SE27-V0.12.0.apk`, `Windows (.exe)` → `Sunday-Eleven-27-Setup-0.12.0.exe`), and the post **crossposted** so followers get it |
+| The report the announce path printed, before that | **nothing at all** — a second defect, fixed. It was the one path that ended without `flush()`, so the run printed its heading and stopped: the lines saying what was posted, what was linked and who was pinged were buffered and lost. `npm run discord:announce -- --dry-run` prints the message — version line, notes and downloads, in the order the channel reads them — and posts nothing |
+| The welcome screen | **never run** — it needs Community, which this server has now, and the screen is not part of any run this tool makes |
 | Whether Discord accepts the bodies it has not been sent | **not checked against a client:** the icon upload, the invite creation and the welcome screen. The ones it *has* been sent — roles, categories, channels, overwrites, pinned posts and AutoMod rules — were accepted, which is what the apply run above is evidence of |
-| `COMMUNITY` as the feature name | **half checked.** The guild object has been read and reported as *not* having it, which is the negative of the string appearing at all; the positive case is unverified until somebody enables Community and re-runs |
+| `COMMUNITY` as the feature name | **checked both ways**: the guild object was read and reported as *not* having it before, and reports having it now — which is what made `#announcements` an announcement channel and the 0.12.0 post crosspostable |
 | Rate-limit and 5xx handling | **not exercised.** The retry path exists and reads `retry_after`; nothing has made Discord rate-limit this tool |
 | Onboarding, the vanity URL, Discovery | **a person's, by design** — §4 |
 
@@ -421,9 +443,10 @@ document makes.
 | The server as data, with a reason for every decision | **done, tested** |
 | The planner, and its three outcomes | **done, tested** |
 | The pinned posts, and reading a release out of the changelog | **done, tested** (both line endings) |
+| A release posted for real | **done**: 0.12.0 is in `#announcements`, with its notes and its two downloads, crossposted |
 | The bot's permissions, and the invite link | **done, tested against the document** |
 | The HTTP layer: credential handling, refusal to run with a tracked token, 429/5xx retries, honest 403/404 hints | **written, partly exercised** — the failure paths were run; the successful ones have not been |
-| Applying it to a live server | **run**: roles, categories, channels, overwrites, pinned posts and the three AutoMod rules are in the server, and the run ends by saying it matches the spec. `#announcements` waits for Community |
+| Applying it to a live server | **run**: roles, categories, channels, overwrites, pinned posts and the three AutoMod rules are in the server, and the run ends by saying it matches the spec. `#announcements` is in it as an announcement channel, since Community is enabled — a release posted there is crossposted |
 | `src/platform/discord.ts`'s spec reaching the game's own build | **it does not, and should not:** nothing under `src/` imports this outside the tests, and the game itself has no Discord integration, no presence sharing and no account |
 | XIAI: the facts, and the matcher that picks one | **done, tested** — 25 tests, 32 facts, and it answers on the command line today |
 | XIAI: the endpoint — the contract, the signature, and the three ways to ask | **done, tested, deployed and checked** — 28 tests, run against the real runtime locally, deployed with `npm run xiai:deploy`, and checked live: 405 to a `GET`, 401 to a signed PING, and Discord pointed at it. No interaction has been answered by the deployment yet |

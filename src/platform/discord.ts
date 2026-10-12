@@ -872,3 +872,125 @@ export function announcementFrom(changelog: string, version: string, limit = 190
   }
   return { version, title, body: kept.join('\n\n') };
 }
+
+/* ------------------------------------------------------------------ *
+ * Where a release's own builds are
+ * ------------------------------------------------------------------ */
+
+export interface ReleaseDownload {
+  /** What it is installed on, as the announcement names it: `Android (.apk)`. */
+  label: string;
+  /** The file's own name, which carries the version — what the link downloads. */
+  file: string;
+  url: string;
+}
+
+/**
+ * The builds a release shipped, for the releases that shipped any.
+ *
+ * The game is played in a browser, so these are the other two ways in rather
+ * than the way in: a signed `.apk` to sideload and a Windows installer. A
+ * release may therefore have neither, and one that has neither announces without
+ * links rather than pointing at the last release's files — the reason this is
+ * keyed by version rather than kept as one list that grows. The file names carry
+ * the version too (`SE27-V0.12.0.apk`), so a release is given its own links here
+ * by hand, next to the release it belongs to.
+ *
+ * They are hosted on a file host because the game has no store of its own yet
+ * and no server to hand bytes out from: the link *is* the download, and the name
+ * in it is the name of the thing a person is about to install.
+ */
+export const RELEASE_DOWNLOADS: Readonly<Record<string, readonly ReleaseDownload[]>> = {
+  '0.12.0': [
+    {
+      label: 'Android (.apk)',
+      file: 'SE27-V0.12.0.apk',
+      url: 'https://www.mediafire.com/file/9qozszw0vw114r8/SE27-V0.12.0.apk/file',
+    },
+    {
+      label: 'Windows (.exe)',
+      file: 'Sunday-Eleven-27-Setup-0.12.0.exe',
+      url: 'https://www.mediafire.com/file/bdnvmwnl4b2utka/Sunday-Eleven-27-Setup-0.12.0.exe/file',
+    },
+  ],
+};
+
+/**
+ * What that release shipped, and nothing at all for a release that shipped none.
+ *
+ * One version at a time on purpose: an announcement for a release with no builds
+ * must say nothing about builds, and the surest way to make that true is for the
+ * answer to be about one version rather than about the newest one.
+ */
+export function downloadsFor(version: string): readonly ReleaseDownload[] {
+  return RELEASE_DOWNLOADS[version] ?? [];
+}
+
+/**
+ * The message an announcement is, in the shape Discord's API wants it.
+ *
+ * A function of text, in the spec, rather than something the tool assembles on
+ * its way out to the API — and that is not tidiness: the first release this tool
+ * ever announced went out with the notes and the downloads missing, because the
+ * embed was sent under a key Discord does not know (`embed` rather than
+ * `embeds`). Discord does not reject a body it does not recognise: it ignores the
+ * part it cannot read, answers 200, and the run reports success. Nothing about
+ * that is visible to a test of the tool, and all of it is visible to a test of a
+ * shape — so the shape lives here, where the rest of the decisions live.
+ *
+ * Discord's own limits are 4096 characters for a description and 1024 for a
+ * field's value; the notes are already cut at a paragraph boundary by
+ * `announcementFrom` and are cut again here, because a message that Discord
+ * refuses is a release nobody was told about.
+ */
+export function announcementMessage(
+  announcement: Announcement,
+  downloads: readonly ReleaseDownload[],
+  releaseNotesRoleId: string | null,
+): {
+  content: string;
+  embeds: Array<{
+    description: string;
+    color: number;
+    footer: { text: string };
+    url: string;
+    fields?: Array<{ name: string; value: string }>;
+  }>;
+  allowed_mentions: { roles: string[] } | { parse: [] };
+} {
+  const headline = `**Sunday Eleven 27 ${announcement.version}**`;
+  const content = [
+    // A release the changelog gave no name to gets the version and nothing else:
+    // an em dash followed by nothing reads as a mistake.
+    announcement.title === '' ? headline : `${headline} — ${announcement.title}`,
+    ...(releaseNotesRoleId === null ? [] : ['', `<@&${releaseNotesRoleId}>`]),
+  ].join('\n');
+
+  return {
+    content,
+    embeds: [
+      {
+        description: announcement.body.slice(0, 4096),
+        // The game's own green, the same one the roles wear.
+        color: 0x4caf7d,
+        footer: { text: 'Sunday Eleven 27 · release notes' },
+        url: SITE,
+        // Where to get this one, for a release that shipped anything to get. The
+        // file's own name is the link's text, so what a person reads in the
+        // client is the thing they are about to install rather than the word
+        // “download”.
+        ...(downloads.length === 0
+          ? {}
+          : {
+              fields: downloads.map((download) => ({
+                name: download.label,
+                value: `[${download.file}](${download.url})`,
+              })),
+            }),
+      },
+    ],
+    // Only the ping role resolves: a changelog that happens to mention somebody
+    // by name must not turn into a notification for them.
+    allowed_mentions: releaseNotesRoleId === null ? { parse: [] } : { roles: [releaseNotesRoleId] },
+  };
+}

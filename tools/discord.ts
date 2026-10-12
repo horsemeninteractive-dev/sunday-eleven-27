@@ -44,7 +44,9 @@ import { join } from 'node:path';
 import { credentials, ROOT, type Credentials } from './discordEnv';
 import {
   announcementFrom,
+  announcementMessage,
   AUTOMOD,
+  downloadsFor,
   CATEGORY_TYPE,
   CHANNELS,
   CHANNEL_TYPES,
@@ -214,12 +216,15 @@ const USAGE = [
   '   usage: npm run discord:plan                say what would change, change nothing',
   '          npm run discord:apply               ...then do it',
   '          npm run discord:announce [version]  post a release from CHANGELOG.md',
+  '          npm run discord:announce -- --dry-run  say what it would post, and post nothing',
   '',
-  '   flags: --apply  --guild <id>  --icon <file.png>  --invite  --announce [version]',
+  '   flags: --apply  --dry-run  --guild <id>  --icon <file.png>  --invite  --announce [version]',
 ].join('\n');
 
 interface Options {
   apply: boolean;
+  /** Show the announcement and post nothing. Only ever about the announce path. */
+  dryRun: boolean;
   guild: string;
   icon: string | null;
   invite: boolean;
@@ -227,10 +232,11 @@ interface Options {
 }
 
 function parseArgs(argv: readonly string[]): Options {
-  const options: Options = { apply: false, guild: '', icon: null, invite: false, announce: null };
+  const options: Options = { apply: false, dryRun: false, guild: '', icon: null, invite: false, announce: null };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]!;
     if (arg === '--apply') options.apply = true;
+    else if (arg === '--dry-run') options.dryRun = true;
     else if (arg === '--invite') options.invite = true;
     else if (arg === '--guild') options.guild = argv[++i] ?? '';
     else if (arg === '--icon') options.icon = argv[++i] ?? null;
@@ -385,8 +391,15 @@ async function step(what: string, work: () => Promise<string>, failures: string[
  * is an announcement channel so it can be followed into other servers. Only ever
  * a new message: a release announcement that edits itself later is a release
  * announcement nobody was notified about.
+ *
+ * A release that shipped builds carries them as the embed's fields, read out of
+ * the spec for *that version* — the game is played in a browser, so a release
+ * with nothing to download says nothing about downloads rather than offering the
+ * last release's files. `--dry-run` says exactly what would be posted, in the
+ * channel's own order, and posts nothing: an announcement is not editable after
+ * the fact by this tool's own rule, so seeing it first is the only chance.
  */
-async function announce(credentials: Credentials, version: string): Promise<void> {
+async function announce(credentials: Credentials, version: string, dryRun: boolean): Promise<void> {
   const changelog = readFileSync(join(ROOT, 'CHANGELOG.md'), 'utf8');
   const announcement = announcementFrom(changelog, version);
   if (!announcement) {
@@ -412,26 +425,38 @@ async function announce(credentials: Credentials, version: string): Promise<void
   }
 
   heading(`announcing ${version} in #${target.name}`);
-  const headline = `**Sunday Eleven 27 ${version}**`;
-  const content = [
-    // A release the changelog gave no name to gets the version and nothing else:
-    // an em dash followed by nothing reads as a mistake.
-    announcement.title === '' ? headline : `${headline} — ${announcement.title}`,
-    ...(releaseNotes ? ['', `<@&${releaseNotes.id}>`] : []),
-  ].join('\n');
-  const message = await request<ApiMessage>(credentials, 'POST', `/channels/${target.id}/messages`, {
-    content,
-    embed: {
-      description: announcement.body.slice(0, 4096),
-      color: 0x4caf7d,
-      footer: { text: 'Sunday Eleven 27 · release notes' },
-      url: 'https://sundayeleven.pages.dev/',
-    },
-    // Only the ping role resolves: a changelog that happens to mention somebody
-    // by name must not turn into a notification for them.
-    allowed_mentions: releaseNotes ? { roles: [releaseNotes.id] } : { parse: [] },
-  });
-  say('ok', `posted the notes for ${version}`, `${announcement.body.length} characters, from CHANGELOG.md`);
+  const downloads = downloadsFor(version);
+  // The message itself is the spec's, so that what Discord is actually sent — the
+  // notes under the key it reads, the links, the one role that may resolve — is a
+  // shape with a test over it rather than something assembled on the way out.
+  const payload = announcementMessage(announcement, downloads, releaseNotes?.id ?? null);
+  const notes = payload.embeds[0]!.description;
+
+  if (dryRun) {
+    // Everything above has already happened, including finding the channel and
+    // the role, so a dry run checks the parts that can be wrong without leaving
+    // a message behind. What is printed is the message as it would read, because
+    // what is being judged here is how it reads.
+    process.stdout.write(
+      `${[payload.content, '', notes, ...(downloads.length > 0 ? ['', ...downloads.map((d) => `${d.label}  ${d.file}  ${d.url}`)] : [])].join('\n')}\n\n`,
+    );
+    say('info', 'nothing was posted', `--dry-run: ${notes.length} characters from CHANGELOG.md, ${downloads.length} download${downloads.length === 1 ? '' : 's'}`);
+    say(
+      releaseNotes ? 'info' : 'warn',
+      releaseNotes ? `would ping @${releaseNotes.name}` : 'would ping nobody',
+      releaseNotes
+        ? 'the role somebody opts into by asking for it'
+        : 'there is no @Release Notes role in this server: run `npm run discord:apply` first, or announce without a ping',
+    );
+    flush();
+    return;
+  }
+
+  const message = await request<ApiMessage>(credentials, 'POST', `/channels/${target.id}/messages`, payload);
+  say('ok', `posted the notes for ${version}`, `${notes.length} characters, from CHANGELOG.md`);
+  if (downloads.length > 0) {
+    say('ok', `linked ${downloads.length} download${downloads.length === 1 ? '' : 's'}`, downloads.map((d) => d.file).join(', '));
+  }
   say(
     releaseNotes ? 'info' : 'warn',
     releaseNotes ? `pinged @${releaseNotes.name}` : 'nobody was pinged',
@@ -446,6 +471,12 @@ async function announce(credentials: Credentials, version: string): Promise<void
   } else {
     say('warn', 'not crossposted', 'that channel is not an announcement channel, so nobody can follow it');
   }
+  // The report is buffered like every other line this tool prints, and the
+  // announcement is the one path that ends here rather than in `configure` — so
+  // without this the run says “announcing 0.12.0 in #announcements” and then
+  // nothing at all, which is how a message went out with no notes in it and no
+  // line to say so.
+  flush();
 }
 
 /* ------------------------------------------------------------------ *
@@ -851,7 +882,7 @@ async function main(): Promise<void> {
   const credentials_ = credentials();
 
   if (options.announce !== null) {
-    await announce(credentials_, options.announce || currentVersion());
+    await announce(credentials_, options.announce || currentVersion(), options.dryRun);
     return;
   }
 

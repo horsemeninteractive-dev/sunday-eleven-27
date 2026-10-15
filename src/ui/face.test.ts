@@ -232,7 +232,7 @@ describe('a face can be chosen', () => {
     // him from exactly the same three, or the face a manager spends a minute
     // choosing is not the face he gets. He is the only person in the game whose
     // name the player types, which is the whole reason the roll is seeded with it.
-    const draft = generateDraft({ seed: 'face-preview' });
+    const draft = generateDraft({ seed: 'face-preview', pyramids: 2 });
     const clubId = draft.divisionClubIds[0]!;
     const face = randomFaceChoices('a face off the wall', 41);
     const state = startGameFromDraft(draft, {

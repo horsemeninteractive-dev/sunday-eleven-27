@@ -49,7 +49,10 @@ export function FixtureCard({ state, match, actions }: { state: GameState; match
   const side = (club: typeof home, edge: 'home' | 'away') => (
     <div className={`fixture-card__side fixture-card__side--${edge}${club.id === ours ? ' fixture-card__side--ours' : ''}`}>
       <ClubBadge club={club} size={68} />
-      <ClubLink clubId={club.id}>{club.identity.name}</ClubLink>
+      {/* The club and the place it plays in: the board is read on a screen that
+          names other clubs as well — the next fixture, a result — and the town is
+          what tells a manager where the afternoon happens. */}
+      <ClubLink clubId={club.id} town>{club.identity.name}</ClubLink>
     </div>
   );
 

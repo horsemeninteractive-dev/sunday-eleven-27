@@ -91,16 +91,18 @@ describe('club selection is one division at a time', () => {
 });
 
 describe('the two big buttons live in the header', () => {
-  it('puts "Generate world" beside "Back to menu", not at the bottom of the form', () => {
+  it('puts "Choose your district" beside "Back to menu", not at the bottom of the form', () => {
     const view = source('src/ui/views/ProfileView.tsx');
     const header = view.slice(view.indexOf('<PageHeader'), view.indexOf('</PageHeader>'));
-    expect(header).toContain('Generate world');
+    expect(header).toContain('Choose your district');
     expect(header).toContain('Back to menu');
     // And it is gone from where it was.
-    expect(view.split('Generate world').length - 1).toBe(2); // the label and the ternary
+    expect(view.split('Choose your district').length - 1).toBe(1);
+    expect(view).toContain('gameActions().openGeography(trimmed)');
+    expect(view).not.toContain('gameActions().createDraft(trimmed)');
   });
 
-  it('disables "Generate world" until the profile is actually complete', () => {
+  it('disables district selection until the profile is actually complete', () => {
     const view = source('src/ui/views/ProfileView.tsx');
     expect(view).toContain('disabled={!ready}');
     // One source of truth: the same three checks the button and `begin` make.

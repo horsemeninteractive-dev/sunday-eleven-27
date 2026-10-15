@@ -7,6 +7,7 @@ import { gameActions } from '../hooks';
 import { loadCareer } from '../careerActions';
 import { Button } from '../components/primitives';
 import { CareerImportConfirm, ExportCareerButton, ImportCareerButton } from '../components/CareerFile';
+import { DeleteSaveButton } from '../components/DeleteSave';
 import { Dialog } from './Dialog';
 
 const SLOTS = ['slot-1', 'slot-2', 'slot-3'];
@@ -62,6 +63,18 @@ export function SaveManager({ onClose }: { onClose: () => void }) {
     } catch { setFailure('The browser could not save this career. Your current club is still open.'); }
     finally { setBusy(false); }
   };
+  /**
+   * Read the list again, without putting the screen back to reading it.
+   *
+   * The first read happens once, when there is nothing on the screen to
+   * contradict; a career removed from this screen changes one row of a list the
+   * manager is already reading, and a list that vanished and came back would be
+   * a page saying something happened when it had already shown what happened.
+   */
+  const reread = async () => {
+    try { setSaves(await gameActions().listSaves()); }
+    catch { setFailure('The saved careers could not be listed. Close this window and try again.'); }
+  };
   const reading = isReadingSaves(saves, failure);
   return <>
     <Dialog title="Saved careers" subtitle="Local to this browser · whole-world saves" narrow onClose={() => { if (!busy) onClose(); }}>
@@ -71,7 +84,7 @@ export function SaveManager({ onClose }: { onClose: () => void }) {
       {saves && <ul className="save-list">
         {SLOTS.map((slot, index) => { const stored = saves.find((entry) => entry.slot === slot); return <li key={slot} className="save-list__item">
           <div className="save-list__main"><strong>Slot {index + 1} · {stored?.clubName ?? 'Empty'}</strong><p className="small muted">{stored ? `${stored.seasonLabel} · ${formatShortDate(stored.date)}` : 'Ready for a snapshot of this career'}</p></div>
-          <div className="row row--wrap"><Button disabled={busy} onClick={() => stored ? setOverwrite(stored) : void save(slot)}>{stored ? 'Replace' : 'Save here'}</Button><Button variant="ghost" disabled={busy || !stored} onClick={() => { onClose(); void loadCareer(slot); }}>Load</Button></div>
+          <div className="row row--wrap"><Button disabled={busy} onClick={() => stored ? setOverwrite(stored) : void save(slot)}>{stored ? 'Replace' : 'Save here'}</Button><Button variant="ghost" disabled={busy || !stored} onClick={() => { onClose(); void loadCareer(slot); }}>Load</Button>{stored && <DeleteSaveButton slot={slot} label={`${stored.clubName}, ${stored.seasonLabel}`} disabled={busy} onDeleted={() => void reread()} />}</div>
         </li>; })}
         {saves.filter((entry) => entry.auto).map((entry) => <li key={entry.slot} className="save-list__item"><div><strong>Autosave · {entry.clubName}</strong><p className="small muted">{entry.seasonLabel} · {formatShortDate(entry.date)}</p></div><Button variant="ghost" disabled={busy} onClick={() => { onClose(); void loadCareer(entry.slot); }}>Load autosave</Button></li>)}
       </ul>}
@@ -80,7 +93,10 @@ export function SaveManager({ onClose }: { onClose: () => void }) {
         <div className="row row--wrap"><ExportCareerButton /><ImportCareerButton /></div>
         {storageNote && <p className="small muted">{storageNote}</p>}
       </div>
-      <p className="small muted" role={busy ? 'status' : undefined}>{busy ? 'Saving the whole career…' : 'Autosave keeps the current career up to date. Manual slots stay as you left them.'}</p>
+      {/* The autosave has no Delete beside it, and the line says why: it is the
+          career being played, kept level with itself while the manager plays it,
+          so removing it is done from the menu, where nothing is writing it. */}
+      <p className="small muted" role={busy ? 'status' : undefined}>{busy ? 'Saving the whole career…' : 'Autosave keeps the current career up to date and belongs to it: remove it from the main menu. Manual slots stay as you left them, and a career you delete is gone from this browser for good.'}</p>
     </Dialog>
     {overwrite && <Dialog title="Replace this saved career?" kind="confirm" narrow onClose={() => { if (!busy) setOverwrite(null); }} footer={<><Button variant="ghost" disabled={busy} onClick={() => setOverwrite(null)}>Keep existing save</Button><Button variant="danger" disabled={busy} onClick={() => void save(overwrite.slot)}>Replace save</Button></>}><p><strong>{overwrite.clubName}</strong>, {overwrite.seasonLabel}, {formatShortDate(overwrite.date)} will be replaced with your current career. This cannot be undone.</p></Dialog>}
     <CareerImportConfirm />

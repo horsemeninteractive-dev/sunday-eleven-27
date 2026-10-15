@@ -139,7 +139,7 @@ export const NAV_SECTIONS: NavSection[] = [
     leaves: [
       { id: 'fixtures', label: 'Schedule', short: 'Matches', icon: 'fixtures', hint: 'The season, week by week' },
       { id: 'league', label: 'League Table', short: 'League', icon: 'league', hint: 'The table and results elsewhere' },
-      { id: 'cup', label: 'Cups', short: 'Cups', icon: 'league', hint: 'The League Cup and the Plate' },
+      { id: 'cup', label: 'Cups', short: 'Cups', icon: 'league', hint: 'Every cup in the county, and each ladder’s own' },
     ],
   },
   {
@@ -187,6 +187,7 @@ export function navSectionFor(view: ViewId): NavSection | undefined {
 export const VIEW_LABEL: Record<ViewId, string> = {
   start: 'Sunday Eleven 27',
   profile: 'Your profile',
+  'select-geography': 'Find your district',
   'select-club': 'Choose your club',
   'create-club': 'Create your club',
   dashboard: 'Home',
@@ -212,7 +213,7 @@ export const VIEW_LABEL: Record<ViewId, string> = {
 };
 
 /** Screens reached from a flow rather than the navigation. */
-const OFF_NAV: ViewId[] = ['start', 'profile', 'select-club', 'create-club', 'match', 'replay'];
+const OFF_NAV: ViewId[] = ['start', 'profile', 'select-geography', 'select-club', 'create-club', 'match', 'replay'];
 
 export function isNavigable(view: ViewId): boolean {
   return !OFF_NAV.includes(view);

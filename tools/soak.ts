@@ -16,6 +16,8 @@
  *   npm run soak
  *   npm run soak -- --seasons=20
  *   npm run soak -- --seasons=15 --seed=soak-scratch --club=3
+ *   npm run soak -- --districts=2          # a smaller county, as the old soaks ran
+ *   npm run soak -- --budget=260000        # a state-size budget, in KB
  *   npm run soak -- --json=soak-reports/run.json
  *   npm run soak -- --quiet
  *
@@ -26,6 +28,7 @@
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { ALDERFORDSHIRE_DISTRICTS } from '@/domain/districts';
 import {
   CALENDAR_INVARIANTS,
   formatTrend,
@@ -34,6 +37,7 @@ import {
   summariseViolations,
   type SoakOptions,
   type SoakResult,
+  type SoakSnapshot,
 } from '@/simulation/soak';
 
 // --- Arguments -------------------------------------------------------------
@@ -44,7 +48,17 @@ interface Options extends SoakOptions {
 }
 
 function parseArgs(argv: readonly string[]): Options {
-  const options: Options = { seed: 'soak', seasons: 10, clubIndex: 0, quiet: false, json: null };
+  const options: Options = {
+    seed: 'soak',
+    seasons: 10,
+    clubIndex: 0,
+    // The whole county, because that is what a career founded today is founded
+    // in and what the state budget is set against. `--districts=2` is the smaller
+    // world the soaks recorded in SOAK.md were measured on.
+    districts: ALDERFORDSHIRE_DISTRICTS.length,
+    quiet: false,
+    json: null,
+  };
   for (const arg of argv) {
     const [name, value] = arg.replace(/^--/, '').split('=');
     switch (name) {
@@ -57,6 +71,16 @@ function parseArgs(argv: readonly string[]): Options {
       case 'club':
         options.clubIndex = Math.max(0, Number(value ?? 0) || 0);
         break;
+      case 'districts':
+        options.districts = Math.max(1, Number(value ?? ALDERFORDSHIRE_DISTRICTS.length) || 1);
+        break;
+      // The state-size budget, in KB — the unit the benchmark reports sizes in.
+      // Left out, the band is used; given, it is the number this run is held to.
+      case 'budget': {
+        const kb = Number(value);
+        if (Number.isFinite(kb) && kb > 0) options.stateBudgetBytes = Math.round(kb * 1024);
+        break;
+      }
       case 'json':
         options.json = value || 'soak-reports/soak.json';
         break;
@@ -105,6 +129,43 @@ function reportDrift(result: SoakResult): void {
   );
 }
 
+/**
+ * The save against its budget: the one number the run exists to guard.
+ *
+ * The fresh reading is printed beside it because the two together are the whole
+ * story of where the state is — the world a career opens in against the state a
+ * season of football leaves in it — and because the largest season of the run is
+ * the number the budget is about, not the last one.
+ */
+function reportStateSize(result: SoakResult): void {
+  const kb = (bytes: number): string => `${Math.round(bytes / 1024).toLocaleString('en-US')} KB`;
+  const largest = result.snapshots.reduce<SoakSnapshot | null>(
+    (peak, snapshot) => (!peak || snapshot.stateBytes > peak.stateBytes ? snapshot : peak),
+    null,
+  );
+  const budget = result.stateBudgetBytes;
+  const headroom = budget - (largest?.stateBytes ?? 0);
+  const rows: Array<[string, string]> = [
+    ['fresh (no season)', `${kb(result.stateBytesFresh)} (${result.stateBytesFresh.toLocaleString('en-US')} bytes)`],
+    [
+      'end of season',
+      largest
+        ? `${kb(largest.stateBytes)} — largest of ${result.seasons}, at the close of ${largest.label}`
+        : 'not measured — no season played',
+    ],
+    ['budget (band)', `${kb(budget)} (${budget.toLocaleString('en-US')} bytes)`],
+    [
+      'headroom',
+      largest
+        ? `${kb(headroom)} (${((headroom / budget) * 100).toFixed(1)}% of the budget)`
+        : '—',
+    ],
+    ['world', `${result.districts} districts · ${largest?.clubs ?? 0} clubs`],
+  ];
+  const lines = rows.map(([label, value]) => `   ${padEnd(label, 20)} ${value}`);
+  process.stdout.write(`${heading('state size')}\n${lines.join('\n')}\n`);
+}
+
 function reportSummary(result: SoakResult): void {
   const counts = summariseViolations(result.violations);
   const fails = result.violations.filter((item) => item.severity === 'fail').length;
@@ -135,7 +196,7 @@ function main(): void {
     [
       '',
       'Sunday Eleven 27 — multi-season soak',
-      `   seed "${options.seed}" · ${options.seasons} season(s) · taking over club ${options.clubIndex}`,
+      `   seed "${options.seed}" · ${options.seasons} season(s) · ${options.districts} district(s) · taking over club ${options.clubIndex}`,
       '   no signings, no team talks, no transfers: the world only moves itself',
     ].join('\n') + '\n',
   );
@@ -144,6 +205,8 @@ function main(): void {
     seed: options.seed,
     seasons: options.seasons,
     clubIndex: options.clubIndex,
+    districts: options.districts,
+    stateBudgetBytes: options.stateBudgetBytes,
     onSeason: (snapshot) => {
       process.stdout.write(
         `   … season ${snapshot.season}/${options.seasons}: ${snapshot.label}, finished ${
@@ -159,6 +222,7 @@ function main(): void {
   }
 
   process.stdout.write(`${heading('violations')}\n${formatViolations(result.violations)}\n`);
+  reportStateSize(result);
   reportSummary(result);
 
   const fails = result.violations.filter((item) => item.severity === 'fail').length;

@@ -18,6 +18,8 @@ import {
   type Preferences,
 } from './preferences';
 import { rememberProfile } from './managerProfiles';
+import { resolveGeographySelection, type GeographySelection } from '@/geography/selection';
+import { countyGeography } from '@/geography/alderland';
 import { currentScore } from '@/simulation/match/matchEngine';
 import { simulateMatchFull } from '@/simulation/fastMatch';
 import {
@@ -161,6 +163,7 @@ function careerContextFor(state: GameState): CareerContext {
  */
 
 export type ViewId =
+  | 'select-geography'
   | 'start'
   | 'profile'
   | 'select-club'
@@ -256,6 +259,8 @@ export type SetupMode = 'career' | 'create-club';
 export interface SetupState {
   mode: SetupMode;
   profile: ManagerProfile;
+  seed?: string;
+  geography?: GeographySelection;
 }
 
 /**
@@ -457,6 +462,18 @@ export interface GameStore {
    * who picks his own face, and this is the screen where he does it again.
    */
   setManagerFace: (face: FaceChoices | null) => void;
+  openGeography: (seed: string) => void;
+  /**
+   * Build the world for the seed behind a district the manager has opened.
+   *
+   * Opening a district on the atlas is the moment the map has something to show
+   * beyond its own outlines: the towns he is choosing between. They are a fact
+   * about the seed, so the world is built here — once, and reused by
+   * `confirmGeography`, so the district he read on the map and the world he then
+   * joins are the same one. Answers whether a world is now in hand.
+   */
+  previewDistrict: (countyId: string, districtId: string) => boolean;
+  confirmGeography: (countyId: string, districtId: string) => boolean;
   createDraft: (seed: string) => void;
   chooseClub: (clubId: ClubId) => void;
   createCustomClub: (design: ClubDesign) => void;
@@ -471,6 +488,16 @@ export interface GameStore {
   saveGame: (slot: string) => Promise<boolean>;
   loadGame: (slot: string) => Promise<void>;
   listSaves: () => Promise<persistence.SaveSlotInfo[]>;
+  /**
+   * Remove a saved career from this browser.
+   *
+   * Resolves true only when the slot is actually empty afterwards, because a
+   * browser that would not remove it has said something the screen offering the
+   * button has to pass on. The career being played is untouched either way: one
+   * of these slots can be the manager's own safety net, and a deletion is about
+   * what is on disk rather than about the season in front of him.
+   */
+  deleteSave: (slot: string) => Promise<boolean>;
   /**
    * Take over a career read from a file the manager chose.
    *
@@ -1323,6 +1350,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   beginSetup: (mode) => {
     set({
+      draft: null,
       setup: { mode, profile: defaultManagerProfile() },
       view: 'profile',
       error: null,
@@ -1334,7 +1362,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   setManagerProfile: (profile) => {
     const setup = get().setup;
-    set({ setup: { mode: setup?.mode ?? 'career', profile }, error: null });
+    set({ setup: { ...setup, mode: setup?.mode ?? 'career', profile }, error: null });
   },
 
   setManagerFace: (face) => {
@@ -1358,6 +1386,50 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({ game: state });
   },
 
+  openGeography: (seed) => {
+    const setup = get().setup;
+    if (!setup || get().game) return;
+    set({ setup: { ...setup, seed, geography: undefined }, draft: null, view: 'select-geography', error: null });
+  },
+
+  previewDistrict: (countyId, districtId) => {
+    const setup = get().setup;
+    if (!setup?.seed || get().view !== 'select-geography' || get().game) return false;
+    const county = countyGeography(countyId);
+    if (county?.availability !== 'available' || !county.districts.some(d => d.id === districtId && d.availability === 'available')) return false;
+    // One world per seed: opening the second district is instant, and a manager
+    // who goes back to the county and returns finds the same towns he left.
+    if (get().draft?.seed === setup.seed) return true;
+    try {
+      set({ draft: generateDraft({ seed: setup.seed, startYear: CAREER_START_YEAR }), error: null });
+      return true;
+    } catch (error) {
+      set({ draft: null, error: error instanceof Error ? error.message : 'The world could not be generated. Please try again.' });
+      return false;
+    }
+  },
+
+  confirmGeography: (countyId, districtId) => {
+    const setup = get().setup;
+    if (!setup?.seed || get().view !== 'select-geography' || get().game) return false;
+    // Validate availability before doing any expensive world generation.
+    const county = countyGeography(countyId);
+    if (county?.availability !== 'available' || !county.districts.some(d => d.id === districtId && d.availability === 'available')) return false;
+    try {
+      // The district's own world, built when he opened it on the map: the map he
+      // read and the club list he is about to are the same world, and the
+      // generation has already been paid for.
+      const draft = get().draft?.seed === setup.seed ? get().draft! : generateDraft({ seed: setup.seed, startYear: CAREER_START_YEAR });
+      const geography = resolveGeographySelection(draft, countyId, districtId);
+      if (!geography) { set({ error: 'This district could not be matched to its existing football pyramid.' }); return false; }
+      set({ draft, setup: { ...setup, geography }, view: setup.mode === 'create-club' ? 'create-club' : 'select-club', error: null });
+      return true;
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : 'The world could not be generated. Please try again.' });
+      return false;
+    }
+  },
+
   createDraft: (seed) => {
     const draft = generateDraft({ seed, startYear: CAREER_START_YEAR });
     const mode = get().setup?.mode ?? 'career';
@@ -1369,6 +1441,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
   chooseClub: (clubId) => {
     const draft = get().draft;
     if (!draft) return;
+    const selection = get().setup?.geography;
+    if (selection && (!resolveGeographySelection(draft, selection.countyId, selection.districtId) || !draft.pyramids.find(p => p.id === selection.pyramidId)?.divisions.flat().includes(clubId))) return;
     const profile = get().setup?.profile;
     const state = startGameFromDraft(draft, {
       ...{ seed: draft.seed, startYear: draft.startYear },
@@ -1395,6 +1469,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
   createCustomClub: (design) => {
     const draft = get().draft;
     if (!draft) return;
+    const selection = get().setup?.geography;
+    if (selection) {
+      const resolved = resolveGeographySelection(draft, selection.countyId, selection.districtId);
+      if (!resolved || resolved.pyramidId !== design.pyramidId) return;
+      const regionId = draft.pyramids.find(p => p.id === resolved.pyramidId)?.regionId;
+      if (draft.world.towns[design.townId]?.regionId !== regionId || draft.world.towns[design.townId]?.countyId !== resolved.countyId) return;
+    }
     const clubId = applyCustomClub(draft, design);
     const profile = get().setup?.profile;
     const state = startGameFromDraft(draft, {
@@ -1420,7 +1501,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   // Backing out of club selection returns to the setup step, not the menu: the
   // manager has already said who he is and does not want to say it again.
-  abandonDraft: () => set({ draft: null, view: get().setup ? 'profile' : 'start' }),
+  abandonDraft: () => {
+    const setup = get().setup;
+    set({ draft: null, setup: setup ? { ...setup, geography: undefined } : null, view: setup?.seed ? 'select-geography' : setup ? 'profile' : 'start', error: null });
+  },
 
   saveGame: async (slot) => {
     const game = get().game;
@@ -1518,6 +1602,24 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   listSaves: () => persistence.listSaveSlots(),
+
+  deleteSave: async (slot) => {
+    // The autosave is written by a debounced timer, and a timer that has not
+    // fired yet is holding a whole career on its way back into the slot being
+    // cleared. Taking it off the clock first is what makes the deletion stick:
+    // otherwise the manager clears the autosave and it is back a moment later,
+    // which is not a deletion but a flicker. Nothing is lost by it — a career
+    // still being played schedules its next autosave the next time the world
+    // changes, and a career that is not being played has nothing on the clock.
+    if (slot === persistence.AUTOSAVE_SLOT) discardPendingAutosave();
+    const result = await persistence.deleteSave(slot);
+    if (!result.ok) {
+      set({ error: result.error ?? 'This browser would not remove that saved career.' });
+      return false;
+    }
+    set({ error: null });
+    return true;
+  },
 
   quitToMenu: async () => {
     // Quitting forgets where to resume, so the menu stays reachable — but the

@@ -4,7 +4,7 @@ import type { ClubId, ISODate, MatchId } from '@/domain/ids';
 import type { Match } from '@/domain/match';
 import { addDays, kickOffTimeFor, PRE_SEASON_WEEKS } from './calendar';
 import { createMatchRecord } from './matchday';
-import { registerFixture } from './pyramid';
+import { divisionOf, divisionsOf, pyramidIdOf, registerFixture } from './pyramid';
 import { stream } from './rng';
 
 /**
@@ -123,9 +123,26 @@ function registerMatch(state: GameState, match: Match): void {
  * Local sides with nothing else on: the seed decides, so the same career always
  * gets the same opponents, and no club plays the same friendly twice.
  */
+/**
+ * Who a club plays in July: its own ladder's clubs, the neighbours among them
+ * first.
+ *
+ * The village team up the road is who a Sunday club actually plays in pre-season,
+ * and a manager's summer is a fact about the ladder he plays in. A county with a
+ * district next door is asked to draw from the ladder the club is in, so the
+ * county's own pre-season is the pre-season it has always had — in a one-ladder
+ * county the ladder is every club in the world, which is the list this used to
+ * draw from — and a district's clubs play theirs rather than the county's.
+ *
+ * A friendly across ladders, like a cup across ladders, is Stage 3's question.
+ */
 function opponentFor(state: GameState, clubId: ClubId, index: number): ClubId {
   const club = state.clubs[clubId]!;
-  const others = Object.values(state.clubs)
+  const division = divisionOf(state, clubId);
+  const ladder = division ? divisionsOf(state, pyramidIdOf(state, division) ?? undefined) : [];
+  const ladderClubs = new Set(ladder.flatMap((entry) => entry.clubIds));
+  const poolSource = ladderClubs.size > 0 ? Object.values(state.clubs).filter((entry) => ladderClubs.has(entry.id)) : Object.values(state.clubs);
+  const others = poolSource
     .filter((candidate) => candidate.id !== clubId)
     .map((candidate) => ({
       id: candidate.id,

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { Competition } from '@/domain/competition';
+import { FOUNDING_PYRAMID_ID, type Competition } from '@/domain/competition';
 import type { GameState } from '@/domain/game';
-import { leagueCompetitions, type MovementRecord } from './pyramid';
+import { divisionsOf, leagueCompetitions, type MovementRecord } from './pyramid';
 import { applySeasonStanding, STANDING } from './standing';
 import { createTestGame } from './testSupport';
 
@@ -212,7 +212,10 @@ describe('the ladder is worth more than a finish', () => {
   function promotedMatch(seed: string, company: number, promoted: number) {
     const { state } = createTestGame(seed);
     readExactlyRight(state, 70, 5);
-    const [top, second] = leagueCompetitions(state) as [Competition, Competition];
+    // The county's own ladder, not the first two divisions in the world: the
+    // district next door has a Division One of its own, and the ladder these
+    // tests walk is the one the manager plays in.
+    const [top, second] = divisionsOf(state, FOUNDING_PYRAMID_ID) as [Competition, Competition];
     divisionStandingAt(state, top, company);
     const promotedId = ladderClub(state, second, promoted, 20);
     return applySeasonStanding(state, [movementFor(state, second, promotedId, 'promoted')]);
@@ -257,7 +260,7 @@ describe('the ladder is worth more than a finish', () => {
   it('lowers a relegated club by the ladder’s own weight', () => {
     const { state } = createTestGame('standing-relegated');
     readExactlyRight(state, 70, 5);
-    const [, second] = leagueCompetitions(state) as [Competition, Competition];
+    const [, second] = divisionsOf(state, FOUNDING_PYRAMID_ID) as [Competition, Competition];
     const relegatedId = ladderClub(state, second, 20, 40);
 
     const changes = applySeasonStanding(state, [movementFor(state, second, relegatedId, 'relegated')]);
@@ -276,7 +279,7 @@ describe('the ladder is worth more than a finish', () => {
   it('leaves a club where it stands when its promotion is refused', () => {
     const { state } = createTestGame('standing-promotion-refused');
     readExactlyRight(state, 70, 5);
-    const [, second] = leagueCompetitions(state) as [Competition, Competition];
+    const [, second] = divisionsOf(state, FOUNDING_PYRAMID_ID) as [Competition, Competition];
     const promotedId = ladderClub(state, second, 40, 20);
 
     const changes = applySeasonStanding(state, [
@@ -293,7 +296,7 @@ describe('standing stays inside the county’s own scale', () => {
   it('clamps a promotion at the ceiling and a relegation at the floor', () => {
     const ceiling = createTestGame('standing-ceiling');
     readExactlyRight(ceiling.state, 70, 5);
-    const [top, second] = leagueCompetitions(ceiling.state) as [Competition, Competition];
+    const [top, second] = divisionsOf(ceiling.state, FOUNDING_PYRAMID_ID) as [Competition, Competition];
     divisionStandingAt(ceiling.state, top, 60);
     // A club the county already puts a point off the top of its scale, promoted:
     // the bonus and the lift would carry it past the scale, and the scale is
@@ -307,7 +310,7 @@ describe('standing stays inside the county’s own scale', () => {
 
     const floor = createTestGame('standing-floor');
     readExactlyRight(floor.state, 70, 5);
-    const [, doomed] = leagueCompetitions(floor.state) as [Competition, Competition];
+    const [, doomed] = divisionsOf(floor.state, FOUNDING_PYRAMID_ID) as [Competition, Competition];
     const doomedId = ladderClub(floor.state, doomed, STANDING.floor + 1, 40);
     const fell = applySeasonStanding(floor.state, [
       movementFor(floor.state, doomed, doomedId, 'relegated'),

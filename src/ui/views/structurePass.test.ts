@@ -206,7 +206,7 @@ describe('the year a career starts', () => {
     // A career set in 2030, founded the year it is played: the newest year the
     // club may have been founded in used to be whatever the machine's clock
     // said, which made the same seed build a different club on another day.
-    const draft = generateDraft({ seed: 'founded-year', startYear: 2030 });
+    const draft = generateDraft({ seed: 'founded-year', startYear: 2030, pyramids: 2 });
     const clubId = applyCustomClub(draft, {
       name: 'The Latecomers',
       shortName: 'Late',
@@ -273,8 +273,17 @@ describe('one definition per fact', () => {
   });
 
   it('only calls a panel a tab panel when there are tabs to move between', () => {
-    expect(source('src/ui/views/LeagueView.tsx')).toContain("role={tabbed ? 'tabpanel' : undefined}");
     expect(source('src/ui/views/ClubSelectView.tsx'))
       .toContain("role={divisions.length > 1 ? 'tabpanel' : undefined}");
+    // The league table and the cups pick their competition from one selector
+    // rather than a tabstrip, so neither of them has tabs and neither claims a
+    // panel one would own — a panel named by a tab that is not on the screen is
+    // a reference to nothing. The rule is the same one, read the other way round.
+    for (const path of ['src/ui/views/LeagueView.tsx', 'src/ui/views/CupView.tsx']) {
+      const view = source(path);
+      expect(view).toContain('<select className="input"');
+      expect(view).not.toContain('role="tablist"');
+      expect(view).not.toContain('role="tabpanel"');
+    }
   });
 });

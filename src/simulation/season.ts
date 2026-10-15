@@ -5,17 +5,23 @@ import type { GameEvent } from '@/domain/news';
 
 import { isPlayer, createSystemFamiliarity, type Official, type Player } from '@/domain/person';
 import { yearOf } from './calendar';
-import { applyAnnualCosts, addLedgerEntry } from './finance';
+import { applyAnnualCosts, addLedgerEntry, pruneSubsHistory } from './finance';
 import { addDays, preSeasonStart, seasonLabelFor } from './calendar';
 import { prepareMatchday } from './matchday';
 import { arrangePreSeason } from './preseason';
-import { applyMovements, buildSeasonStructure, openSeasonRecords } from './seasonStructure';
+import {
+  applyMovements,
+  buildSeasonStructure,
+  countyCupRequests,
+  openSeasonRecords,
+  type SeasonPyramidInput,
+} from './seasonStructure';
 import {
   divisionsOf,
-  foundingPyramidId,
   leagueClubIds,
   pyramidsOf,
   recordMovementsOnClubs,
+  regionNameFor,
   resolvePromotionAndRelegation,
   standingsFor,
   tierPrizeMoney,
@@ -59,6 +65,8 @@ import { reviewClubFinances } from './clubLifecycle';
 import { defaultTactics } from '@/domain/tactics';
 import type { Competition } from '@/domain/competition';
 import { stream, type Rng } from './rng';
+import { activateWorldExpansion } from './worldExpansion';
+import { rememberSeason } from './seasonHistory';
 
 /**
  * The ends of things.
@@ -203,6 +211,12 @@ export function finishSeason(state: GameState): SeasonFinishResult {
     };
   });
   state.standingHistory = finals;
+  // And the season itself, written down before the world is rebuilt: every
+  // division's final table and every cup's field, rounds and winner, kept so
+  // that the football can still be read once the competitions that carried it
+  // have been replaced. Written here rather than at the roll-over because this
+  // is the moment at which the whole season is true at once.
+  rememberSeason(state);
   return { events, championClubId: champions[0] ?? null, playerPosition };
 }
 
@@ -451,25 +465,65 @@ export function startNextSeason(state: GameState): GameEvent[] {
   const seasonId = `season_${nextYear}_${String((nextYear + 1) % 100).padStart(2, '0')}`;
   const seasonLabel = seasonLabelFor(firstSunday);
 
-  // The ladder as it stands after last season's movements, which were decided
+  // The districts the county is owed, for a career that is missing any: founded
+  // here, at the boundary, and before a single competition or fixture of the new
+  // season exists. This is the only moment it can happen — a ladder spliced into
+  // a season whose fixtures are half played would have to invent results — and it
+  // is deliberately the *first* thing the roll-over does, so that everything
+  // below builds one world rather than a world and then an appendage. Nothing the
+  // county already holds moves, and the list is empty for a career that has every
+  // district the county has: see `worldExpansion.ts`.
+  const expansion = activateWorldExpansion(state, {
+    seasonId,
+    seasonLabel,
+    seasonStart,
+    currentYear: nextYear,
+  });
+  for (const district of expansion) events.push(district.event);
+  const foundedDivisions = new Map(expansion.map((district) => [district.pyramidId, district.divisions]));
+
+  // Every ladder as it stands after last season's movements, which were decided
   // and archived by `finishSeason` but not applied to the competitions — the
   // competitions are about to be rebuilt. Each boundary is settled against its
   // own pyramid: a ladder's places are its own shape, and the founding pyramid
   // is the one this world was born with.
-  const divisions = pyramidsOf(state).flatMap((pyramid) => {
-    const ladder = divisionsOf(state, pyramid.id).map((competition) => [...competition.clubIds]);
-    applyMovements(state, pyramid.id, ladder, {
-      promotionPlaces: pyramid.config.promotionPlaces,
-      relegationPlaces: pyramid.config.relegationPlaces,
-    });
-    return ladder;
+  //
+  // The ladders stay apart rather than being flattened into one list: a flat six
+  // divisions cannot say which three are whose, and the season build would cut
+  // them into a single six-tier ladder. Each carries its own region's name, so a
+  // second ladder's divisions are named after the region it draws its clubs from.
+  const pyramidInputs: SeasonPyramidInput[] = pyramidsOf(state).map((pyramid) => {
+    // A ladder founded this afternoon has never played a season, so it starts on
+    // the divisions it was drawn with and nobody moves across its boundaries: its
+    // first season is its foundation, and the ladders that have a table to settle
+    // are the ones that were already here.
+    const founded = foundedDivisions.get(pyramid.id) ?? null;
+    const ladder = founded
+      ? founded.map((clubIds) => [...clubIds])
+      : divisionsOf(state, pyramid.id).map((competition) => [...competition.clubIds]);
+    if (!founded) {
+      applyMovements(state, pyramid.id, ladder, {
+        promotionPlaces: pyramid.config.promotionPlaces,
+        relegationPlaces: pyramid.config.relegationPlaces,
+      });
+    }
+    return { pyramidId: pyramid.id, regionName: regionNameFor(state, pyramid.id), divisions: ladder };
   });
+  // The same ladders as one list, for the readers that take divisions rather
+  // than pyramids. Each pyramid's divisions stay together and in tier order.
+  const divisions = pyramidInputs.flatMap((input) => input.divisions);
 
   resetPlayerIdCounter();
 
   // Ageing, retirement and squad top-ups — for every club in the county, not
   // just the top division. A ladder whose lower divisions never age is a ladder
   // of eighteen-year-olds by the third season.
+  //
+  // `leagueClubIds` reads the competitions the world has, and at this point
+  // those are still last season's: a district founded a moment ago has none yet,
+  // so its clubs take no part in the summer that is closing. They were minted
+  // this afternoon with a squad, a committee, a ground and a kitty, and the
+  // summer that belongs to them is the one they are about to play.
   for (const clubId of leagueClubIds(state)) {
     const club = state.clubs[clubId];
     if (!club) continue;
@@ -684,9 +738,12 @@ export function startNextSeason(state: GameState): GameEvent[] {
     seasonId,
     seasonLabel,
     firstLeagueDate: firstSunday,
-    divisions,
-    pyramidId: foundingPyramidId(state),
-    regionName: state.world.regionName,
+    pyramids: pyramidInputs,
+    // Each county's own cup, redrawn from scratch every summer like the ladder's
+    // own: its entrants are re-read from that county's active clubs, its rounds
+    // are re-dated with everything else, and its progression starts again at
+    // round one. A county with one ladder still has no county cup.
+    cups: countyCupRequests(state),
     announceDraws: false,
   });
   const calendar = structure.calendar;
@@ -716,6 +773,13 @@ export function startNextSeason(state: GameState): GameEvent[] {
     });
   }
   pruneTrainingHistory(state);
+  // The season's subs book closes with the season. Every settled matchday charge
+  // and every payment from a season that has finished is folded away, while
+  // every debt in the book is kept — because what was growing the state by
+  // 13,000–17,000 KB a season was exactly this, and none of it was football. See
+  // `pruneSubsHistory`; the save loader applies the same rule, so a running
+  // career and a reloaded one keep the same book.
+  pruneSubsHistory(state, seasonStart);
 
   openSeasonRecords(state, seasonId, seasonLabel);
 

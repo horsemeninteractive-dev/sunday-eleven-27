@@ -1,7 +1,7 @@
 import { GAME_STATE_VERSION, type GameState } from '@/domain/game';
 import type { Player, PlayerDevelopment } from '@/domain/person';
 import { birthdayForAge, type ManagerProfile } from '@/domain/manager';
-import { DEFAULT_STARTER_SUB, DEFAULT_SUBSTITUTE_SUB, ensurePlayerSubs } from '@/simulation/finance';
+import { DEFAULT_STARTER_SUB, DEFAULT_SUBSTITUTE_SUB, ensurePlayerSubs, pruneSubsHistory } from '@/simulation/finance';
 import { ensureClubStaff, generateClubStaff } from '@/simulation/staff';
 import { refreshSubSummary } from '@/domain/person';
 import { emptyAdminState } from '@/domain/admin';
@@ -23,8 +23,16 @@ import {
   type Pyramid,
   type PyramidConfig,
 } from '@/domain/competition';
-import type { ClubId, CompetitionId } from '@/domain/ids';
-import { FOUNDING_REGION_ID, type Ground, type Region } from '@/domain/world';
+import type { ClubId, CompetitionId, CountyId, RegionId } from '@/domain/ids';
+import {
+  FOUNDING_COUNTY_ID,
+  FOUNDING_COUNTY_NAME,
+  FOUNDING_REGION_ID,
+  NATION_NAME,
+  type County,
+  type Ground,
+  type Region,
+} from '@/domain/world';
 import { defaultTactics } from '@/domain/tactics';
 import {
   generateInitialRelationships,
@@ -51,6 +59,8 @@ import { buildSeasonCalendarWithCups, yearOf } from '@/simulation/calendar';
 import { matchdayCount } from '@/simulation/generation/fixtureGenerator';
 import { cupRoundOf, drawCupRound, cupRoundSlots, mainCupPlan, newCupState, platePlan, seedOrder } from '@/simulation/cup';
 import {
+  COUNTY_CUP_NAME,
+  cupNameFor,
   divisionCompetitionId,
   divisionNameFor,
   leagueClubIds,
@@ -59,8 +69,10 @@ import {
   LEAGUE_CUP_NAME,
   PLATE_ID,
   PLATE_NAME,
+  regionNameFor,
 } from '@/simulation/pyramid';
 import { stream } from '@/simulation/rng';
+import { markWorldExpansion } from '@/simulation/worldExpansion';
 import { emptyScheduleState } from '@/domain/events';
 import * as idb from './indexedDb';
 
@@ -78,6 +90,15 @@ const LEGACY_RESUME_KEY = 'slfm26.resume';
 
 /** The competition id a version 7 save used for its one league. */
 const OLD_LEAGUE_ID: CompetitionId = 'comp_league_1';
+
+/**
+ * What the county's cup was called before the county had a name.
+ *
+ * Written down here rather than imported, because it is not the game's name for
+ * anything any more: it is the word a save written before version 26 has in it,
+ * and the migration reads it and replaces it (see `nameTheCounty`).
+ */
+const LEGACY_COUNTY_CUP_NAME = 'County Cup';
 
 /**
  * Local save slots.
@@ -566,19 +587,221 @@ function migrateSave(file: SaveFile): SaveFile {
 
   rebuildRelationshipIndex(state);
   pruneCandidates(state);
+  // A career already in progress folds its subs books the same way at every
+  // season boundary, so this is the loader agreeing with the boundary rather
+  // than a second rule: a save written while the book was unbounded, or a save
+  // taken mid-season by a career that has not reached its next boundary yet,
+  // wakes up with the closing seasons' settled charges folded away and every
+  // debt it is owed intact. It is idempotent, so a career that has already been
+  // through a boundary loses nothing by passing through it again.
+  pruneSubsHistory(state, state.season.startDate);
   // The ladder first, then the model the ladder is described with: a save that
   // had to be given a pyramid has just had its divisions built, and those are
   // what the founding pyramid's record is made of.
   const ladderConfig = migrateToPyramid(state);
   if (from < 23) migrateToRegionsAndPyramids(state, ladderConfig);
+  // The county and its cup are named from here on. The old words are brought
+  // forward with the save, because they are the same county and the same trophy.
+  if (from < 26) nameTheCounty(state);
+  // A ladder's cups are named after the district they belong to. The founding
+  // ladder's two were the exception, and a save written when they were is brought
+  // forward with them — the same trophies, under the name they now wear. Read
+  // after the regions exist, because the name comes from the district's.
+  nameTheLadderCups(state);
+  // The county becomes an entity of its own, holding the regions, towns and
+  // ladders the save already has: the name it was just given gets an id, and
+  // everything the world holds is placed in it. Read after the naming so the
+  // county is created with the name the save ends up carrying.
+  if (from < 27) migrateToCounties(state);
+  // The districts the county has and this career does not: the district next
+  // door, for a career written before it existed, and the four beside it that
+  // were mapped before they were playable. The world is not touched here, only
+  // marked, because a ladder cannot be spliced into a season whose fixtures are
+  // half played — they are founded at the next season boundary instead, and
+  // which districts are missing is read off the regions the save holds rather
+  // than off the mark, so a career cannot be given one twice. Read after the
+  // counties, because a district is a region of a county the save has to have
+  // first. See `simulation/worldExpansion.ts`.
+  if (from < 28) markWorldExpansion(state);
   // Round identity came after the pyramid, so this runs on the competitions the
   // world now has: a save that had to be given a pyramid has just had its cup
   // drawn, and those ties already carry their round.
   if (from < 22) backfillCupRounds(state);
+  // The season archive. A save written before it existed has none, and is given
+  // an empty one rather than an invented one: the seasons it played are not kept
+  // anywhere the game could honestly read them back from — a club's history
+  // holds that club's own line, but not the tables, the brackets or the entrants
+  // of a season that is over — and a fabricated archive is worse than an honest
+  // blank. Every season played from here on is written down as it closes.
+  if (!Array.isArray(state.seasonHistory)) state.seasonHistory = [];
   dropRivalriesOfDeadClubs(state);
   file.version = GAME_STATE_VERSION;
   state.version = GAME_STATE_VERSION;
   return file;
+}
+
+/**
+ * Give the world a county of its own.
+ *
+ * A save written before counties existed holds one county's worth of world — its
+ * regions, its towns, its clubs and its ladders — and nothing that says so. The
+ * county is the name the save already carries, given an id of its own, and
+ * everything the world holds is placed in it: its regions, every town in the
+ * region it is already in, and every ladder, which is in one because the region
+ * it draws its clubs from is. No region, town, club, competition, fixture, date
+ * or honour moves: the football is the football it was, with the parent it always
+ * had written down.
+ *
+ * Idempotent, and deliberately repair-shaped: a world that already has its
+ * counties keeps them and is only given the ownership it is missing, so loading
+ * the same save twice is the same as loading it once.
+ */
+function migrateToCounties(state: GameState): void {
+  const regions = state.world.regions ?? {};
+  const regionIds = (state.world.regionIds ?? []).filter((id) => Boolean(regions[id]));
+
+  if (!state.world.counties || Object.keys(state.world.counties).length === 0) {
+    const countyId = FOUNDING_COUNTY_ID;
+    const county: County = {
+      id: countyId,
+      name: state.world.countyName || FOUNDING_COUNTY_NAME,
+      regionIds: [...regionIds],
+    };
+    state.world.counties = { [countyId]: county };
+  }
+  if (!state.world.countyIds?.length) state.world.countyIds = Object.keys(state.world.counties);
+
+  // A region's county is the county that names it in its own list, and a town's
+  // is the county of the region it is already in. Both fall back to the founding
+  // county, which is the only county a save of this age can have.
+  for (const regionId of regionIds) {
+    const region = regions[regionId]!;
+    if (!region.countyId) region.countyId = countyOwningRegion(state, regionId);
+  }
+  for (const town of Object.values(state.world.towns ?? {})) {
+    if (town.countyId) continue;
+    town.countyId = regions[town.regionId]?.countyId ?? FOUNDING_COUNTY_ID;
+  }
+}
+
+/**
+ * The county whose region list names a region, or the founding county.
+ *
+ * Read from the county records rather than from the region, because
+ * `migrateToCounties` is the migration that is *writing* the region's county: the
+ * answer has to come from the county that claims it.
+ */
+function countyOwningRegion(state: GameState, regionId: RegionId): CountyId {
+  for (const county of Object.values(state.world.counties ?? {})) {
+    if (county.regionIds?.includes(regionId)) return county.id;
+  }
+  return FOUNDING_COUNTY_ID;
+}
+
+/**
+ * Name the county, and the cup that is its own.
+ *
+ * A save written before version 26 carries a county named by its seed —
+ * 'Marsworthshire', 'Aldershire' — and a cup called, flatly, 'County Cup'. The
+ * county is the setting a career is played in rather than a fact about the seed
+ * (see `FOUNDING_COUNTY_NAME`), so it is brought forward, and everything written
+ * in the old words with it: the cup on the save, which is the same competition
+ * under a new name, the honours a club won in it (a cabinet reading 'County Cup
+ * winners' next to 'Alderfordshire County Cup winners' is one trophy wearing two
+ * names), and the copy of the name the season archive keeps.
+ *
+ * The county's *places* are left exactly as they are. The valley a ladder is
+ * named after, the towns, the clubs, the people — all of that was drawn from the
+ * seed and is the world the manager has been playing in; naming the county does
+ * not lay the county out again.
+ */
+/**
+ * The words a founding-ladder honour was written in, before the ladder's cups
+ * were named after its district.
+ *
+ * An honour is `${season} ${name} winners`, and the season is what makes this
+ * safe to read: a district's cup honour ends in the same four words
+ * ('2026/27 Westbrook Valley Sunday League Cup winners'), so the season label is
+ * anchored — and it is also what makes the rewrite idempotent, because a cup
+ * already named after its district no longer wears the bare name directly after
+ * the season.
+ */
+const LEGACY_LADDER_CUP_HONOUR = /^(\d{4}\/\d{2}) (Sunday League (?:Cup|Plate)) winners$/;
+
+/**
+ * Name the founding ladder's cups after the district they belong to.
+ *
+ * A ladder's cups are named after the district it draws its clubs from — see
+ * `cupNameFor` — and the founding ladder's two are named that way now like any
+ * other. A save written while they still carried the bare 'Sunday League Cup'
+ * and 'Sunday League Plate' is brought forward with its own trophies: the two
+ * competitions are renamed, and every honour and archived season written in the
+ * old words with them, because a cabinet reading 'Sunday League Cup winners'
+ * beside 'Alderford Sunday League Cup winners' is one trophy wearing two names.
+ *
+ * The name it is brought forward *to* is read off the save's own region, not the
+ * map's: a career founded before the districts were named keeps playing its own
+ * valley, and its cup is named after that rather than renamed into another
+ * county's place. The four places a name is written — the competition, the
+ * archive, the honours — are all covered, and nothing else moves.
+ *
+ * Idempotent: the old name is its own gate, so a cup already named after its
+ * district is left alone, and a second load is the first load again.
+ */
+function nameTheLadderCups(state: GameState): void {
+  const regionName = regionNameFor(state, FOUNDING_PYRAMID_ID);
+  const renamed = new Map<string, string>([
+    [LEAGUE_CUP_NAME, cupNameFor(regionName, 'cup')],
+    [PLATE_NAME, cupNameFor(regionName, 'plate')],
+  ]);
+
+  for (const competition of Object.values(state.competitions)) {
+    const now = renamed.get(competition.name);
+    if (now) competition.name = now;
+  }
+  for (const season of state.seasonHistory ?? []) {
+    for (const cup of season.cups) {
+      const now = renamed.get(cup.name);
+      if (now) cup.name = now;
+    }
+  }
+  for (const club of Object.values(state.clubs)) {
+    club.history.honours = club.history.honours.map((honour) => {
+      const written = LEGACY_LADDER_CUP_HONOUR.exec(honour);
+      const now = written ? renamed.get(written[2]!) : undefined;
+      return now ? `${written![1]} ${now} winners` : honour;
+    });
+  }
+}
+
+function nameTheCounty(state: GameState): void {
+  state.world.countyName = FOUNDING_COUNTY_NAME;
+  state.world.nationName ??= NATION_NAME;
+
+  for (const competition of Object.values(state.competitions)) {
+    if (competition.name === LEGACY_COUNTY_CUP_NAME) competition.name = COUNTY_CUP_NAME;
+  }
+  for (const season of state.seasonHistory ?? []) {
+    for (const cup of season.cups) {
+      if (cup.name === LEGACY_COUNTY_CUP_NAME) cup.name = COUNTY_CUP_NAME;
+    }
+  }
+
+  // An honour is a string, `${season} ${competition.name} winners`, so the old
+  // name is a suffix of it and the season is not in the way. Only the cup is
+  // rewritten: the divisions' honours have not been renamed.
+  const was = `${LEGACY_COUNTY_CUP_NAME} winners`;
+  const is = `${COUNTY_CUP_NAME} winners`;
+  for (const club of Object.values(state.clubs)) {
+    club.history.honours = club.history.honours.map((honour) =>
+      // The new name *ends* in the old one — 'Alderfordshire County Cup winners'
+      // ends in 'County Cup winners' — so the test is the old suffix without the
+      // new one, and an honour already in the game's own words is left alone.
+      honour.endsWith(was) && !honour.endsWith(is)
+        ? `${honour.slice(0, -was.length)}${COUNTY_CUP_NAME} winners`
+        : honour,
+    );
+  }
 }
 
 /**
@@ -736,7 +959,7 @@ function migrateToPyramid(state: GameState): PyramidConfig {
   if (config.leagueCup && slots.length > 0) {
     competitions[LEAGUE_CUP_ID] = {
       id: LEAGUE_CUP_ID,
-      name: LEAGUE_CUP_NAME,
+      name: cupNameFor(state.world.regionName, 'cup'),
       kind: 'cup',
       tier: 0,
       seasonId: state.season.id,
@@ -747,7 +970,7 @@ function migrateToPyramid(state: GameState): PyramidConfig {
     if (config.consolationCup) {
       competitions[PLATE_ID] = {
         id: PLATE_ID,
-        name: PLATE_NAME,
+        name: cupNameFor(state.world.regionName, 'plate'),
         kind: 'cup',
         tier: 0,
         seasonId: state.season.id,
@@ -862,7 +1085,15 @@ function migrateToRegions(state: GameState): void {
 
   const towns = Object.values(state.world.towns);
   const regionId = FOUNDING_REGION_ID;
-  const region: Region = { id: regionId, name: state.world.regionName, centre: regionCentreFor(towns) };
+  const region: Region = {
+    id: regionId,
+    name: state.world.regionName,
+    centre: regionCentreFor(towns),
+    // One region means one county: the founding one. The migration that gives a
+    // save its county reads this, and asks nothing of its own for a region that
+    // already knows.
+    countyId: FOUNDING_COUNTY_ID,
+  };
   state.world.regions = { [regionId]: region };
   state.world.regionIds = [regionId];
   for (const town of towns) town.regionId = regionId;
@@ -1386,15 +1617,40 @@ export async function listSaveSlots(): Promise<SaveSlotInfo[]> {
   }
 }
 
-export async function deleteSave(slot: string): Promise<void> {
+/**
+ * What came of removing a saved career.
+ *
+ * A delete that did not happen is not the same thing as one that did, and the
+ * screen offering the button has to be able to say which. A manager told his
+ * career was gone when the browser had refused is a manager who stops looking
+ * for it, which is the one outcome this whole module exists to prevent.
+ */
+export interface DeleteResult {
+  ok: boolean;
+  error: string | null;
+}
+
+/**
+ * Remove a saved career from this browser.
+ *
+ * It goes through the same per-slot queue as a write, and that is what makes the
+ * order the manager asked for the order that happens: a delete asked for while a
+ * save into that slot is still in the air lands *after* it, so the slot ends up
+ * empty rather than being refilled by a write that was already on its way. The
+ * autosave is debounced above this, in the store, because a timer that has not
+ * fired yet is not something this module can see.
+ */
+export async function deleteSave(slot: string): Promise<DeleteResult> {
   try {
     await enqueueWrite(slot, () => idb.deleteKey(idb.SAVES, slot));
     // A mark pointing at a save that has just been deleted would, on the next
     // load, resolve to nothing and be cleared — but clearing it here means the
     // manager is not relying on that to get back to the menu.
     if ((await resumeSlot()) === slot) await setResumeSlot(null);
+    return { ok: true, error: null };
   } catch (error) {
     console.warn(`Deleting save "${slot}" failed.`, error);
+    return { ok: false, error: 'This browser would not remove that saved career.' };
   }
 }
 

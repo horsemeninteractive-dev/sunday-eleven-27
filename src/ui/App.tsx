@@ -20,6 +20,7 @@ import { isAvailableOutOfWork } from './navigation';
 import {
   BetweenJobsView,
   ClubSelectView,
+  GeographySelectView,
   ClubView,
   CreateClubView,
   CupView,
@@ -113,6 +114,7 @@ export function App() {
       // Before a career exists every screen is part of setting one up, and which
       // one is showing is simply where the manager got to in that flow.
       if (view === 'profile') return <ProfileView />;
+      if (view === 'select-geography') return <GeographySelectView />;
       if (view === 'create-club' && draft) return <CreateClubView />;
       if (draft && view === 'select-club') return <ClubSelectView />;
       return <StartView />;

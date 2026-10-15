@@ -1,4 +1,5 @@
-import { DEFAULT_PYRAMID, FOUNDING_PYRAMID_ID, type Pyramid } from '@/domain/competition';
+import { DEFAULT_PYRAMID, FOUNDING_PYRAMID_ID, type Pyramid, type PyramidConfig } from '@/domain/competition';
+import type { DistrictDefinition } from '@/domain/districts';
 import { FOUNDING_REGION_ID } from '@/domain/world';
 import type { GameState, StandingSnapshot } from '@/domain/game';
 import { GAME_STATE_VERSION } from '@/domain/game';
@@ -12,7 +13,7 @@ import { seedInitialSponsorship } from './sponsorship';
 import { emptyCommunicationStore } from '@/domain/communication';
 import { emptyRecruitmentStore } from '@/domain/recruitment';
 import { emptyTrainingStore } from '@/domain/training';
-import type { ClubId, GroundId, ISODate, PersonId, TownId } from '@/domain/ids';
+import type { ClubId, GroundId, ISODate, PersonId, PyramidId, RegionId, TownId } from '@/domain/ids';
 import type { Club, ClubStructure, LedgerCategory } from '@/domain/club';
 import { compactBadge, type BadgeChoice } from '@/domain/badge';
 import type { GroundSurface } from '@/domain/world';
@@ -25,7 +26,7 @@ import { weekStartOf } from './timeline';
 import { emptyScheduleState } from '@/domain/events';
 import { prepareMatchday } from './matchday';
 import { arrangePreSeason } from './preseason';
-import { buildSeasonStructure, openSeasonRecords } from './seasonStructure';
+import { buildSeasonStructure, countyCupRequests, openSeasonRecords } from './seasonStructure';
 import { divisionOf, leagueCompetitions, standingsFor, userCompetition } from './pyramid';
 import { generateReferees, generateWorld, reputationFromQuality } from './generation/worldGenerator';
 import { generateSquad } from './generation/playerGenerator';
@@ -60,16 +61,54 @@ export interface WorldDraft {
   /** The clubs of the top division, strongest first. */
   divisionClubIds: ClubId[];
   leagueName: string;
+  /**
+   * Every ladder the world was founded with, the founding pyramid first.
+   *
+   * A draft carries the ladders rather than a flat list of divisions, because a
+   * flat list cannot say which divisions are whose — and the second district's
+   * clubs are not a fourth, fifth and sixth tier of the county's ladder, they are
+   * a ladder of their own that happens to sit next to it.
+   */
+  pyramids: DraftPyramid[];
   seed: string;
   startYear: number;
   /** The Monday pre-season begins: the day every career starts. */
   seasonStart: ISODate;
 }
 
+/**
+ * One ladder as a draft carries it: the world's description of a pyramid, before
+ * a career exists to hold it as a record.
+ */
+export interface DraftPyramid {
+  id: PyramidId;
+  name: string;
+  regionId: RegionId;
+  level: number;
+  config: PyramidConfig;
+  /** Its divisions, tier 1 first, strongest first within a division. */
+  divisions: ClubId[][];
+}
+
 export interface NewGameOptions {
   seed: string;
   startYear?: number;
   createdAt?: ISODate;
+  /**
+   * The districts the county is founded with, in the map's own order.
+   *
+   * Left out, it is the county itself: every district Alderfordshire has — six,
+   * which is what a new career starts with. See `generateWorld`.
+   */
+  districts?: readonly DistrictDefinition[];
+  /**
+   * How many of the county's districts to found, in the map's order. The
+   * compatibility count the worlds already written ask by: `1` is the
+   * one-ladder county every career founded before the district next door has,
+   * and `2` is the two-ladder world every career since reads. Superseded by
+   * `districts` when both are given.
+   */
+  pyramids?: number;
 }
 
 export function firstSundayOfSeptember(year: number): ISODate {
@@ -129,7 +168,13 @@ export function generateDraft(options: NewGameOptions): WorldDraft {
   // playing anywhere — is dated from the day the career begins, which is the
   // start of pre-season rather than the first Sunday of the league.
   const seasonStart = careerSeasonStart(startYear);
-  const generated = generateWorld({ seed: options.seed, seasonStart, currentYear: startYear });
+  const generated = generateWorld({
+    seed: options.seed,
+    seasonStart,
+    currentYear: startYear,
+    districts: options.districts,
+    pyramids: options.pyramids,
+  });
 
   const referees = generateReferees(new Rng(`${options.seed}::referees`), Object.values(generated.world.towns));
   const people: Record<PersonId, Person> = { ...generated.people };
@@ -171,6 +216,28 @@ export function generateDraft(options: NewGameOptions): WorldDraft {
     divisions: generated.divisions,
     divisionClubIds: generated.divisionClubIds,
     leagueName: generated.leagueName,
+    // Every ladder, founding pyramid first: the county's, and then each district
+    // founded beside it in the map's own order. A world founded with a single
+    // ladder says so by having a single entry here rather than by being a special
+    // case anywhere downstream, and a world founded with six says nothing at all.
+    pyramids: [
+      {
+        id: FOUNDING_PYRAMID_ID,
+        name: `${generated.world.regionName} Sunday League`,
+        regionId: generated.world.regionIds[0] ?? FOUNDING_REGION_ID,
+        level: 1,
+        config: { ...DEFAULT_PYRAMID },
+        divisions: generated.divisions,
+      },
+      ...generated.districts.map((district): DraftPyramid => ({
+        id: district.id,
+        name: district.name,
+        regionId: district.region.id,
+        level: district.level,
+        config: district.config,
+        divisions: district.divisions,
+      })),
+    ],
     seed: options.seed,
     startYear,
     seasonStart,
@@ -482,6 +549,14 @@ export interface ClubDesign {
   secondary: string;
   structure: ClubStructure;
   townId: TownId;
+  /**
+   * The ladder the club is registered in, by id.
+   *
+   * Left out, it is the county's own — which is what every design written before
+   * there was a second ladder meant, and where a club built at the foot of the
+   * founding pyramid still goes.
+   */
+  pyramidId?: PyramidId;
   groundName: string;
   capacity: number;
   surface: GroundSurface;
@@ -499,16 +574,59 @@ export interface ClubDesign {
 }
 
 /**
+ * The ladders a draft carries, the founding ladder first.
+ *
+ * A draft written before ladders existed carries divisions and no ladders at
+ * all, and is read as the founding county's, which is what it was. Every reader
+ * of a draft's ladders asks this rather than `draft.pyramids` directly, so the
+ * world has one answer to "which ladders am I made of" rather than a fallback
+ * repeated wherever a ladder happens to be wanted.
+ */
+export function draftLadders(draft: WorldDraft): DraftPyramid[] {
+  if (draft.pyramids?.length) return draft.pyramids;
+  const divisions = draft.divisions.length > 0 ? draft.divisions : [draft.divisionClubIds];
+  return [
+    {
+      id: FOUNDING_PYRAMID_ID,
+      name: `${draft.world.regionName} Sunday League`,
+      regionId: draft.world.regionIds?.[0] ?? FOUNDING_REGION_ID,
+      level: 1,
+      config: { ...DEFAULT_PYRAMID },
+      divisions,
+    },
+  ];
+}
+
+/** One of a draft's ladders by id, or the first it has when the id is not one. */
+export function draftLadder(draft: WorldDraft, pyramidId: PyramidId = FOUNDING_PYRAMID_ID): DraftPyramid {
+  const ladders = draftLadders(draft);
+  return ladders.find((ladder) => ladder.id === pyramidId) ?? ladders[0]!;
+}
+
+/**
+ * The clubs of a ladder's bottom division.
+ *
+ * Where a club the manager builds himself is registered: he joins at the foot of
+ * the ladder he chose, whichever ladder that is, so the designer, the projection
+ * on the screen and the career itself all read the same division.
+ */
+export function bottomDivisionClubIds(draft: WorldDraft, pyramidId: PyramidId = FOUNDING_PYRAMID_ID): ClubId[] {
+  const divisions = draftLadder(draft, pyramidId).divisions;
+  return divisions[divisions.length - 1] ?? draft.divisionClubIds;
+}
+
+/**
  * The club a new side displaces: the weakest in the bottom division.
  *
- * A club the manager builds himself starts at the bottom of the pyramid, so it
- * takes the place of the weakest club in the lowest division rather than the
- * weakest in the county. Ties are settled by id so the same seed always rebuilds
- * the same world — and so the club designer can name the side being replaced
- * before the manager has committed to replacing it.
+ * A club the manager builds himself starts at the bottom of the ladder — the
+ * county's own, unless he chose to build it in the district next door — so it
+ * takes the place of the weakest club in *that* ladder's lowest division rather
+ * than the weakest in the county. Ties are settled by id so the same seed always
+ * rebuilds the same world — and so the club designer can name the side being
+ * replaced before the manager has committed to replacing it.
  */
-export function displacedClubId(draft: WorldDraft): ClubId {
-  const bottomDivision = draft.divisions[draft.divisions.length - 1] ?? draft.divisionClubIds;
+export function displacedClubId(draft: WorldDraft, pyramidId: PyramidId = FOUNDING_PYRAMID_ID): ClubId {
+  const bottomDivision = bottomDivisionClubIds(draft, pyramidId);
   return [...bottomDivision].sort((a, b) => {
     const diff = (draft.clubs[a]?.reputation ?? 0) - (draft.clubs[b]?.reputation ?? 0);
     return diff !== 0 ? diff : a.localeCompare(b);
@@ -603,9 +721,15 @@ function buildCustomSquad(
  */
 export function squadForCustomClub(
   draft: WorldDraft,
-  design: Pick<ClubDesign, 'squadStandard' | 'squadSize' | 'townId'>,
+  design: Pick<ClubDesign, 'squadStandard' | 'squadSize' | 'townId' | 'pyramidId'>,
 ): Player[] {
-  return buildCustomSquad(draft, displacedClubId(draft), design.squadStandard, design.squadSize, design.townId);
+  return buildCustomSquad(
+    draft,
+    displacedClubId(draft, design.pyramidId),
+    design.squadStandard,
+    design.squadSize,
+    design.townId,
+  );
 }
 
 /**
@@ -618,7 +742,9 @@ export function squadForCustomClub(
  * his own players rather than inheriting somebody else's.
  */
 export function applyCustomClub(draft: WorldDraft, design: ClubDesign): ClubId {
-  const baseId = displacedClubId(draft);
+  // The ladder he chose to build the club in: the county's own unless he said
+  // otherwise, which is where a club built in a world with one ladder goes.
+  const baseId = displacedClubId(draft, design.pyramidId);
   const club = draft.clubs[baseId]!;
 
   const groundId: GroundId = `ground_custom_${baseId}`;
@@ -730,6 +856,11 @@ export function startGameFromDraft(draft: WorldDraft, options: StartGameOptions)
   });
   userClub.tactics = defaultTactics('4-4-2');
 
+  // The ladders this career is born with, founding pyramid first. A draft
+  // written before ladders existed carries divisions and no ladders at all, and
+  // is read as the founding county's, which is what it was.
+  const ladders = draftLadders(draft);
+
   const state: GameState = {
     version: GAME_STATE_VERSION,
     saveId: `save_${draft.seed}_${options.clubId}`,
@@ -781,23 +912,27 @@ export function startGameFromDraft(draft: WorldDraft, options: StartGameOptions)
     training: emptyTrainingStore(),
     communication: emptyCommunicationStore(),
     competitions: {},
-    // One pyramid, and it is the founding one: its id is `league`, which is
-    // already the prefix of every competition id this world will write, so the
-    // ladder is the same ladder it has always been. Its divisions and cups are
-    // filled in below, where the season is built — this function is what creates
-    // them, so a list written here would be a guess.
-    pyramids: {
-      [FOUNDING_PYRAMID_ID]: {
-        id: FOUNDING_PYRAMID_ID,
-        name: `${draft.world.regionName} Sunday League`,
-        regionId: draft.world.regionIds[0] ?? FOUNDING_REGION_ID,
-        level: 1,
-        config: { ...DEFAULT_PYRAMID },
-        competitionIds: [],
-        cupIds: [],
-      } satisfies Pyramid,
-    },
-    pyramidIds: [FOUNDING_PYRAMID_ID],
+    // Every ladder the world was founded with, the founding one first: its id is
+    // `league`, which is already the prefix of every competition id this world
+    // has ever written, and a district next door carries its own id in the same
+    // way. Their divisions and cups are filled in below, where the season is
+    // built — this function is what creates them, so a list written here would
+    // be a guess.
+    pyramids: Object.fromEntries(
+      ladders.map((ladder) => [
+        ladder.id,
+        {
+          id: ladder.id,
+          name: ladder.name,
+          regionId: ladder.regionId,
+          level: ladder.level,
+          config: ladder.config,
+          competitionIds: [],
+          cupIds: [],
+        } satisfies Pyramid,
+      ]),
+    ),
+    pyramidIds: ladders.map((ladder) => ladder.id),
     fixtures: {},
     matches: {},
     userClubId: options.clubId,
@@ -806,23 +941,34 @@ export function startGameFromDraft(draft: WorldDraft, options: StartGameOptions)
     news: [],
     standingHistory: [],
     promotionHistory: [],
+    seasonHistory: [],
     settings: { complexity: 'standard', autoAdvanceMatches: false },
     lastMatchId: null,
     pendingMatchId: null,
     counters: {},
   };
 
-  // The ladder: every division, ranked by reputation and cut into divisions of
-  // the configured size, then a whole-pyramid cup drawn on top of it.
-  const divisions = draft.divisions.length > 0 ? draft.divisions : [draft.divisionClubIds];
+  // Every ladder, ranked by reputation and cut into divisions of the configured
+  // size, then a whole-pyramid cup drawn on top of each one that runs one. The
+  // ladders are passed as ladders rather than as one flat list of divisions, so
+  // that nothing about the world build is special-cased for one pyramid — and
+  // each carries the name of the region it draws its clubs from, so a district's
+  // divisions are named after the district.
   const structure = buildSeasonStructure({
     state,
     seasonId,
     seasonLabel,
     firstLeagueDate,
-    divisions,
-    pyramidId: FOUNDING_PYRAMID_ID,
-    regionName: draft.world.regionName,
+    pyramids: ladders.map((ladder) => ({
+      pyramidId: ladder.id,
+      regionName: draft.world.regions?.[ladder.regionId]?.name ?? draft.world.regionName,
+      divisions: ladder.divisions,
+    })),
+    // Each county's own cup, where that county has more than one ladder to run it
+    // between. A one-ladder county has no county cup because its ladder's cup is
+    // the county's cup — see `countyCupRequests` — which is what keeps a career
+    // founded with a single ladder the career it has always been.
+    cups: countyCupRequests(state),
     announceDraws: false,
   });
   const calendar = structure.calendar;

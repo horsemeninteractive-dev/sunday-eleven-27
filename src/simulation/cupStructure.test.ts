@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ClubId, CompetitionId, MatchId } from '@/domain/ids';
+import type { ClubId, MatchId } from '@/domain/ids';
 import { addDays, dayOfWeek } from './calendar';
 import type { Match } from '@/domain/match';
 import {
@@ -16,7 +16,7 @@ import {
   PLATE_PRELIMINARY_FROM_FIRST_ROUND,
 } from './cup';
 import { checkCalendarIntegrity, seasonSnapshot, type SoakViolation } from './soak';
-import { LEAGUE_CUP_ID, PLATE_ID, registerFixture } from './pyramid';
+import { cupCompetitions, LEAGUE_CUP_ID, PLATE_ID, registerFixture } from './pyramid';
 import { createTestGame } from './testSupport';
 import { processDay } from './day';
 import { leagueMatchdayCount } from './timeline';
@@ -207,10 +207,13 @@ function settleTiesOn(state: ReturnType<typeof createTestGame>['state'], date: s
  * advance the rounds. Returns nothing: the caller interrogates the world.
  */
 function playTheCups(state: ReturnType<typeof createTestGame>['state']): void {
-  const cupIds: CompetitionId[] = [LEAGUE_CUP_ID, PLATE_ID];
-  const cupsDecided = () => cupIds.every((id) => state.competitions[id]?.cup?.complete);
+  // Every cup in the world, not only the founding ladder's. A new career is two
+  // ladders and a county cup drawn across them both, and its season is played out
+  // when all five have a winner — the county cup's final being the last date on
+  // the calendar.
+  const cupsDecided = () => cupCompetitions(state).every((cup) => cup.cup?.complete);
 
-  for (let day = 0; day < 400 && !cupsDecided(); day += 1) {
+  for (let day = 0; day < 460 && !cupsDecided(); day += 1) {
     const today = state.date;
     // Settle the day's ties directly rather than through the match engine.
     settleTiesOn(state, today);
@@ -254,6 +257,26 @@ describe('a season of cups actually played', () => {
     expect(main.cup?.winnerClubId).toBeTruthy();
     expect(plate.cup?.complete).toBe(true);
     expect(plate.cup?.winnerClubId).toBeTruthy();
+  });
+
+  it('crowns a winner in every cup in the world, and writes it into their honours', () => {
+    // Two ladders' League Cups, two Plates, and the county cup drawn across them
+    // both: five competitions, five winners, and a line in the winner's history
+    // for each — the county cup included, which no ladder owns.
+    const cups = cupCompetitions(state);
+    expect(cups).toHaveLength(5);
+    for (const cup of cups) {
+      expect(cup.cup?.complete, cup.id).toBe(true);
+      const winner = cup.cup!.winnerClubId!;
+      expect(state.clubs[winner], cup.id).toBeTruthy();
+      expect(state.clubs[winner]!.history.honours, cup.id).toContain(
+        `${state.season.label} ${cup.name} winners`,
+      );
+      // Nobody is crowned who was not in the competition.
+      expect(cup.clubIds).toContain(winner);
+    }
+    // Five competitions is not one club's season five times over.
+    expect(new Set(cups.map((cup) => cup.cup!.winnerClubId)).size).toBeGreaterThan(1);
   });
 
   it('plays 35 ties in the main cup and 19 in the Plate', () => {

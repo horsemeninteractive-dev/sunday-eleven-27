@@ -2,6 +2,7 @@ import { createContext, useContext, type ReactNode } from 'react';
 import type { Club } from '@/domain/club';
 import { gameActions, useGame } from '../hooks';
 import { ClubBadge } from './Badge';
+import { clubTown } from '@/simulation/queries';
 import type { ProfileTarget } from '@/state/gameStore';
 
 /**
@@ -43,6 +44,7 @@ export function ClubLink({
   clubId,
   children,
   reverse = false,
+  town = false,
 }: {
   clubId: string;
   children?: ReactNode;
@@ -54,20 +56,37 @@ export function ClubLink({
    * point away from it.
    */
   reverse?: boolean;
+  /**
+   * The place the club is registered in, under its name.
+   *
+   * Where a club is read — a league table, a fixture row, a result — it is read
+   * as a name and nothing else, and the town is what a manager learned about it
+   * before the career began: the district he picked, and the places drawn on its
+   * map. Asking for it here rather than in each screen is what keeps the place a
+   * club plays in the same place in every list that names it. Left off by
+   * default, because a name in the middle of a sentence ('v Draywick Social
+   * Club') is a name, and a club cell that grew a second line wherever it was
+   * used would rewrite sentences it has no business in.
+   */
+  town?: boolean;
 }) {
   const game = useGame();
   const openProfile = useOpenProfile();
   const club = game?.clubs[clubId];
   if (!club) return <span>{children ?? 'Unknown club'}</span>;
+  const place = town && game ? clubTown(game, clubId) : undefined;
   return (
     <button
       type="button"
       className={`link clubcell${reverse ? ' clubcell--reverse' : ''}`}
-      title={`${club.identity.name} — ${club.identity.nickname}`}
+      title={`${club.identity.name} — ${club.identity.nickname}${place ? `, ${place.name}` : ''}`}
       onClick={() => openProfile({ kind: 'club', id: clubId })}
     >
       <Crest club={club} />
-      <span>{children ?? club.identity.name}</span>
+      <span className="clubcell__name">
+        {children ?? club.identity.name}
+        {place && <span className="clubcell__town">{place.name}</span>}
+      </span>
     </button>
   );
 }

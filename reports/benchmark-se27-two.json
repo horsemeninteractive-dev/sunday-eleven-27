@@ -1,0 +1,433 @@
+{
+  "seed": "bench",
+  "districts": 2,
+  "matchday": 1,
+  "world": {
+    "settlements": {
+      "total": 38,
+      "kinds": {
+        "town": 11,
+        "small-town": 3,
+        "village": 21,
+        "hamlet": 3
+      },
+      "withClub": 34,
+      "withoutClub": 4,
+      "withoutClubNames": [
+        "Bramby",
+        "Bramend",
+        "Helmoss",
+        "Kaykiln"
+      ]
+    },
+    "clubs": {
+      "total": 72,
+      "active": 72
+    },
+    "pyramids": [
+      {
+        "id": "league",
+        "name": "Alderford Sunday League",
+        "level": 1,
+        "regionId": "region_1",
+        "divisions": [
+          {
+            "id": "comp_league_t1",
+            "name": "Alderford Sunday League Division One",
+            "tier": 1,
+            "clubs": 12
+          },
+          {
+            "id": "comp_league_t2",
+            "name": "Alderford Sunday League Division Two",
+            "tier": 2,
+            "clubs": 12
+          },
+          {
+            "id": "comp_league_t3",
+            "name": "Alderford Sunday League Division Three",
+            "tier": 3,
+            "clubs": 12
+          }
+        ]
+      },
+      {
+        "id": "cale",
+        "name": "Westbrook Valley Sunday League",
+        "level": 2,
+        "regionId": "region_2",
+        "divisions": [
+          {
+            "id": "comp_cale_t1",
+            "name": "Westbrook Valley Sunday League Division One",
+            "tier": 1,
+            "clubs": 12
+          },
+          {
+            "id": "comp_cale_t2",
+            "name": "Westbrook Valley Sunday League Division Two",
+            "tier": 2,
+            "clubs": 12
+          },
+          {
+            "id": "comp_cale_t3",
+            "name": "Westbrook Valley Sunday League Division Three",
+            "tier": 3,
+            "clubs": 12
+          }
+        ]
+      }
+    ],
+    "fixtures": {
+      "total": 807,
+      "league": 792,
+      "cup": 12,
+      "friendly": 3
+    },
+    "calendar": {
+      "entries": 52,
+      "leagueMatchdays": 22,
+      "cupRounds": 30,
+      "firstDate": "2026-09-06",
+      "lastDate": "2027-07-18",
+      "spanDays": 315,
+      "seasonStart": "2026-07-20",
+      "seasonEnd": "2027-07-18"
+    },
+    "cups": [
+      {
+        "id": "comp_league_cup",
+        "name": "Alderford Sunday League Cup",
+        "entrants": 36,
+        "round": 1,
+        "complete": false,
+        "plannedRounds": 6,
+        "rounds": [
+          {
+            "round": 1,
+            "field": 36,
+            "entrants": 8
+          },
+          {
+            "round": 2,
+            "field": 32,
+            "entrants": 32
+          },
+          {
+            "round": 3,
+            "field": 16,
+            "entrants": 16
+          },
+          {
+            "round": 4,
+            "field": 8,
+            "entrants": 8
+          },
+          {
+            "round": 5,
+            "field": 4,
+            "entrants": 4
+          },
+          {
+            "round": 6,
+            "field": 2,
+            "entrants": 2
+          }
+        ]
+      },
+      {
+        "id": "comp_plate",
+        "name": "Alderford Sunday League Plate",
+        "entrants": 0,
+        "round": 1,
+        "complete": false,
+        "plannedRounds": 5,
+        "rounds": [
+          {
+            "round": 1,
+            "field": 20,
+            "entrants": 8
+          },
+          {
+            "round": 2,
+            "field": 16,
+            "entrants": 16
+          },
+          {
+            "round": 3,
+            "field": 8,
+            "entrants": 8
+          },
+          {
+            "round": 4,
+            "field": 4,
+            "entrants": 4
+          },
+          {
+            "round": 5,
+            "field": 2,
+            "entrants": 2
+          }
+        ]
+      },
+      {
+        "id": "comp_county_cup",
+        "name": "Alderfordshire County Cup",
+        "entrants": 72,
+        "round": 1,
+        "complete": false,
+        "plannedRounds": 8,
+        "rounds": [
+          {
+            "round": 1,
+            "field": 72,
+            "entrants": 8
+          },
+          {
+            "round": 2,
+            "field": 68,
+            "entrants": 68
+          },
+          {
+            "round": 3,
+            "field": 34,
+            "entrants": 34
+          },
+          {
+            "round": 4,
+            "field": 17,
+            "entrants": 17
+          },
+          {
+            "round": 5,
+            "field": 9,
+            "entrants": 9
+          },
+          {
+            "round": 6,
+            "field": 5,
+            "entrants": 5
+          },
+          {
+            "round": 7,
+            "field": 3,
+            "entrants": 3
+          },
+          {
+            "round": 8,
+            "field": 2,
+            "entrants": 2
+          }
+        ]
+      },
+      {
+        "id": "comp_cale_cup",
+        "name": "Westbrook Valley Sunday League Cup",
+        "entrants": 36,
+        "round": 1,
+        "complete": false,
+        "plannedRounds": 6,
+        "rounds": [
+          {
+            "round": 1,
+            "field": 36,
+            "entrants": 8
+          },
+          {
+            "round": 2,
+            "field": 32,
+            "entrants": 32
+          },
+          {
+            "round": 3,
+            "field": 16,
+            "entrants": 16
+          },
+          {
+            "round": 4,
+            "field": 8,
+            "entrants": 8
+          },
+          {
+            "round": 5,
+            "field": 4,
+            "entrants": 4
+          },
+          {
+            "round": 6,
+            "field": 2,
+            "entrants": 2
+          }
+        ]
+      },
+      {
+        "id": "comp_cale_plate",
+        "name": "Westbrook Valley Sunday League Plate",
+        "entrants": 0,
+        "round": 1,
+        "complete": false,
+        "plannedRounds": 5,
+        "rounds": [
+          {
+            "round": 1,
+            "field": 20,
+            "entrants": 8
+          },
+          {
+            "round": 2,
+            "field": 16,
+            "entrants": 16
+          },
+          {
+            "round": 3,
+            "field": 8,
+            "entrants": 8
+          },
+          {
+            "round": 4,
+            "field": 4,
+            "entrants": 4
+          },
+          {
+            "round": 5,
+            "field": 2,
+            "entrants": 2
+          }
+        ]
+      }
+    ],
+    "people": {
+      "total": 2072,
+      "players": 1722,
+      "others": 350,
+      "playersPerClub": 23.9
+    },
+    "stateBytes": 6700652
+  },
+  "headToHead": {
+    "fixtures": 18,
+    "fullMs": 52804.1715,
+    "fastMs": 139.38510000001406,
+    "speedup": 378.8365578529891
+  },
+  "seasons": [
+    {
+      "season": "2026/27",
+      "days": 364,
+      "seconds": 160.1083798,
+      "matches": 974
+    }
+  ],
+  "stateBytesAtSeasonEnd": 85433807,
+  "seasonDays": 364,
+  "fingerprints": {
+    "full": {
+      "matches": 18,
+      "games": 18,
+      "goals": 61,
+      "shots": 450,
+      "shotsOnTarget": 181,
+      "saves": 123,
+      "fouls": 930,
+      "yellows": 49,
+      "reds": 4,
+      "corners": 154,
+      "offsides": 192,
+      "blocked": 98,
+      "passes": 26742,
+      "passesCompleted": 18107,
+      "tackles": 2695,
+      "interceptions": 3254,
+      "injuries": 28,
+      "subs": 108,
+      "appearances": 504,
+      "events": 44911,
+      "homePossession": 914,
+      "ratingSum": 3387.5000000000027,
+      "ratingCount": 500,
+      "minutes": 38993,
+      "emptyMinutes": 0
+    },
+    "fast": {
+      "matches": 18,
+      "games": 18,
+      "goals": 46,
+      "shots": 315,
+      "shotsOnTarget": 174,
+      "saves": 128,
+      "fouls": 883,
+      "yellows": 57,
+      "reds": 2,
+      "corners": 0,
+      "offsides": 0,
+      "blocked": 88,
+      "passes": 27785,
+      "passesCompleted": 18252,
+      "tackles": 2701,
+      "interceptions": 3316,
+      "injuries": 34,
+      "subs": 102,
+      "appearances": 498,
+      "events": 1569,
+      "homePossession": 912,
+      "ratingSum": 3242.3999999999987,
+      "ratingCount": 478,
+      "minutes": 39008,
+      "emptyMinutes": 0
+    },
+    "seasonFast": {
+      "matches": 942,
+      "games": 942,
+      "goals": 2417,
+      "shots": 16706,
+      "shotsOnTarget": 8997,
+      "saves": 6580,
+      "fouls": 47236,
+      "yellows": 2962,
+      "reds": 60,
+      "corners": 0,
+      "offsides": 0,
+      "blocked": 4487,
+      "passes": 1454432,
+      "passesCompleted": 956081,
+      "tackles": 141784,
+      "interceptions": 173293,
+      "injuries": 1879,
+      "subs": 5363,
+      "appearances": 26087,
+      "events": 83522,
+      "homePossession": 47104,
+      "ratingSum": 172094.70000000484,
+      "ratingCount": 25347,
+      "minutes": 2070823,
+      "emptyMinutes": 0
+    },
+    "seasonFull": {
+      "matches": 32,
+      "games": 32,
+      "goals": 159,
+      "shots": 1001,
+      "shotsOnTarget": 518,
+      "saves": 352,
+      "fouls": 2033,
+      "yellows": 127,
+      "reds": 6,
+      "corners": 275,
+      "offsides": 448,
+      "blocked": 279,
+      "passes": 53722,
+      "passesCompleted": 35951,
+      "tackles": 6014,
+      "interceptions": 7320,
+      "injuries": 62,
+      "subs": 191,
+      "appearances": 895,
+      "events": 91326,
+      "homePossession": 1583,
+      "ratingSum": 6033.199999999993,
+      "ratingCount": 871,
+      "minutes": 70681,
+      "emptyMinutes": 0
+    }
+  }
+}

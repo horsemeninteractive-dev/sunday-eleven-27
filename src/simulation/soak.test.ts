@@ -4,7 +4,7 @@ import type { GameState } from '@/domain/game';
 import type { MatchId } from '@/domain/ids';
 import type { Match } from '@/domain/match';
 import { addDays } from './calendar';
-import { LEAGUE_CUP_ID, registerFixture } from './pyramid';
+import { COUNTY_CUP_ID, cupCompetitionId, LEAGUE_CUP_ID, PLATE_ID, registerFixture } from './pyramid';
 import {
   CALENDAR_INVARIANTS,
   checkCalendarIntegrity,
@@ -66,6 +66,12 @@ import { createTestGame } from './testSupport';
  * the season" means — so a world that is still mid-season with a cup halfway
  * through it is a world whose cup has not been decided *yet*, and the tests
  * below say so by building the shapes that are wrong at any point of the year.
+ *
+ * The shapes are built on a **one-ladder** county, so that the cup under test is
+ * the only one that could be reported and the assertion stays "this cup, once".
+ * A career founded today is two ladders and five cups, and the test after them
+ * reads the checker over that world instead: every unfinished cup is reported,
+ * which is the property that matters when there is more than one.
  */
 describe('the calendar and competition invariants', () => {
   /** The failures of one named invariant, on the world built for the case. */
@@ -93,7 +99,7 @@ describe('the calendar and competition invariants', () => {
   });
 
   it('fails cup-decided for a cup that began the season and reached no winner', () => {
-    const { state } = createTestGame('invariants-cup-unfinished');
+    const { state } = createTestGame('invariants-cup-unfinished', 0, 2026, 1);
     // The opening round has been drawn and played; nothing after it has. At the
     // close of a season this is a competition that cannot be won.
     const cup = state.competitions[LEAGUE_CUP_ID]!;
@@ -108,7 +114,7 @@ describe('the calendar and competition invariants', () => {
   });
 
   it('fails cup-decided for a bracket marked complete that crowns nobody', () => {
-    const { state } = createTestGame('invariants-cup-headless');
+    const { state } = createTestGame('invariants-cup-headless', 0, 2026, 1);
     const cup = state.competitions[LEAGUE_CUP_ID]!;
     cup.cup = { ...cup.cup!, complete: true, winnerClubId: null };
 
@@ -118,7 +124,7 @@ describe('the calendar and competition invariants', () => {
   });
 
   it('fails cup-decided for a cup that crowns somebody whose final was never drawn', () => {
-    const { state } = createTestGame('invariants-cup-no-final');
+    const { state } = createTestGame('invariants-cup-no-final', 0, 2026, 1);
     const cup = state.competitions[LEAGUE_CUP_ID]!;
     const champion = Object.values(state.clubs).find((club) => club.active)!.id;
     cup.cup = { ...cup.cup!, complete: true, winnerClubId: champion };
@@ -129,6 +135,26 @@ describe('the calendar and competition invariants', () => {
     expect(found.length).toBeGreaterThan(1);
     expect(found.every((item) => item.detail.includes('never drawn'))).toBe(true);
     expect(found.map((item) => item.detail).join(' ')).toContain('round 2');
+  });
+
+  it('reports every unfinished cup in the world, not only the first one it finds', () => {
+    // A career founded today is two ladders and a county cup drawn across them,
+    // and all three of those cups have drawn an opening round with the season not
+    // played: three competitions that cannot be won, and three failures. A
+    // checker that stopped at the first would leave two unreported.
+    const { state } = createTestGame('invariants-two-ladders');
+    const district = state.pyramidIds.find((id) => id !== 'league')!;
+    const found = failures(state, 'cup-decided');
+    expect(found.map((item) => item.subject).sort()).toEqual(
+      [LEAGUE_CUP_ID, COUNTY_CUP_ID, cupCompetitionId(district, 'cup')].sort(),
+    );
+    expect(found.every((item) => item.detail.includes('reached no winner'))).toBe(true);
+    // The Plates are not a fifth and fourth failure: a Plate has no field until
+    // the cup above it knocks clubs out of itself, so a Plate nobody has drawn yet
+    // is a competition that has not begun rather than one that failed.
+    for (const id of [PLATE_ID, cupCompetitionId(district, 'plate')]) {
+      expect(found.some((item) => item.subject === id), id).toBe(false);
+    }
   });
 
   it('fails cup-round-has-date for a tie with no usable date', () => {
@@ -222,7 +248,28 @@ describe('the calendar and competition invariants', () => {
 
 const SOAK_ENABLED = Boolean(process.env.SOAK) || process.env.npm_lifecycle_event === 'test:soak';
 const SEASONS = 2;
-const RUN_TIMEOUT = 120_000;
+/**
+ * A two-season run is minutes of football on the new engine, not seconds.
+ *
+ * The old engine played a season in the time a boundary check now takes, so this
+ * was a 120-second test; two seasons on the engine every fixture runs on is about
+ * five minutes of wall clock, and the clock is not what is under test. The soak
+ * itself bounds a season in days (`SOAK_BANDS.daysPerSeason`), which is the limit
+ * that means something about the world; this one only has to outlast the machine.
+ */
+const RUN_TIMEOUT = 1_200_000;
+
+/**
+ * The world the smoke test soaks.
+ *
+ * Two districts — 72 clubs, 807 fixtures — rather than the county a career is
+ * founded in, because this is the cheapest world that runs the whole season loop
+ * and the loop is this test's business: six districts is three times the football
+ * and is what `npm run soak` is for. The state-size budget is an absolute number,
+ * so a smaller world sits inside it by a wider margin, and the assertions below
+ * still hold `runSoak` to reading the right checkpoint on a real played season.
+ */
+const DISTRICTS = 2;
 
 /** A run's snapshots with the one field that is a clock rather than the world removed. */
 function comparable(snapshots: readonly SoakSnapshot[]): SoakSnapshot[] {
@@ -233,7 +280,7 @@ describe.skipIf(!SOAK_ENABLED)('multi-season soak', () => {
   it(
     'plays two seasons from a fixed seed and the world holds up',
     () => {
-      const result = runSoak({ seed: 'soak-smoke', seasons: SEASONS });
+      const result = runSoak({ seed: 'soak-smoke', seasons: SEASONS, districts: DISTRICTS });
 
       // Both seasons closed: a snapshot is only taken at the moment a season ends.
       expect(result.snapshots).toHaveLength(SEASONS);
@@ -258,6 +305,16 @@ describe.skipIf(!SOAK_ENABLED)('multi-season soak', () => {
         expect(snapshot.seasonRecordsMax).toBeGreaterThanOrEqual(1);
       }
 
+      // The save was measured where it peaks — at each season's close, on the
+      // season that has just been played — and this world is inside its budget.
+      for (const snapshot of result.snapshots) {
+        expect(snapshot.stateBytes).toBeGreaterThan(result.stateBytesFresh);
+        expect(snapshot.stateBytes).toBeLessThanOrEqual(result.stateBudgetBytes);
+      }
+      expect(result.stateBytesAtSeasonEnd).toBe(
+        Math.max(...result.snapshots.map((snapshot) => snapshot.stateBytes)),
+      );
+
       const failures = result.violations.filter((item) => item.severity === 'fail');
       expect(
         failures.map((item) => `${item.invariant}: ${item.detail}`),
@@ -269,8 +326,8 @@ describe.skipIf(!SOAK_ENABLED)('multi-season soak', () => {
   it(
     'the same seed is the same career',
     () => {
-      const first = runSoak({ seed: 'soak-determinism', seasons: 1 });
-      const second = runSoak({ seed: 'soak-determinism', seasons: 1 });
+      const first = runSoak({ seed: 'soak-determinism', seasons: 1, districts: DISTRICTS });
+      const second = runSoak({ seed: 'soak-determinism', seasons: 1, districts: DISTRICTS });
 
       // Two independent runs of the same seed have to agree to the last decimal.
       // Wall-clock seconds are the one thing that cannot, so they are zeroed

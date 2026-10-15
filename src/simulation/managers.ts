@@ -171,7 +171,14 @@ function openTenure(club: Club, person: Person, date: ISODate): void {
 }
 
 /** Take a manager's place away, whatever the reason: he can no longer be in charge. */
-function leaveClub(club: Club, manager: Official, date: ISODate): void {
+export function leaveClub(club: Club, manager: Official, date: ISODate): void {
+  // A man who leaves the post leaves every committee post he held at the club with
+  // it. His roles are cleared below, so a club still naming him would be pointing
+  // at a man who holds nothing there — and it does, once he is hired by another
+  // club and then deleted from the world, which is `club-staff-exists` in the soak
+  // (a sacked manager who had also been the club's coach, found still on the coaching
+  // staff two seasons later).
+  for (const role of rolesAtClub(manager, club.id)) releaseSupportRole(club, manager, role);
   closeTenure(club, manager.id, date);
   club.managerId = null;
   manager.clubId = null;

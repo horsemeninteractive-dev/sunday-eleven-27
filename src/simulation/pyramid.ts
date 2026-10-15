@@ -1,6 +1,7 @@
 import type { Club, StandingRow } from '@/domain/club';
 import type { Competition, FixtureList, Pyramid } from '@/domain/competition';
 import {
+  cupFieldOf,
   DEFAULT_PYRAMID,
   emptyFixtureList,
   FOUNDING_PYRAMID_ID,
@@ -8,9 +9,9 @@ import {
   isLeague,
 } from '@/domain/competition';
 import type { GameState } from '@/domain/game';
-import type { ClubId, CompetitionId, PersonId, PyramidId } from '@/domain/ids';
+import type { ClubId, CompetitionId, CountyId, PersonId, PyramidId, RegionId, TownId } from '@/domain/ids';
 import type { GameEvent } from '@/domain/news';
-import { FOUNDING_REGION_ID } from '@/domain/world';
+import { FOUNDING_COUNTY_ID, FOUNDING_COUNTY_NAME, FOUNDING_REGION_ID, type County } from '@/domain/world';
 import { computeStandings } from './league';
 import { createEvent } from './news';
 
@@ -67,6 +68,16 @@ export function pyramidsOf(state: GameState): Pyramid[] {
 /**
  * The founding ladder, read from the world itself: the divisions that exist, the
  * cups that were drawn, and the shape the career was generated with.
+ *
+ * This is the answer for a career whose pyramid record is missing entirely — a
+ * save written before ladders existed, or a state built by hand — so it has to
+ * read ownership off the world rather than off a record. A cup is claimed when
+ * its *field* says the founding ladder owns it, and not merely because it is a
+ * cup: a cup with no field at all is the founding ladder's own (which is what
+ * every cup written before fields meant), while a county cup's field is the whole
+ * county and a county cup belongs to no ladder. Claiming every cup in the world
+ * would put a world-level competition in a ladder's `cupIds`, and from there into
+ * every view and rollover that reads a ladder's cups as its own business.
  */
 function foundingPyramid(state: GameState): Pyramid {
   const legacy = state as GameState & { pyramid?: Pyramid['config'] };
@@ -77,7 +88,12 @@ function foundingPyramid(state: GameState): Pyramid {
     level: 1,
     config: legacy.pyramid ?? DEFAULT_PYRAMID,
     competitionIds: leagueCompetitions(state).map((competition) => competition.id),
-    cupIds: cupCompetitions(state).map((competition) => competition.id),
+    cupIds: cupCompetitions(state)
+      .filter((competition) => {
+        const field = cupFieldOf(competition.cup);
+        return field.kind === 'pyramid' && field.pyramidId === FOUNDING_PYRAMID_ID;
+      })
+      .map((competition) => competition.id),
   };
 }
 
@@ -192,6 +208,188 @@ function adjacentDivision(state: GameState, competition: Competition, step: 1 | 
   return divisions[index + step];
 }
 
+/**
+ * The name of the region a pyramid draws its clubs from.
+ *
+ * Division names are built from it, so a second ladder's divisions are named
+ * after its own region rather than the founding one's. A pyramid whose region the
+ * world no longer holds — or a career written before regions existed — reads the
+ * county's own name, which is the name the founding pyramid has always used.
+ */
+export function regionNameFor(state: GameState, pyramidId: PyramidId): string {
+  const regionId = pyramidOf(state, pyramidId).regionId;
+  return state.world?.regions?.[regionId]?.name ?? state.world?.regionName ?? 'County';
+}
+
+// ---------------------------------------------------------------------------
+// Counties
+// ---------------------------------------------------------------------------
+
+/**
+ * The id of the county a career is played in.
+ *
+ * The founding county: the only one a career has ever been generated with, and
+ * the one every save written before counties existed belongs to. Read from the
+ * world so a world that names a different county first is answered as it says,
+ * and falling back to the founding id for a state the migration has not been
+ * through.
+ */
+export function foundingCountyId(state: GameState): CountyId {
+  return state.world?.countyIds?.[0] ?? FOUNDING_COUNTY_ID;
+}
+
+/**
+ * One county of the world, by id — the career's own unless told otherwise.
+ *
+ * A save written before counties existed has one county's worth of world and no
+ * record of it, and neither has a state built by hand. Rather than returning
+ * nothing and taking every caller down with it, the founding county is answered
+ * from the world it is the county of — the same way `foundingPyramid` answers for
+ * a career whose ladder record is missing — and any other unknown county is
+ * answered as a county that owns nothing, so an unknown id yields no football
+ * rather than the wrong county's.
+ */
+export function countyOf(state: GameState, countyId: CountyId = foundingCountyId(state)): County {
+  const stored = state.world?.counties?.[countyId];
+  if (stored) return stored;
+  // A world that *has* counties but not this one genuinely does not have it, and
+  // a county with no regions owns no football.
+  if (Object.keys(state.world?.counties ?? {}).length > 0) {
+    return { id: countyId, name: countyId, regionIds: [] };
+  }
+  return {
+    id: countyId,
+    name: state.world?.countyName || FOUNDING_COUNTY_NAME,
+    regionIds: [...(state.world?.regionIds ?? [])],
+  };
+}
+
+/** Every county the world has, in the order it reads them. */
+export function countiesOf(state: GameState): County[] {
+  const ids = state.world?.countyIds?.length ? state.world.countyIds : [foundingCountyId(state)];
+  return ids.map((countyId) => countyOf(state, countyId));
+}
+
+/**
+ * The county a region is a piece of, or null when the world does not hold it.
+ *
+ * Read from the region itself, and read as the founding county's for a region
+ * written before counties existed — which is the same reading
+ * `migrateToCounties` writes down when it gives a save its county.
+ */
+export function countyIdOfRegion(state: GameState, regionId: RegionId): CountyId | null {
+  const region = state.world?.regions?.[regionId];
+  if (!region) return null;
+  return region.countyId ?? foundingCountyId(state);
+}
+
+/**
+ * The county a town is in.
+ *
+ * Read from the town's own `countyId`, and — for a town written before counties
+ * existed, or one whose world does not hold its region — from its region, and
+ * then from the founding county. The forgiveness is deliberate and is the same
+ * one the region migration has: a career written before any of this existed keeps
+ * the entrants its cups have always had.
+ */
+export function countyIdOfTown(state: GameState, townId: TownId): CountyId {
+  const town = state.world?.towns?.[townId];
+  if (!town) return foundingCountyId(state);
+  if (town.countyId) return town.countyId;
+  return countyIdOfRegion(state, town.regionId) ?? foundingCountyId(state);
+}
+
+/**
+ * The county a club belongs to: the one its town is in.
+ *
+ * Read from the town and never from the division, so a club cannot be entered in
+ * a county cup by changing league and cannot leave its county's cup by being
+ * promoted out of it. Null only for a club the world does not hold at all.
+ */
+export function countyIdOfClub(state: GameState, clubId: ClubId): CountyId | null {
+  const club = state.clubs?.[clubId];
+  if (!club) return null;
+  return countyIdOfTown(state, club.townId);
+}
+
+/**
+ * The county a ladder belongs to: the one the region it draws its clubs from is
+ * in. Null for a ladder whose region the world does not hold, which is a ladder
+ * with no football in this world to belong to.
+ */
+export function countyIdOfPyramid(state: GameState, pyramidId: PyramidId): CountyId | null {
+  const regionId = pyramidOf(state, pyramidId).regionId;
+  if (!state.world?.regions?.[regionId]) {
+    // A world with no regions at all has one county and nothing to tell two
+    // apart with: every ladder it has is the founding county's, which is the
+    // reading a world that predates regions has always been given. A world that
+    // *has* regions but not this one holds a ladder with no football to belong
+    // to, and answering any county would be inventing one.
+    return Object.keys(state.world?.regions ?? {}).length === 0 ? foundingCountyId(state) : null;
+  }
+  return countyIdOfRegion(state, regionId);
+}
+
+/** The ladders one county owns, in the order the world reads them. */
+export function pyramidIdsOfCounty(state: GameState, countyId: CountyId): PyramidId[] {
+  return pyramidsOf(state)
+    .filter((pyramid) => countyIdOfPyramid(state, pyramid.id) === countyId)
+    .map((pyramid) => pyramid.id);
+}
+
+/**
+ * Every active club in a county, strongest first.
+ *
+ * A county read as one population rather than as ladders: the clubs a county cup
+ * enters, and the ranking divisions are cut from. A club belongs to the county its
+ * town is in — never to the county of a division it happens to be in — so a second
+ * county's cup cannot reach a club of the first, and no cup's field has to be
+ * inferred from a name, a reputation or an array position. A folded club is not in
+ * it: `active` is the whole test, which is what stops a cup drawing a club that no
+ * longer plays.
+ */
+export function countyClubIds(state: GameState, countyId: CountyId = foundingCountyId(state)): ClubId[] {
+  return Object.values(state.clubs)
+    .filter((club) => club.active && countyIdOfClub(state, club.id) === countyId)
+    .map((club) => club.id)
+    .sort((a, b) => {
+      const repA = state.clubs[a]?.reputation ?? 0;
+      const repB = state.clubs[b]?.reputation ?? 0;
+      return repB - repA || a.localeCompare(b);
+    });
+}
+
+/**
+ * The clubs one ladder holds, tier 1 first, as the world has it recorded.
+ *
+ * A ladder's membership is its divisions' — the season builder writes them, and
+ * `applyMovements` is the only other writer — so this is the ladder as it stands,
+ * not as it is being built.
+ */
+export function pyramidClubIds(state: GameState, pyramidId: PyramidId): ClubId[] {
+  return divisionsOf(state, pyramidId).flatMap((division) => [...division.clubIds]);
+}
+
+/**
+ * The clubs an invitation names, less the ones the world cannot enter.
+ *
+ * Nothing is added: an invitation is the list somebody wrote down, in that order,
+ * with a club the world has never heard of or one that has folded dropped out.
+ * A folded club in a cup would be a tie nobody turns up for.
+ */
+export function invitedClubIds(state: GameState, clubIds: readonly ClubId[]): ClubId[] {
+  const seen = new Set<ClubId>();
+  const invited: ClubId[] = [];
+  for (const clubId of clubIds) {
+    if (seen.has(clubId)) continue;
+    const club = state.clubs[clubId];
+    if (!club || !club.active) continue;
+    seen.add(clubId);
+    invited.push(clubId);
+  }
+  return invited;
+}
+
 /** Every club playing in any league, de-duplicated and in tier order. */
 export function leagueClubIds(state: GameState): ClubId[] {
   const seen = new Set<ClubId>();
@@ -288,7 +486,7 @@ export function standingsFor(state: GameState, competition: Competition): Standi
 
 const ORDINALS = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight'];
 
-/** "Wyre Valley Sunday League Division Two". */
+/** "Alderford Sunday League Division Two". */
 export function divisionNameFor(regionName: string, tier: number): string {
   const ordinal = ORDINALS[tier] ?? String(tier);
   return `${regionName} Sunday League Division ${ordinal}`;
@@ -314,6 +512,70 @@ export const LEAGUE_CUP_NAME = 'Sunday League Cup';
  */
 export const PLATE_ID: CompetitionId = 'comp_plate';
 export const PLATE_NAME = 'Sunday League Plate';
+/**
+ * The county's own cup: the one competition no ladder runs.
+ *
+ * Its id is not built from a pyramid's, because it has no pyramid: the county
+ * cup is the whole county's, drawn from every active club whichever ladder it
+ * plays on, and its ownership is nobody's — which is exactly what
+ * `pyramidIdOf`'s null means and why every reader of it has to tolerate one.
+ */
+export const COUNTY_CUP_ID: CompetitionId = 'comp_county_cup';
+
+/**
+ * The competition id of a county's cup.
+ *
+ * The founding county keeps the id its cup has always had — `comp_county_cup` —
+ * so no career written before a county had an id re-homes a trophy. Every other
+ * county's cup is named after its own id (`comp_cup_county_2`), which is stable,
+ * opaque and derived from nothing a rename can move. The two can never collide:
+ * one cup per county, and one county per id.
+ */
+export function countyCupId(countyId: CountyId = FOUNDING_COUNTY_ID): CompetitionId {
+  return countyId === FOUNDING_COUNTY_ID ? COUNTY_CUP_ID : `comp_cup_${countyId}`;
+}
+
+/**
+ * A county's cup, named after the county it is the cup of.
+ *
+ * A cup belongs to the football it is drawn from, and a county cup is drawn from
+ * every club in its own county whichever ladder it plays on — so it carries the
+ * county's name rather than the word for the kind of thing it is. "County Cup"
+ * was nobody's competition in particular: two counties' cups would read the
+ * same, and a manager reading a bracket should be able to say which county's he
+ * is in without being told. The founding county's is therefore 'Alderfordshire
+ * County Cup', which is what its cup has been called since the county was named.
+ */
+export function countyCupName(countyName: string): string {
+  return `${countyName} County Cup`;
+}
+
+/** The founding county's cup: the one every save's own cup has always been. */
+export const COUNTY_CUP_NAME = countyCupName(FOUNDING_COUNTY_NAME);
+
+/**
+ * The name of one of a ladder's cups.
+ *
+ * A cup belongs to the district its ladder draws its clubs from, so it is named
+ * after it — `Alderford Sunday League Cup`, `Westbrook Valley Sunday League
+ * Plate` — for the same reason its divisions are. The district's name is the
+ * map's, so a manager who chose Alderford reads Alderford on both his trophies,
+ * which is the whole of what a name is for.
+ *
+ * Every ladder is named this way, the founding one included: its two cups used to
+ * carry the bare 'Sunday League Cup' and 'Sunday League Plate' from the days when
+ * a career had one ladder and no district to name it after, and a career still
+ * reads *a* Sunday League Cup — its own. A save written then is brought forward
+ * with its trophies by `nameTheLadderCups`.
+ *
+ * One name per ladder is not only a display rule. An honour is a string,
+ * `${season} ${name} winners`, so two ladders' cups sharing a name would file one
+ * ladder's winner under the other's trophy — one honour on two clubs, which is
+ * what the soak's `honours-not-duplicated` reads.
+ */
+export function cupNameFor(regionName: string, kind: 'cup' | 'plate'): string {
+  return `${regionName} ${kind === 'cup' ? LEAGUE_CUP_NAME : PLATE_NAME}`;
+}
 
 /**
  * The competition id for one of a pyramid's cups.

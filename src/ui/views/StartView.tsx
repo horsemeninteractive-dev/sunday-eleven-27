@@ -7,6 +7,7 @@ import { versionLabel } from '@/version';
 import { gameActions } from '../hooks';
 import { Button } from '../components/primitives';
 import { CareerImportConfirm, ImportCareerButton } from '../components/CareerFile';
+import { DeleteSaveButton } from '../components/DeleteSave';
 import { BrandLockup } from '../components/BrandMark';
 import { InstallCard } from '../components/InstallCard';
 import { SceneBackdrop } from '../components/SceneBackdrop';
@@ -58,13 +59,30 @@ export function StartView() {
    */
   const bootError = useGameStore((state) => state.bootError);
 
-  const refreshSaves = () => {
-    setReading(true);
+  /**
+   * Read the list of careers, and say whether anything came back.
+   *
+   * The two callers want different things from one read. Refresh is asked for,
+   * so it says it is reading while it does; a career that has just been deleted
+   * changes one row of a list the manager is already reading, and a list that
+   * vanished and came back would be the page announcing something it had already
+   * shown him. The read on the way in has nothing on the screen to contradict
+   * either, which is why `reading` starts true.
+   */
+  const readSaves = () => {
     setFailure(null);
-    void gameActions().listSaves().then((listed) => setSaves(orderSaves(listed))).catch(() => setFailure('Your saved careers could not be listed. Try Refresh.')).finally(() => setReading(false));
+    return gameActions().listSaves()
+      .then((listed) => setSaves(orderSaves(listed)))
+      .catch(() => setFailure('Your saved careers could not be listed. Try Refresh.'))
+      .finally(() => setReading(false));
   };
 
-  useEffect(refreshSaves, []);
+  const refreshSaves = () => {
+    setReading(true);
+    void readSaves();
+  };
+
+  useEffect(() => { void readSaves(); }, []);
 
   return (
     <div className="start">
@@ -101,10 +119,14 @@ export function StartView() {
             <span className="menucard__body">
               <span className="menucard__kicker">Career mode</span>
               <span className="menucard__title">Start a new career</span>
+              {/* The world a career is born into is the whole county, so the
+                  sentence says so: it used to promise one ladder of thirty-six
+                  clubs, which is a sixth of what a new career is actually handed
+                  and a sixth of what it can pick from. */}
               <span className="menucard__desc">
-                Generate a local football world from a seed and take charge of one of{' '}
-                {DEFAULT_PYRAMID.tiers * DEFAULT_PYRAMID.clubsPerTier} clubs in {DEFAULT_PYRAMID.tiers} divisions.
-                The squad, the bank balance and the history come with it.
+                Generate a local football world from a seed — six districts, each with its own ladder of{' '}
+                {DEFAULT_PYRAMID.tiers} divisions of {DEFAULT_PYRAMID.clubsPerTier} — and take charge of any of the
+                two hundred and sixteen clubs in them. The squad, the bank balance and the history come with it.
               </span>
             </span>
             <span className="menucard__go">
@@ -137,13 +159,13 @@ export function StartView() {
           {/* The saved careers arrive with the doors rather than after them: they
               are the reason a returning manager is here. */}
           <section className="start__saves" style={{ '--start-i': 2 } as CSSProperties}>
+            {/* The heading and the two ways in, and nothing between them. A
+                sentence under the title used to push the actions onto a line of
+                their own, which made two buttons that belong together look like
+                two unrelated ones — and it said what the rows, their dates and
+                the empty state already say. */}
             <header className="start__saves-head">
-              <div>
-                <h2 className="start__saves-title">Continue</h2>
-                <p className="muted small">
-                  Most recently saved first. Your career is saved as you play, and everything stays in this browser.
-                </p>
-              </div>
+              <h2 className="start__saves-title">Continue</h2>
               <div className="row row--wrap">
                 {/* Restoring is offered beside the list rather than inside it: on
                     a new device there is nothing here to click, and the file is
@@ -169,12 +191,22 @@ export function StartView() {
                         {formatShortDate(save.savedAt.slice(0, 10))} · seed “{save.seed}”
                       </div>
                     </div>
-                    <Button
-                      variant={save.auto ? 'primary' : 'default'}
-                      onClick={() => void loadCareer(save.slot)}
-                    >
-                      {save.auto ? 'Continue' : 'Load'}
-                    </Button>
+                    <div className="row row--wrap">
+                      <Button
+                        variant={save.auto ? 'primary' : 'default'}
+                        onClick={() => void loadCareer(save.slot)}
+                      >
+                        {save.auto ? 'Continue' : 'Load'}
+                      </Button>
+                      {/* Deleting is offered here because this is the screen with
+                          no career on it: nothing is writing the autosave, so
+                          removing it sticks. */}
+                      <DeleteSaveButton
+                        slot={save.slot}
+                        label={`${save.clubName}, ${save.seasonLabel}`}
+                        onDeleted={() => void readSaves()}
+                      />
+                    </div>
                   </li>
                 ))}
               </ul>

@@ -20,6 +20,7 @@ import type { SponsorshipState } from './sponsorship';
 import type { TrainingStore } from './training';
 import type { SeasonState, World } from './world';
 import type { StandingRow } from './club';
+import type { SeasonRecord } from './history';
 
 /**
  * Save format version.
@@ -134,8 +135,54 @@ import type { StandingRow } from './club';
  *     clubs keep their squads, staff and history, and the ladder keeps the shape
  *     it was generated with — the migration is a new way of describing the world
  *     it already had.
+ * 24 — the district next door. A career written before the county had a second
+ *     league is *marked* as waiting for one when it is opened, and gains it at
+ *     its next season boundary rather than in the middle of the season it is
+ *     already playing: the district is founded as the roll-over begins, and the
+ *     season that follows is built for both ladders in one go. Nothing the
+ *     career already holds moves — not a club, a town, a ground, a person, a
+ *     competition, a date or a result — because founding a district is
+ *     additive. The marker is spent exactly once, so a career that has been
+ *     through the boundary is never given a second district, and a save written
+ *     before this version that is *already* a two-ladder world is marked as
+ *     answered rather than expanded again.
+ * 25 — the season archive. The competitions of the season that has just been
+ *     played are written down as it closes — every division's final table, and
+ *     for every cup its entrants, its rounds with their ties and results, and
+ *     the club that won it — so that the season survives the roll-over that
+ *     replaces the whole world of competitions a moment later. A version 24
+ *     save is given an empty archive: it played its seasons before the record
+ *     existed, its tables are not kept anywhere the game could honestly read
+ *     them back from, and inventing a history is worse than having none. Its
+ *     clubs keep the honours, seasons and movements they already had.
+ * 26 — the county has a name. 'Alderfordshire' is the setting a career is played
+ *     in rather than a fact about its seed, and the county's cup is *the
+ *     Alderfordshire County Cup* rather than the word for the kind of thing it
+ *     is. A version 25 save is brought forward whole: the cup it holds, the
+ *     honours written in its old words and the copy of the name the season
+ *     archive keeps are renamed with it, while the valleys, towns, clubs and
+ *     people the seed drew are left exactly as they were.
+ * 27 — the county. A county is an entity with an id of its own rather than a name
+ *     on the world: it owns the regions its map is drawn from, every town is in
+ *     the county its region is in, and a ladder belongs to the county its region
+ *     is in. That is what makes a county cup a competition drawn from one
+ *     county's clubs rather than from every club in the world, and two counties'
+ *     cups two competitions. A version 26 save is given exactly one county, named
+ *     what it already called itself, holding every region, town and ladder it
+ *     already has. Nothing moves: no club, town, competition, fixture, date or
+ *     honour, and the county cup keeps the id and the name it has always had.
+ * 28 — the whole county. Alderfordshire has six districts, and a career is
+ *     founded in all of them: six ladders of three divisions, six League Cups,
+ *     six Plates and the county cup they all meet in. A version 27 save — or one
+ *     older still — is marked on load with the districts it does not have, and
+ *     is given them at its next season boundary, one boundary only and never
+ *     twice: which districts a career is missing is read off the regions it
+ *     holds, so a career given four now is not given them again next season. A
+ *     career founded with one or two ladders keeps every club, ground, town,
+ *     person, competition, fixture, result and honour it has; the new football
+ *     is founded beside it rather than through it.
  */
-export const GAME_STATE_VERSION = 23;
+export const GAME_STATE_VERSION = 28;
 
 export type GamePhase = 'preseason' | 'season' | 'complete';
 
@@ -154,6 +201,35 @@ export interface GameSettings {
   complexity: 'standard';
   /** Whether the player's matches are auto-resolved without the match view. */
   autoAdvanceMatches: boolean;
+}
+
+/**
+ * Where a career stands on the districts it does not have yet.
+ *
+ * A career founded with the whole county starts with all six and never carries
+ * this record at all. A career that predates a district is given the record when
+ * it is first opened: `pending` is true while the world is missing football, and
+ * the districts it is missing are founded at the next season boundary — which is
+ * the whole point of writing it down, because a ladder cannot be spliced into a
+ * season whose fixtures are half played without inventing results. Once the
+ * boundary has passed, `pending` is false and `expandedInSeasonId` names the
+ * season the districts were founded in.
+ *
+ * It is a marker rather than a derivation on purpose. "One ladder" is a fact
+ * about the world, and a ladder could in principle be the only one a career ever
+ * has; whether the county's other districts *belong* to this career is a question
+ * that is asked once, at the moment the save is opened, and its answer is kept.
+ * *Which* districts it is owed is deliberately not written here: that is read off
+ * the regions the world holds against the county's authored districts
+ * (`missingDistricts`), so a career given four districts at one boundary is not
+ * given them again at the next one, and a save whose mark and world disagree is
+ * believed about its world rather than about its mark.
+ */
+export interface WorldExpansionState {
+  /** True until a season boundary founds the districts the county is owed. */
+  pending: boolean;
+  /** The season the districts were founded in, once they have been. */
+  expandedInSeasonId?: SeasonId;
 }
 
 export interface GameState {
@@ -238,6 +314,12 @@ export interface GameState {
   pyramids: Record<PyramidId, Pyramid>;
   /** The world's ladders in the order it reads them: the founding pyramid first. */
   pyramidIds: PyramidId[];
+  /**
+   * Whether this career is waiting for the county's second district, and where
+   * that question was settled. Absent on a career founded with both ladders —
+   * see {@link WorldExpansionState}.
+   */
+  worldExpansion?: WorldExpansionState;
   /** Fixture lists, one per competition. */
   fixtures: Record<CompetitionId, FixtureList>;
   matches: Record<MatchId, Match>;
@@ -257,6 +339,16 @@ export interface GameState {
    * story across seasons rather than a line that stops when it changed tier.
    */
   promotionHistory: MovementRecord[];
+  /**
+   * The competitions of every season that has finished, oldest first.
+   *
+   * Written as each season closes and never written to again, because the
+   * competitions it describes are rebuilt at the boundary and last season's
+   * bracket, field and final table would otherwise be unreachable the moment the
+   * new calendars existed. Bounded by `SEASON_HISTORY_LIMIT`; absent on a save
+   * written before it existed, which reads as an empty archive.
+   */
+  seasonHistory: SeasonRecord[];
   settings: GameSettings;
   /** Id of the last match the player's club was involved in. */
   lastMatchId: MatchId | null;

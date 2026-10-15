@@ -1,4 +1,4 @@
-import type { ISODate } from '@/domain/ids';
+import type { ClubId, CompetitionId, ISODate } from '@/domain/ids';
 import type { SeasonCalendarEntry } from '@/domain/world';
 
 /**
@@ -216,6 +216,38 @@ export interface CupRoundSlot {
   round: number;
   /** 1-based league matchday whose preceding Wednesday the round is played on. */
   beforeMatchday: number;
+  /**
+   * The competition this round belongs to, where the caller knows it.
+   *
+   * Read for one thing only: the rounds of one competition are played in order,
+   * so a round laid out later in the season may never be given a Sunday an
+   * earlier round of the same competition already has. Two competitions have no
+   * such relationship — a Plate and the cup that feeds it are separate
+   * tournaments that happen to be drawn by the same ladder.
+   */
+  competitionId?: CompetitionId;
+  /**
+   * The clubs that could be drawn into this round: its competition's field.
+   *
+   * Two rounds may share a Sunday only when no club could be in both, which is
+   * the whole of the rule the county now needs — the two ladders' cups have
+   * nothing in common and can play on the same afternoon, while a county cup
+   * drawn from every club in the world overlaps each of them and must be given a
+   * day of its own. Disjointness is asked of the *entry* field rather than of the
+   * ties actually drawn, because this is decided when the season is built and the
+   * draw has not happened yet: a club that could be in either round is a club that
+   * must not be in both.
+   *
+   * Left out, a slot is treated as overlapping every other round, which is the
+   * behaviour every caller had before lanes existed: one round to a Sunday. That
+   * is what a world with a single ladder wants anyway, and what a legacy caller
+   * still gets without changing a line.
+   *
+   * Set when empty, an entry field of no clubs overlaps nobody and may share with
+   * anybody — the honest reading of "this round has no field", which is how a
+   * competition whose entrants are not yet known is described.
+   */
+  clubs?: readonly ClubId[];
 }
 
 // Written the way the rest of the game writes a kick-off time, so a cup tie in
@@ -242,6 +274,15 @@ export interface PlacedCupSlot extends CupRoundSlot {
   date: ISODate | null;
   /** The matchday number the round took in the calendar, or null when it was not placed. */
   matchday: number | null;
+  /**
+   * The rounds this one shares its date with, in the order they were placed.
+   *
+   * Empty on a day of its own. Two entries means the two ladders' cups are on
+   * the same afternoon, which is the arrangement the lanes exist to allow — and
+   * naming them here is what lets the season builder report a *collision* between
+   * two named competitions rather than a round that mysteriously had no Sunday.
+   */
+  shared: PlacedCupSlot[];
   /** Why the round could not be placed, when it could not. */
   reason: string | null;
 }
@@ -259,13 +300,21 @@ export interface CupRoundPlacement {
  * Build the calendar for a season of leagues and cups, and report every slot in
  * it.
  *
- * `slots` names the league matchday each cup round precedes. A slot that cannot
- * be placed — pointing at a matchday the league calendar does not have, or with
- * every Sunday within reach of it already taken or inside the Christmas break —
- * is reported as unplaced rather than quietly skipped. The calendar itself is
- * unchanged by that reporting; the difference is that the season builder can now
- * tell the two cases apart and refuse the season rather than running a cup that
- * has no date on which to be drawn.
+ * `slots` names the league matchday each cup round precedes, and the clubs its
+ * field could draw, which is how it is decided whether two rounds may have the
+ * same Sunday. A slot that cannot be placed — pointing at a matchday the league
+ * calendar does not have, or with every Sunday within reach of it already taken
+ * by a round it overlaps or inside the Christmas break — is reported as unplaced
+ * rather than quietly skipped. The calendar itself is unchanged by that
+ * reporting; the difference is that the season builder can now tell the two cases
+ * apart and refuse the season rather than running a cup that has no date on which
+ * to be drawn.
+ *
+ * Rounds are laid out in the order they are asked for, and each takes the first
+ * Sunday on or after its anchor that it can have. Laying them out in request
+ * order is what keeps a season that already had names on its calendar exactly the
+ * season it was: the founding ladder's rounds are asked for first, so they are
+ * placed first, on the dates they have always had.
  */
 export function placeCupRounds(
   startDate: ISODate,
@@ -276,11 +325,41 @@ export function placeCupRounds(
   const extra: SeasonCalendarEntry[] = [];
   const nextMatchday = league.length;
   const placements: PlacedCupSlot[] = [];
+  /** The last Sunday given to each competition, so its rounds stay in order. */
+  const lastRoundDate = new Map<CompetitionId, ISODate>();
 
-  // Every Sunday already spoken for: the league's own, and the rounds placed
-  // ahead of this one. A cup round needs a day to itself, because the whole
-  // field plays on the same one.
-  const taken = new Set(league.map((entry) => entry.date));
+  // Every Sunday already spoken for, and by whom. A league Sunday is spoken for
+  // by the whole world — every club plays in one of its divisions — so it is held
+  // with no field at all, which overlaps every round that could ask for it.
+  const taken: Array<{ date: ISODate; clubs: ReadonlySet<ClubId> | null; entry: PlacedCupSlot | null }> =
+    league.map((entry) => ({ date: entry.date, clubs: null, entry: null }));
+
+  /**
+   * What is already on a date that this slot's field would collide with.
+   *
+   * `league` is its own answer rather than an empty list of rounds because a
+   * league Sunday speaks for the whole world: it blocks every round, including
+   * one whose field would otherwise be free to share, and a report of "no round
+   * is on this date" would quietly misread it as a date going spare.
+   */
+  const blocking = (
+    slot: CupRoundSlot,
+    date: ISODate,
+  ): { blocked: boolean; league: boolean; rounds: PlacedCupSlot[] } => {
+    let league = false;
+    const rounds: PlacedCupSlot[] = [];
+    for (const occupant of taken) {
+      if (occupant.date !== date) continue;
+      const overlaps =
+        occupant.clubs === null ||
+        slot.clubs === undefined ||
+        slot.clubs.some((clubId) => occupant.clubs!.has(clubId));
+      if (!overlaps) continue;
+      if (occupant.clubs === null) league = true;
+      if (occupant.entry) rounds.push(occupant.entry);
+    }
+    return { blocked: league || rounds.length > 0, league, rounds };
+  };
 
   for (const slot of slots) {
     const leagueEntry = league[slot.beforeMatchday - 1];
@@ -289,12 +368,16 @@ export function placeCupRounds(
         ...slot,
         date: null,
         matchday: null,
+        shared: [],
         reason: `its anchor, league matchday ${slot.beforeMatchday}, is not in a ${matchdays}-matchday league calendar`,
       });
       continue;
     }
     const anchor = cupRoundDate(leagueEntry.date);
-    let date = anchor;
+    // The eight Sundays within reach of the anchor, nearest first. A round takes
+    // the first one it can have and steps over the ones it cannot rather than
+    // being refused by them.
+    //
     // A round whose slot falls in the Christmas fortnight moves on to the next
     // Sunday out of it rather than being dropped. Dropping it left the round with
     // no date at all: the competition could then never finish, because a
@@ -304,37 +387,81 @@ export function placeCupRounds(
     // Christmas by a whole fortnight, so the Sunday a round inherits from a
     // matchday that had already jumped the break can land back inside it.
     //
-    // It has to be a Sunday nobody is already playing on, and not merely the
-    // next one: stepping forward seven days from a dead Christmas Sunday lands
-    // straight back on a league matchday, which put a last-sixteen tie and a
-    // quarter-final on the same afternoon and had every club in both playing
-    // twice.
-    for (let week = 0; week < 8; week += 1) {
-      if (!isChristmasBreak(date) && !taken.has(date)) break;
-      date = addDays(date, 7);
+    // And a Sunday has to be one no club in this round's field is already
+    // playing on, not merely the next Sunday: stepping forward seven days from a
+    // dead Christmas Sunday lands straight back on a league matchday, which put a
+    // last-sixteen tie and a quarter-final on the same afternoon and had every
+    // club in both playing twice. An overlapping *cup* round is the same danger
+    // with a different name — a county cup tie and a ladder's own cup tie on one
+    // afternoon is a club picked for both — while two ladders' rounds have no club
+    // in common and share the day happily.
+    // How far a round may be moved from the Sunday it was anchored to.
+    //
+    // To the end of the season, and the week after it. A round anchored to a
+    // Sunday with no room near it used to have eight weeks to find one, which was
+    // enough while a county had two ladders and their cups and plates between
+    // them: eight rounds of the county's own cup could always find an afternoon
+    // the ladders' football was not on, however crowded the spring became. It is
+    // not enough for a county of six districts, whose two cups a level can no
+    // longer carry — six League Cups, six Plates and a county cup drawn from every
+    // club in the county is seventy-five rounds to date on twenty-two free
+    // Sundays, and the last of them are anchored in the weeks the others need. The
+    // season itself is the limit, which is the honest one: a round is moved as far
+    // as it takes to be played inside the season that drew it, and the round is
+    // refused rather than squeezed in if even that is not far enough.
+    const lastSunday = addDays(league[league.length - 1]!.date, 7);
+    // And no round of a competition may be played before one of its own that is
+    // already dated: with a whole season to move a round into, a later round could
+    // otherwise find room in an earlier week than the round it is supposed to
+    // follow.
+    const notBefore = slot.competitionId ? (lastRoundDate.get(slot.competitionId) ?? null) : null;
+    let candidate: ISODate | null = null;
+    let christmas = true;
+    let clash: { league: boolean; rounds: PlacedCupSlot[] } | null = null;
+    for (let sunday = anchor; sunday <= lastSunday; sunday = addDays(sunday, 7)) {
+      if (isChristmasBreak(sunday)) continue;
+      christmas = false;
+      if (notBefore !== null && sunday <= notBefore) continue;
+      const occupied = blocking(slot, sunday);
+      if (!occupied.blocked) {
+        candidate = sunday;
+        break;
+      }
+      clash = occupied;
     }
-    if (isChristmasBreak(date)) {
+    if (candidate === null) {
       placements.push({
         ...slot,
         date: null,
         matchday: null,
-        reason: `every Sunday within eight weeks of ${anchor} falls in the Christmas break`,
+        shared: [],
+        reason: christmas
+          ? `every Sunday between ${anchor} and the end of the season falls in the Christmas break`
+          : `every Sunday from ${anchor} to the end of the season is already taken${
+              clash && !clash.league && clash.rounds.length > 0
+                ? ' by another cup round whose field this one overlaps'
+                : clash?.league
+                  ? ' by a league matchday'
+                  : ''
+            }`,
       });
       continue;
     }
-    if (taken.has(date)) {
-      placements.push({
-        ...slot,
-        date: null,
-        matchday: null,
-        reason: `every Sunday within eight weeks of ${anchor} is already taken by a league matchday or another cup round`,
-      });
-      continue;
-    }
-    taken.add(date);
+    const date = candidate;
     const entry: SeasonCalendarEntry = { matchday: nextMatchday + extra.length + 1, date };
     extra.push(entry);
-    placements.push({ ...slot, date: entry.date, matchday: entry.matchday, reason: null });
+    const placed: PlacedCupSlot = { ...slot, date: entry.date, matchday: entry.matchday, shared: [], reason: null };
+    // Whoever else is already on this afternoon: the same date, a field it does
+    // not overlap, and so a round that is played alongside this one rather than
+    // instead of it.
+    for (const occupant of taken) {
+      if (occupant.date !== date || occupant.entry === null) continue;
+      occupant.entry.shared.push(placed);
+      placed.shared.push(occupant.entry);
+    }
+    taken.push({ date, clubs: slot.clubs === undefined ? null : new Set(slot.clubs), entry: placed });
+    if (slot.competitionId) lastRoundDate.set(slot.competitionId, date);
+    placements.push(placed);
   }
 
   // Numbered in one sequence, but the numbers are *not* in date order: a cup

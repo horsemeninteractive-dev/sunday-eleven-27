@@ -41,15 +41,40 @@ const GROUP_WEIGHTS: Array<{ value: PositionGroup; weight: number }> = [
 ];
 
 /**
- * How many men without a club the county can hold, per club in it.
+ * How many men without a club the county holds, per town in it.
  *
- * A Sunday league county of thirty-six clubs is a few thousand players; the men
- * in it who are good enough to be wanted and currently wanted by nobody are a
- * small fraction of that. The first season of the standard soak opens with a pool
- * of thirty-seven, so this is set to hold a pool of about that size — the drift
- * band is ±35% and a cap set here is what the band is holding the world to.
+ * This is the mean of the opening draw (`perTown` 2 to 4), so the pool a career
+ * opens with and the pool it is held to every summer after are the same size.
+ * The soak's `unattached-pool-holds` band is measured against the first season,
+ * and a cap set below the opening pool is a pool that drifts out of that band by
+ * construction.
  */
-export const POOL_PER_CLUB = 0.8;
+export const POOL_PER_TOWN = 3;
+
+/**
+ * The most men the unattached pool holds in a county of this many towns.
+ *
+ * The pool is generated per town (`perTown`, 2 to 4 men, three on average), so
+ * its size is a fact about the towns, not the clubs. The cap is that size, and
+ * every summer's refreshed pool is held to it with the new names counted inside
+ * it — see `refreshUnattachedPool`. Per club, as this used to be written, the cap
+ * is three-quarters of the opening pool in the six-district county and a third
+ * of it in one the game will grow into, which is why the soak's pool drifted.
+ */
+export function unattachedPoolCap(townCount: number): number {
+  return Math.max(12, Math.round(townCount * POOL_PER_TOWN));
+}
+
+/**
+ * The men over a cap, oldest first and then by id, so the same pool always loses
+ * the same men. Empty when the pool is within its cap.
+ */
+export function surplusOverCap(pool: readonly Player[], cap: number): Player[] {
+  if (pool.length <= cap) return [];
+  return [...pool]
+    .sort((a, b) => b.age - a.age || a.id.localeCompare(b.id))
+    .slice(0, pool.length - cap);
+}
 
 function qualityForTown(rng: Rng, town: Town): number {
   // A strong town club's standard is around 11-12; the unattached pool is a
@@ -142,18 +167,25 @@ export function refreshUnattachedPool(state: GameState, seasonStart: ISODate, id
     if (player.age >= 41 || (player.age >= 38 && player.attributes.physical.pace <= 5)) departed.push(player);
   }
 
-  // The surplus over the cap go as well, oldest and weakest first. Counting them
-  // against the cap is deliberate: they were in the pool this morning, and they
-  // are the reason the pool is no bigger than it is.
-  const clubCount = Object.values(state.clubs).filter((club) => club.active).length;
-  const cap = Math.max(12, Math.round(clubCount * POOL_PER_CLUB));
-  const staying = unattached.filter((player) => !departed.includes(player));
-  if (staying.length > cap) {
-    const surplus = [...staying]
-      .sort((a, b) => b.age - a.age || a.id.localeCompare(b.id))
-      .slice(0, staying.length - cap);
-    departed.push(...surplus);
+  // The summer's new names are made before the cap is read, not after it. The cap
+  // is the size of the whole pool, so an arrival is a man counted against it: a
+  // pool capped before its arrivals are added is the cap plus every summer's new
+  // names, which is the reservoir the cap exists to prevent. The men who come in
+  // this way are the ones the surplus is taken from as well, so the pool is held
+  // at its cap whatever the summer brings.
+  const arrivals = generateUnattachedPlayers({
+    seed: state.seed,
+    towns: Object.values(state.world.towns),
+    date: seasonStart,
+    idPrefix,
+    perTown: [0, 2],
+  });
+  for (const player of arrivals) {
+    if (state.people[player.id]) continue;
+    state.people[player.id] = player;
   }
+  const staying = [...unattached.filter((player) => !departed.includes(player)), ...arrivals];
+  departed.push(...surplusOverCap(staying, unattachedPoolCap(Object.keys(state.world.towns).length)));
 
   for (const player of departed) {
     delete state.people[player.id];
@@ -167,18 +199,7 @@ export function refreshUnattachedPool(state: GameState, seasonStart: ISODate, id
     }
   }
 
-  const arrivals = generateUnattachedPlayers({
-    seed: state.seed,
-    towns: Object.values(state.world.towns),
-    date: seasonStart,
-    idPrefix,
-    perTown: [0, 2],
-  });
-  for (const player of arrivals) {
-    if (state.people[player.id]) continue;
-    state.people[player.id] = player;
-  }
-  return arrivals;
+  return arrivals.filter((player) => state.people[player.id] === player);
 }
 
 /** Everybody who is not currently registered with a club. */

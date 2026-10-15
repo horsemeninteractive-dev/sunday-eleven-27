@@ -1,4 +1,5 @@
-import type { ClubId, CompetitionId, MatchId, PyramidId, RegionId, SeasonId } from './ids';
+import type { ClubId, CompetitionId, CountyId, MatchId, PyramidId, RegionId, SeasonId } from './ids';
+import { FOUNDING_COUNTY_ID } from './world';
 
 export type CompetitionKind = 'league' | 'cup';
 
@@ -35,6 +36,28 @@ export const DEFAULT_PYRAMID: PyramidConfig = {
 };
 
 /**
+ * The shape the county's second ladder is founded with.
+ *
+ * The same three divisions of twelve and the same two cups as the founding
+ * county, because a district next door is the same sort of place with the same
+ * sort of football in it. It was founded with its cups turned off, while the
+ * calendar held one cup lane and two ladders' cups would have collided on it;
+ * the lanes exist now, so a district's League Cup and Plate are drawn and played
+ * on the same Sundays as the county's own — the two fields have no club in
+ * common, which is what makes that safe — and the county cup takes the afternoons
+ * neither of them can use.
+ *
+ * Kept as its own constant rather than folded into `DEFAULT_PYRAMID` because the
+ * two answer different questions: that one is the shape a *county* is founded
+ * with, this is what a district next door is given, and a later stage that wants
+ * the district's ladder to be shorter, or its promotions to be fewer, changes it
+ * here without touching the county the player has always played in.
+ */
+export const SECOND_PYRAMID_CONFIG: PyramidConfig = {
+  ...DEFAULT_PYRAMID,
+};
+
+/**
  * One local ladder of football, and everything it owns.
  *
  * A pyramid is not a competition: it is the ladder the competitions belong to.
@@ -47,7 +70,7 @@ export const DEFAULT_PYRAMID: PyramidConfig = {
 export interface Pyramid {
   /** Also the id prefix of every competition it owns: 'league' → comp_league_t1. */
   id: PyramidId;
-  /** 'Wyre Valley Sunday League'. */
+  /** 'Alderford Sunday League'. */
   name: string;
   /** The region it draws its clubs from. */
   regionId: RegionId;
@@ -120,6 +143,61 @@ export interface CupRound {
 }
 
 /**
+ * Where a cup's entrants come from.
+ *
+ * A competition says so itself rather than having it inferred from the shape of
+ * its id, because the world's cups are drawn from three different populations:
+ * a ladder's own cup from that ladder's divisions, a county cup from the clubs
+ * of one county whatever ladder they play on, and an invitation cup from a list
+ * somebody wrote down. Ownership is a separate question with a separate answer —
+ * `Pyramid.cupIds` — because a cup the whole county plays in belongs to no
+ * ladder at all.
+ *
+ * A county's field names its county, so two counties' cups are two fields rather
+ * than one population read twice: a cup that says nothing about which county it
+ * belongs to is the career's own, which is exactly what every county cup written
+ * before counties had ids meant, and is the founding county's for as long as a
+ * career has one.
+ */
+export type CupField =
+  | { kind: 'pyramid'; pyramidId: PyramidId }
+  | { kind: 'county'; countyId?: CountyId }
+  | { kind: 'invitation'; clubIds: ClubId[] };
+
+/**
+ * The one place an absent field becomes a field.
+ *
+ * A cup that says nothing about its field is the founding pyramid's own, which
+ * is what every cup written before fields existed meant and what every ladder's
+ * own cup still means. Resolving it here rather than at each reader is what keeps
+ * a legacy save readable by the season builder, the cup generation and anything
+ * else that asks without three copies of the same fallback.
+ */
+export function cupFieldOf(cup: CupState | undefined): CupField {
+  return cup?.field ?? { kind: 'pyramid', pyramidId: FOUNDING_PYRAMID_ID };
+}
+
+/**
+ * The field as it is *stored*: the founding pyramid's own, and the founding
+ * county's own, are left unsaid.
+ *
+ * Absent already means the founding pyramid exactly, so a ladder's own cup writes
+ * nothing and a save written before fields existed is shaped exactly like one
+ * written after. The founding county's cup is stored as a plain `county` field
+ * for the same reason: every county cup ever written says that, and a career with
+ * one county is the career that field was always about. Anything else — another
+ * ladder's field, another county's, an invitation — is written down, because for
+ * those the silence would mean the wrong thing.
+ */
+export function storedCupField(field: CupField): CupField | undefined {
+  if (field.kind === 'pyramid' && field.pyramidId === FOUNDING_PYRAMID_ID) return undefined;
+  if (field.kind === 'county' && (field.countyId === undefined || field.countyId === FOUNDING_COUNTY_ID)) {
+    return { kind: 'county' };
+  }
+  return field;
+}
+
+/**
  * A knockout competition's own state.
  *
  * The ladder itself is held by the competition record; this is only the
@@ -128,6 +206,12 @@ export interface CupRound {
  * is read back out of `state.matches` rather than stored twice.
  */
 export interface CupState {
+  /**
+   * Where its entrants come from. Absent means the founding pyramid's own — see
+   * {@link cupFieldOf} — which is what every cup in a one-pyramid career means,
+   * and a `county` field without a county id means the career's own county.
+   */
+  field?: CupField;
   /** Which round is being played, 1-based. */
   round: number;
   /** The club that has won it, once decided. */

@@ -88,6 +88,19 @@ export function getGround(state: GameState, id: string): Ground | undefined {
   return state.world.grounds[id];
 }
 
+/**
+ * The town a club is registered in: the place its ground stands on.
+ *
+ * A league table and a fixture list name clubs and never say where they are
+ * from, and the town is the one thing about a club a manager already knows — it
+ * is what the district map drew before he picked one. A club whose town the
+ * world no longer carries answers nothing rather than the wrong place.
+ */
+export function clubTown(state: GameState, clubId: ClubId): Town | undefined {
+  const club = state.clubs[clubId];
+  return club ? state.world.towns[club.townId] : undefined;
+}
+
 export function getBusiness(state: GameState, id: string): Business | undefined {
   return state.world.businesses[id];
 }

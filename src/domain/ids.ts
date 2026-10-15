@@ -5,6 +5,14 @@
  * naming them makes it obvious which entity an id belongs to at every call site.
  */
 export type WorldId = string;
+/**
+ * A county: the piece of the country a career is played in.
+ *
+ * Opaque like every other id here — the name is display data and the id is the
+ * identity, so a county can be renamed, and a second one added beside it,
+ * without anything that belongs to it moving.
+ */
+export type CountyId = string;
 export type RegionId = string;
 export type TownId = string;
 export type GroundId = string;

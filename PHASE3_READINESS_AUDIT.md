@@ -4,6 +4,21 @@
 
 **Code state audited:** branch `main`, `GAME_STATE_VERSION = 23` (`src/domain/game.ts`), 115 fast test files / 1,482 tests passing, typecheck clean.
 
+**Status of this document.** It is a *historical* record: the audit was written
+before the work, for the two-pyramid Stage A. The stages it plans have all been
+delivered, and the milestone they were steps towards — **Alderfordshire's six
+districts, 216 clubs, thirteen competitions** — has since been implemented and
+measured. The audit's plan, assumptions and open questions are kept as written
+(the as-built sections at each stage record what actually happened, including
+where the implementation disagreed with the plan); the definitive statement of
+what the county is today, what it cost and what it was measured at is
+**`PHASE3_COMPLETION_REPORT.md`**. Two readings of this document are stale rather
+than historical, and are corrected here rather than silently: `GAME_STATE_VERSION`
+is **28** (`from < 23` regions and pyramids, `from < 26` the county's name,
+`from < 27` counties, `from < 28` the district mark), and the two-district world
+this audit calls Stage A's ceiling is **not** a ceiling — the same generator
+founds every district the county's authored list holds.
+
 ---
 
 ## 1. Executive verdict
@@ -250,7 +265,30 @@ Together the two halves are 156 files and 2,127 passing tests (2 skipped).
 * `--seasons=10` soaks on three seeds, and the per-day latency (mean/p95) instrumentation §6.4 asks for.
 * Any preview/browser verification.
 
-### 8.5 What Phase 3 needs, as tests
+### 8.5 Measured after Stage 2 (the second region and its ladder, on this machine today)
+
+| Command | Result |
+| --- | --- |
+| `npm run typecheck` | exit 0, no output |
+| `npm test` (the **fast** half) | **118 files, 1,505 tests, all passing**, 239.0 s wall |
+| `npm run test:slow` | exit 0, **41 files, 645 passed, 2 skipped**, 853.4 s — the run after the last code edit |
+| `npm run soak -- --seasons=2 --seed=soak` | exit 0, **zero `fail` violations**, 29 `club-in-the-red` warnings, 71 then 74 postponements, 0 abandoned, 357 then 364 days a season, 208.5 s for two seasons |
+| `npm run benchmark` | two ladders of 12/12/12 (`Brue Valley`, level 1 · `Cale Valley`, level 2), 72 active clubs, 799 fixtures a season (792 league, 4 cup, 3 friendly), 33 calendar entries, 2,072 people, state **6,526 KB**; full engine **2,266.1 ms/match**, fast **6.58 ms/match**, season loop **105.9 s** (819 fast + 30 full fixtures) |
+
+The fast half is 2.3× its §8.1 wall time and the soak 2.6×, and both are the **world being twice the size**: a test career founds 72 clubs where it founded 36, and the season plays 808 league fixtures where it played 404. The founding county's own football is unchanged — `worldGenerator.test.ts` builds the same seed both ways and holds the two against each other club by club, town by town and division by division.
+
+The benchmark's per-match figure is **not** a Stage 2 effect. A throwaway probe measured the same fixtures in a one-ladder and a two-ladder world of the same seed, twice each:
+
+| World | Full engine, a match | Fast mode, a match | State |
+| --- | --- | --- | --- |
+| 36 clubs, one ladder | 2,074.1 – 2,278.0 ms | 3.40 – 6.29 ms | 3,186 KB |
+| 72 clubs, two ladders | 2,166.4 – 2,243.2 ms | 3.40 – 3.68 ms | 6,526 KB |
+
+The engine's cost does not move with the size of the world; state size is linear in clubs (3,213 KB historical → 3,186 KB measured at 36 clubs → 6,526 KB at 72). Today's absolute engine times are ~2.2× the §8.1 reading *in a one-ladder world as well*, so §8.1's `967.2 ms/match` is a single reading under different machine conditions rather than a baseline this branch regressed against — the controlled comparison above is the one to carry forward.
+
+The soak's `tier1`/`tier2`/`tier3` columns still read the founding ladder's three divisions, so the trend table is the table §8.1 recorded and stays comparable across the change. The district's divisions are policed by the invariants rather than printed: division sizes are held as six entries, `tier-ability-stable` is read per division index, `tier-stratification` now walks each ladder's rungs on its own, and `promotion-balance` counts each ladder's boundaries (four across two ladders, so eight promoted and eight relegated a season — which is what the run shows).
+
+### 8.6 What Phase 3 needs, as tests
 
 1. **Two pyramids** — 72 active clubs, each in exactly one division of exactly one pyramid (extend `checkPyramid`), both ladders' competitions owned correctly, `leagueCompetitions(state)` seen as six.
 2. **Founding-pyramid continuity** — an expansion-in-place test: pre-expansion save → migrate → club ids, honours, season records and season-1 fixtures identical; the same migration run twice is identical.
@@ -290,6 +328,38 @@ Record the §8.1 numbers in `SOAK.md`/`CHANGELOG`-adjacent prose so every later 
 * **Risk.** Changing region assignment could move the *founding* pyramid's towns — it must not: with one region nothing may change, and the founding pyramid's club ids and fixtures must be identical to the baseline.
 * **Persistence.** None yet (fresh careers only).
 
+**Delivered (Stage 2, as built).** The district next door is founded from its own
+streams by `foundSecondPyramid` in `generation/worldGenerator.ts`, called by
+`generateWorld` after the county is complete — so nothing the county has already
+drawn moves. `generateDraft({ pyramids: 1 })` still produces the county's clubs,
+towns, grounds, squads, rivalries and divisions byte for byte, and in a
+two-ladder career every match of the county's is the match it was in a one-ladder
+one; `worldGenerator.test.ts` and `worldExpansion.test.ts` assert both. The
+district is drawn in the emptiest quarter of the map (a seeded maximin over a grid
+of candidate centres), its settlements are generated around that centre, and each
+new settlement's region is written by `nearestRegion` — nearest centre, ties
+broken by the world's own stream.
+
+**The one place this plan and its own risk note disagree.** "Towns partitioned by
+nearest centre" cannot be applied to the *founding* county's towns without moving
+some of them: a region centred on the mean of its own settlements is never the
+nearest centre to every one of them, so any second centre takes a handful — which
+is exactly what the risk note forbids, a moved town being a club moved between
+ladders. Stage 2 therefore puts new settlements to the test and leaves a town the
+county already has in the region it was drawn in, which is what `Town.regionId`
+has always promised. Both halves are asserted: every founding town is still in
+`region_1`, and every district town is still nearer its own centre.
+
+**Cups were off at Stage 2, on purpose.** `SECOND_PYRAMID_CONFIG` was the founding
+shape with `leagueCup` and `consolationCup` false, because two ladders' cups need
+the calendar lanes Stage 3 builds, and a ladder with no cup needs no cup dates —
+which is why the county's own calendar was identical between a one-ladder and a
+two-ladder career at that stage. **Stage 3 turned them on**; see "Delivered
+(Stage 3, as built)" below. The continuity claim those tests made is unchanged
+and is now the stronger one: the founding ladder's league Sundays *and its own cup
+rounds* are still the ones a one-ladder career plays, entry for entry
+(`worldExpansion.test.ts`).
+
 ### Stage 3 — Calendar lanes and the county cup
 * **Objective.** Two pyramids' cups share Sundays where their fields are disjoint; a county cup gets dates of its own; every round is placed or the season is refused.
 * **Files.** `calendar.ts` (`placeCupRounds` lane/group parameter; a way to request a Wednesday on purpose), `seasonStructure.ts` (place all lanes together, name the contending competition in the report), `timeline.ts` (`matchdayOnDate` revisited if any two lanes share a date they should not), `day.ts` (`prepareToday`), `cup.ts` (`seedOrder`/`isGiantKilling` by `levelOf`).
@@ -298,6 +368,104 @@ Record the §8.1 numbers in `SOAK.md`/`CHANGELOG`-adjacent prose so every later 
 * **Acceptance.** `npm run soak -- --seasons=5 --seed=vale-1` and `vale-2`: zero failures; `cup-decided`, `cup-round-has-date` both zero.
 * **Risk.** Booking a club twice across lanes — guarded by `fieldIsFree`/`clubBusyOn` and by `no-club-plays-twice-in-a-day`, which is the phase's true backstop.
 * **Persistence.** None (calendar and competitions are rebuilt each season).
+
+**Delivered (Stage 3, as built).** Three things changed, and one of them is not
+what this plan proposed.
+
+*Lanes are a property of the fields, not a list of names.* `placeCupRounds` takes,
+per slot, the clubs its round *could* draw (`CupRoundSlot.clubs`) and serves a
+Sunday to a round unless the date is already held by a league matchday (which
+speaks for the whole world) or by a round whose field overlaps this one's. Two
+rounds therefore share a date exactly when no club could be in both — which is the
+two ladders' cups, and not the county cup, whose field is the county. Disjointness
+is asked of the *entry* field rather than of the ties drawn, because this is
+decided when the season is built and the draw has not happened yet. A slot that
+says nothing about its field overlaps every other round, which is the
+one-round-per-Sunday behaviour every caller had before lanes existed, so a legacy
+or hand-built request is unchanged. A round that shares a date carries the rounds
+it shares it with in `PlacedCupSlot.shared`, which is what lets the builder's
+refusal name the competition it actually collided with.
+
+*The district's own cups are on.* `SECOND_PYRAMID_CONFIG` is the founding shape
+again, so a new career founds **five** cups: each ladder's League Cup and Plate —
+each drawn from its own ladder's 36 clubs — and a County Cup drawn from the 72
+active clubs of both and owned by no ladder (`pyramidIdOf` answers null for it).
+`countyCupRequests(ladders)` is the one place that decides whether the county runs
+one: it asks for none in a county with a single ladder, where the ladder's own cup
+already is the county's cup, which is what keeps a one-ladder career's calendar
+and competition list exactly what they were.
+
+*Every round is dated and numbered, and no Wednesday was needed.* The founding
+ladder's cups keep matchdays 23–33, the district's take 34–44, and the county cup
+takes 45–52. The two ladders' cups play the off-week Sundays the league leaves free
+(2026-09-13, 2026-10-11, 2026-11-08, 2026-11-22, 2027-01-17, 2027-01-31 …), and
+the county cup's eight rounds take the Sundays neither the league nor either
+ladder's cups are using: 2026-09-27, 2026-10-25, 2026-12-06, 2027-02-14,
+2027-03-14, 2027-04-11, 2027-05-23 and the final on 2027-07-18, the last date of
+the season. **This is the answer to §4.2(5) and to open question 8**: no midweek
+round is necessary, so `seasonShape.test.ts`'s "every cup date is a Sunday" still
+holds and the calendar keeps its one weekday instead of gaining a weekday request
+it did not need. The season is three weeks longer than a one-ladder career's
+because the county cup's rounds are afternoons nobody else can use; that is the
+county cup's cost and it is the only thing about the county's own season that
+moved.
+
+*The day loop prepares a date, not a matchday.* Two rounds can be on one
+afternoon, so `prepareToday` walks every calendar entry dated today rather than the
+first one the calendar happens to hold (`day.ts`), and `matchdayOnDate` answers
+with an entry that really is on the day asked about. Nothing reads a round off a
+position in the calendar.
+
+**Ownership, and the legacy fallback (audit §6).** `foundingPyramid(state)` — the
+record a career written before ladders existed is read with — now claims a cup
+only when its *field* says the founding ladder owns it (a cup with no field at all
+is the founding ladder's, which is what every pre-field cup meant) instead of
+claiming every cup in the world. A county cup therefore cannot leak into a
+ladder's `cupIds`, and from there into a ladder's views or its rollover. Cup
+seeding and giant-killing comparisons read `levelOf` rather than the bare tier, so
+a county cup tie between the two ladders is seeded and reported as the difference
+in football it is: a district top-division side beating the county's third
+*division* is not two rungs and a giant killing.
+
+**One deviation from this plan.** It proposed lanes *by name*, and the
+architecture document proposed Wednesdays for the county cup's later rounds
+(§4.2.5). What was built asks the question the scheduler can actually answer at
+build time — do these two rounds have a club in common? — and needed no weekday:
+the two ladders' rounds share, which frees enough off-week Sundays for the county
+cup's eight. The lane *model* is therefore smaller than planned and the calendar is
+unchanged from Stage 2's; the plan's own risk note ("booking a club twice across
+lanes") is discharged by the field test rather than by naming the lanes.
+
+### 8.7 Measured after Stage 3 (the lanes and the county cup, on this machine today)
+
+| Command | Result |
+| --- | --- |
+| `npm run typecheck` | exit 0, no output |
+| `npm test` (the **fast** half) | **119 files, 1,517 tests, all passing**, 192.1 s wall |
+| `npm run test:slow` | exit 0, **41 files, 646 passed, 2 skipped**, 732.8 s — the run after the last code edit |
+| `npm run soak -- --seasons=2 --seed=soak` | exit 0, **zero `fail` violations**, 26 `club-in-the-red` warnings, 83 then 84 postponements, 0 abandoned, **364 then 364 days** a season, **179 cup ties** a season, 192.7 s for two seasons |
+| `npm run build` | exit 0 |
+| `npm run benchmark -- --seasons=1` | 72 active clubs in two ladders of 12/12/12 (`Brue Valley` level 1 · `Cale Valley` level 2), **807 fixtures** a season at build (792 league, 12 cup, 3 friendly) and **974 played** over the season (friendly, league and all five cups), **52 calendar entries** (22 league Sundays, 30 cup rounds on 41 distinct dates), span 315 days; full engine **1,618.4 ms/match**, fast **4.38 ms/match** (370×), **364 days** for the season, **89.8 s** for the loop, fresh state **6,541 KB** |
+
+Against §8.5's Stage 2 readings, the world is the same size and the same speed per match, and the football is what changed:
+
+| | Stage 2 | Stage 3 |
+| --- | --- | --- |
+| Calendar entries | 33 | 52 (41 distinct dates) |
+| Fixtures at build | 799 | 807 |
+| Matches played in the season | 849 | 974 (+125) |
+| Cup ties a season | 54 (one ladder's cup and Plate) | 179 (two ladders' cups and Plates, plus the county cup) |
+| Postponements (2 seasons) | 71, 74 | 83, 84 |
+| Days a season | 357, 364 | 364, 364 |
+| Fresh state | 6,526 KB | 6,541 KB |
+| Full engine, a match | 2,266.1 ms | 1,618.4 ms |
+| Fast mode, a match | 6.58 ms | 4.38 ms |
+
+The +125 matches are exactly the football the county cup and the district's two cups add (54 + 71), and the +19 calendar entries are the 30 cup rounds minus the 11 dates the two ladders share. **Nothing about the founding ladder's own season moved**: its league Sundays and its own cup rounds are the ones a one-ladder career plays, entry for entry (`worldExpansion.test.ts`).
+
+**The season-end state size is worth reading properly, because it looks alarming and is not.** A season's state reaches **83,396 KB** against 6,541 KB at its start — and 65,878 KB of that is `state.matches`: every match played this season keeps its event record until the roll-over rebuilds the match map, which is what the game has always done. It is proportional to football played (≈65 KB a match, the manager's own 32 full-engine games costing a large multiple of the background ones) rather than to the world, so the five-cup world's +125 matches are why it is 83 MB where a two-cup season's would be about 74 MB. The number the Phase 3 acceptance criterion names — the state the game is *founded* with — is the 6,541 KB above, which is Stage 2's 6,526 KB. **The in-season save size is a real thing to look at, and it is a Phase 4 question about how much of a played match the save keeps, not a Stage 3 regression**; it is recorded here so it is not rediscovered as one.
+
+**One bug the soak caught, and one the benchmark's own arithmetic did not.** `honours-not-duplicated` fired six times on the first Stage 3 run: both ladders' cups were called `Sunday League Cup`, so the district's winner was filed under the county's trophy — an honour is a string, `${season} ${name} winners`. Cups are now named after the ladder that runs them (`cupNameFor`), exactly as divisions are: the county's keep the names they have always had and the district's carry its region. The benchmark's season loop, by contrast, watched `state.season.id` for the end of the season — and the id only changes at `startNextSeason`, which the tool calls between seasons — so it played **420 days** through a season that had ended on day 364 and read the state four hundred days of nothing had grown into as "the state at a season end". It stops on `season.finished` now. Both are fixed, and the numbers above are from the fixed code.
 
 ### Stage 4 — Season-boundary activation and migration
 * **Objective.** An existing career gains the second pyramid at its next roll-over, once.
@@ -308,6 +476,32 @@ Record the §8.1 numbers in `SOAK.md`/`CHANGELOG`-adjacent prose so every later 
 * **Risk.** The one-way door: a v24 save cannot be opened by a v23 build. Mitigation: document it in the version note and make the marker's effect minimal and idempotent.
 * **Persistence.** **Yes — `GAME_STATE_VERSION` 23 → 24**, additive only.
 
+**Delivered (Stage 4, as built).** An existing one-ladder career gains the district at its next roll-over, once. §7.2(1)'s `state.pendingWorldExpansion` is realised as **`state.worldExpansion: { pending, expandedInSeasonId? }`** — the state's conventions are records with a shape of their own rather than bare booleans, and the consumed form has to say *which* boundary did it. `GAME_STATE_VERSION` is **24**, and the migration is one line of consequence — `if (from < 24) markWorldExpansion(state)` — which writes `state.worldExpansion = { pending: <the world has one ladder> }` and touches nothing else: no club, region, ground, date or result. The founding itself is a new module, `simulation/worldExpansion.ts`. `activateWorldExpansion` is `startNextSeason`'s **first act**, before last season's movements are settled and before the ladders are read, so the season is built for both pyramids in the one `buildSeasonStructure` call rather than built once and appended to; the district's ladder is handed to that build as its divisions, and `applyMovements` is deliberately *not* run for it — a ladder founded this afternoon has no table to settle, which is §5's "do not apply founding-pyramid movements to the new pyramid before it has completed its first season". Five decisions are worth recording.
+
+1. **The marker is spent before anything is generated.** A failure below it leaves the county with the one ladder it has rather than founding a second district on the next attempt, and a world that already has a second ladder or a second region is left exactly as it is: the marker is cleared and the boundary moves on. Loading a save twice cannot answer the question twice, and the marker travels with the career rather than living in a session.
+2. **The second region is populated by its own settlements** — open question 5's option (a). `migrateToRegions` puts every town of an old career in `region_1`, and expanding *that* by reassigning club-less villages would move a town's football, which `Town.regionId` forbids. So the map's emptiest quarter is found and the district's settlements are drawn in it (the Stage 2 generator, unchanged), and its clubs are only ever minted into sites that are already in the district. Some of those drawn settlements land nearer the county and stay in `region_1` with no club of the district's in them — Stage 2's documented deviation, unchanged by this stage.
+3. **Ids continue the *save's* own count.** `foundSecondPyramid` gained `firstTownIndex`/`firstBusinessIndex`, read off the ids the career actually holds (the highest number in use, plus one) rather than off the length of the lists it was handed: a played career is not the world a fresh generator would write, and `town_<n>` numbered from the wrong end is a town id that already exists. Club, ground and person ids stay prefixed by the ladder's own id, so nothing a later migration mints can collide with them.
+4. **The district's clubs take no part in the summer that is closing.** Activation happens before the ageing, the youth intakes, the transfer business (`runAiClubSummer`) and the finance review, all of which read `leagueClubIds` — which at that point is still *last season's* competitions, and so is the county's alone. The district's clubs were minted minutes earlier with a squad, a committee, a ground and a kitty; their first summer is the season they are about to play. Everything that belongs to the *new* season (annual costs, sponsorship review, the managers' market, the staff lifecycle, season records, standings, matchday one) runs after the build and so covers all six divisions.
+5. **The manager is told once, in the news** (`type: 'world'`, dated the first day of the new season), rather than in a store notice or on a screen: it is the channel the world tells him about itself in, and no UI file is touched.
+
+The other half of the migration is what a career that is *already* two-laddered gets: `{ pending: false }`, recorded so that opening the same save twice is the same answer twice — and so that a career expanded by an earlier build can never be expanded again.
+
+**Tests.** `worldExpansion.test.ts` grew a second describe, "a career that is owed the district next door" (nine tests): the county is one ladder through a fortnight of the real day loop and through `finishSeason`, and two the moment `startNextSeason` runs; the district is founded exactly once, at the boundary, and the mark is spent doing it; a mark on a world that already has both ladders founds nothing; rolling the same career twice, once owed and once not, leaves the county identical club for club, honour for honour, competition for competition and fixture for fixture; the district's ids are unique against the career's own, every club of it has a town in the district, a ground on that town, a squad, a committee and a season record, and no club is in two divisions; the same career is founded the same district twice (ids, towns, grounds, identities, squads); the expanded season has the five cups with the right fields and ownership, a Sunday-only calendar with one matchday per entry, every cup tie numbered and every competitive fixture dated, and nobody playing twice in a day; the expanded career plays its first two-ladder season, settles boundaries in *both* ladders at its close and rolls over again without growing a third; and a career born with both ladders is never marked, never expanded and never given a third. `persistence.test.ts` grew "the district next door" (four tests): a version 23 one-ladder save opens marked and otherwise untouched, with `{ pending: true }` surviving a save and a reload; a version 23 two-ladder save opens `{ pending: false }`; and a marked career got its district at the boundary, ran ten weeks of the *real* day loop on the expanded world — until the county cup's opening round had been played out, with league football played in both ladders and nobody booked twice on an afternoon — kept its district across a save and a reload, and rolled over a second time without a third. The pre-existing migration test that rolled a v22 career over expecting one ladder now expects the district, deliberately: a one-ladder career is exactly what a district is owed to, and the test's intent (a migrated career plays its boundary through the pyramids' own records) is unchanged.
+
+**Measured after Stage 4 (this machine, the run after the last code edit).** Stage 4 is designed to change nothing about the world a fresh career is founded with, and it does not — every figure is Stage 3's, within this machine's variance.
+
+| Command | Result |
+| --- | --- |
+| `npm run typecheck` | exit 0, no output |
+| `npm test` (the **fast** half) | **119 files, 1,526 tests, all passing** (1,517 + the nine above) |
+| `npm run test:slow` | exit 0, **41 files, 650 passed, 2 skipped** (560.2 s) |
+| `npm run test:soak` (gated) | exit 0, **13 tests, all passing** (236.1 s) |
+| `npm run soak -- --seasons=2 --seed=soak` | exit 0, **zero `fail` violations**, 26 `club-in-the-red` warnings, 808 fixtures a season, 179 cup ties, 83 then 84 postponements, 0 abandoned, 364 days a season, 116.9 s |
+| `npm run build` | exit 0 |
+| `npm run benchmark -- --seasons=1` | 72 active clubs in two ladders of 12/12/12, **807 fixtures** a season, **52 calendar entries** (22 league Sundays, 30 cup rounds), fresh state **6,541 KB**, season-end **83,396 KB**; full engine **991.0 ms/match**, fast **2.58 ms/match** (385×); season loop **52.4 s** (942 fast + 32 full fixtures) |
+
+Against §8.5's Stage 2 and Stage 3 tables, nothing moved: same 72 clubs, same 807 fixtures, same 52 calendar entries, same 6,541 KB fresh state, the same season-end 83 MB a played season has always reached. The per-match times are lower than the Stage 3 reading and in line with §8.1's, which is the same machine-condition variance §8.5 already records — Stage 4 touches a fresh career's world not at all, so it is the wrong change to hang a timing on.
+
 ### Stage 5 — Per-pyramid invariants, budgets and the World screen
 * **Objective.** The soak watches each ladder; the state-size budget is a test; the world screen shows what changed.
 * **Files.** `soak.ts` (`checkPyramid` per pyramid, `tierSizes`/`tierAbility` per pyramid, a state-size invariant), `tools/soak.ts` (print it), `WorldView.tsx`, `queries.ts`, `LeagueView.tsx`, `ClubView.tsx`, `CupView.tsx` (the Plate photo keyed by id).
@@ -317,7 +511,70 @@ Record the §8.1 numbers in `SOAK.md`/`CHANGELOG`-adjacent prose so every later 
 * **Risk.** An over-strict new invariant firing on the current world — investigate, do not relax (Phase 0's own guidance).
 * **Persistence.** None.
 
-**Explicitly not in these stages:** cross-pyramid movement, the per-competition archive, `levelOf`-switching the money/churn/sponsorship readers, four pyramids, neighbouring counties. All are Phase 4/5 in the document and must stay there.
+**Delivered (Stage 5, as built).** Both halves of the stage are in, and the screens are the larger half — with career creation, which this plan left to open question 4, delivered with them.
+
+*The ladder is now the unit every screen reads.* One module, `src/ui/worldNav.ts`, answers the four questions the screens all ask — which ladders the world has, which one is the manager's, which divisions make up this one, and whose cup is this — so four screens cannot each answer "which ladder is mine" differently. `pyramidOptions` reads `pyramidsOf`/`divisionsOf`/`regionNameFor`; `ownPyramidId` and `defaultPyramidId` answer club-first (`divisionOf` → `pyramidIdOf`), which is the same reading §2.1's `pyramidOf` note settled; `cupOptions` reads each cup's **declared field** through `cupFieldOf` (so a Plate that has not been filled yet is still its ladder's Plate, and the County Cup is nobody's ladder's) and sorts them the way a manager thinks of them: his ladder's, the one next door, then the county's. Nothing in the module writes, and a test holds that: `pyramidOptions`, `cupOptions` and `ladderChoices` on a live career leave `JSON.stringify(state)` byte-identical.
+
+*The picker is one component.* `src/ui/components/PyramidPicker.tsx` is the same tabstrip in all three places a manager chooses which football he is looking at — the club-selection list, the club designer and the league table — labelled by the region the ladder draws its clubs from (the shortest true name it has) with the ladder's own long name, its level and its size in the tooltip behind it. **A world with one ladder draws nothing at all**: a tabstrip with one tab cannot change anything, and that guard lives in the component rather than in each caller, so a career written before the district existed looks exactly as it did.
+
+*Career creation reads the draft, not the county* (open question 4, answered). `ClubSelectView` builds its lists from `draftLadderOptions(draft)` — every ladder the draft was generated with, its own regions, its own divisions by their own names — instead of the founding ladder's flat division list, which had quietly made the district's 36 clubs unplayable. The chosen club's **league and division are named on its own card** before the career is confirmed, and moving the ladder or the division does not drop the club he has chosen: reading somebody else's table is not changing his mind, and a screen that unselected it for him would be deciding for him. `CreateClubView` gained the same picker, and the club he builds joins the foot of the ladder he chose rather than the county's own — `bottomDivisionClubIds(draft, pyramidId)` and `displacedClubId(draft, pyramidId)` decide which club loses its place, and `townChoicesFor(draft, pyramidId)` offers that ladder's region's towns. A design that names no ladder still builds in the county's own: the default is not a new rule, it is every design written before a second ladder existed.
+
+*A completed career can read the whole world without moving in it.* `LeagueView` opens on the manager's own ladder and his own rung wherever he is managing, offers every ladder the county has and, inside one, every rung it has — with "· yours" on his ladder and on his division so a manager browsing next door can see at a glance which football is his. The division tabs wear the name the season gives them without the ladder's own name in front of them (`Division Three`), read from the same `divisionNameFor` the league table is built with. `CupView` offers **five** competitions — each ladder's League Cup and Plate, named after the region that runs them, and the County Cup — each tab's tooltip saying in full whose competition it is, and the header repeating it (`owner` and `kind`) before any bracket, because a ladder's cup and the county's are read differently. `WorldView` lists the county's ladders — name, region, level, clubs, divisions — counts the regions, and names a club's region and its league in its own panel. The founding ladder's cups keep the labels they have always had (`Cup`, `Plate`); a ladder next door's carry its region, which is the same rule its divisions and its competitions' names follow.
+
+*Legacy saves.* No migration was added and none was needed: the browsing reads whatever the career holds. A one-ladder career yields one ladder (`pyramidOptions` has a defensive path for a save whose ladder records went missing, and a test for it), draws no picker, and shows two cups, both its own. A career that has been given the district at its boundary browses both ladders and five cups with no further state. Nothing about browsing can expand a world: the only thing that founds a district is the `worldExpansion` marker at a season boundary, and this milestone does not touch it.
+
+**Measured after Stage 5 (this machine, the run after the last code edit).**
+
+| Command | Result |
+| --- | --- |
+| `npm run typecheck` | exit 0, no output |
+| `npm test` (the **fast** half) | **122 files, 1,553 tests, all passing**, 197.4 s (the run after the last edit) |
+| `npm run test:slow` | exit 0, **41 files, 650 passed, 2 skipped**, 496.9 s |
+| `npm run build` | exit 0 (6.5 s, `dist/` written, precache manifest 88 files) |
+| `npm run soak -- --seasons=2 --seed=soak` | exit 0, **zero `fail` violations**, 26 `club-in-the-red` warnings, 83 then 84 postponements, 0 abandoned, 364 days a season, 124.1 s |
+| `npm run benchmark` | 72 active clubs in two ladders of 12/12/12, **807 fixtures** a season, **52 calendar entries** (22 league Sundays, 30 cup rounds), each ladder's cup 36 entrants and the county cup 72, fresh state **6,541 KB**; full engine **1,006.3 ms/match**, fast **2.78 ms/match** (362×), season loop **55.9 s** (942 fast + 32 full fixtures) |
+
+Against the Stage 4 table nothing moved that this stage could move: the same 72 clubs, the same 807 fixtures, the same 52 calendar entries, the same 6,541 KB, and the same soak line for line — 26 warnings, 83 then 84 postponements, no abandoned match, 364 days a season. The fast half's 122 files and 1,553 tests include the three suites this milestone added (`ui/worldNav.test.ts`, 17 tests — three of them new with the division labels; `ui/components/pyramidPicker.test.ts`, 4; `simulation/careerSetup.test.ts`, 6) and the fast-half count is the same world being browsed rather than simulated differently.
+
+**Browser pass (the real flow, `npm run dev`, Chromium at 1280×900 and 390×844).** On desktop: a new career's club list offered two ladders by region and three divisions each, opened on the founding ladder's top division with its strongest club selected, switched to the second ladder's bottom division without dropping the selection, and took charge of a club there; the career then opened its league table on **that** ladder's third division with the club marked `you`, and its Cup screen on that ladder's own cup. In the founding ladder, a career likewise opened on the county's own Division One with its club marked `you`. Switching ladders changed the table (12 clubs, none of them the manager's) and the division tabs showed `· yours` only inside his own ladder; switching back returned him to his own division. The cup tabs read `Cup`, `Plate`, `<region> Cup`, `<region> Plate`, `County Cup`, with each ladder's cup showing `36 of 36 in the draw` and the County Cup `72 of 72`. On a 390×844 viewport the menu, the club list, both tabstrips, the league table and the five cup tabs (wrapping to two rows) all rendered with **no horizontal overflow** (`scrollWidth === clientWidth`) and every control reachable, and the mobile screens sheet offered League Table, Cups and World. One reading through the cup screen is not a defect: the preliminary round of a 36-club cup is four ties, so 28 clubs — including a newly chosen bottom-division club — have a bye and so no cup fixture until the round they enter is drawn, which is the cup plan's own arithmetic and unchanged by this stage.
+
+**Not done, and known.** Stage 5's other acceptance items are not met by this milestone: there is still no **state-size budget test** (the fastest place for it is `soak.ts`, where the world is already built), and the five-season soak on three seeds has not been run — what ran for this stage is the gated `soak.test.ts` smoke (with the slow suite) and `npm run soak -- --seasons=2 --seed=soak` on one seed, both recorded above. The competition archive is still Phase 4 (open question 1), so a finished cup's brackets are still lost at the roll-over; this stage browsed the competitions that exist and added no archive. Finally, the Fixtures and Results screens remain the *manager's* schedule — browsing another division gives its table and the week's fixtures and results from the league screen, which is what the competition records carry.
+
+**Explicitly not in these stages:** cross-pyramid movement, the per-competition archive, `levelOf`-switching the money/churn/sponsorship readers, and neighbouring counties. All are Phase 4/5 in the document and must stay there. (The plan's "four pyramids" is delivered rather than deferred: Alderfordshire has six — see Stage 6 below.)
+
+### Stage 6 — Alderfordshire's six districts *(the milestone this audit was for)*
+
+* **Objective.** All six authored districts of Alderfordshire play football of their own: six three-division ladders, 216 clubs, eighteen divisions, six League Cups, six Plates and an Alderfordshire County Cup across the lot — for a career founded today and for one that is owed districts at a season boundary.
+* **Files.** `domain/districts.ts` (the authored list), `geography/alderland.ts` (`alderfordshireDistricts`, `districtCentreInWorld`), `simulation/generation/worldGenerator.ts` (`foundDistrictPyramid`, and a `generateWorld` that founds every district), `simulation/worldExpansion.ts` (`missingDistricts`, `activateWorldExpansion`, `markWorldExpansion`), `state/persistence.ts` (`from < 28`), `simulation/season.ts` (the expansion as `startNextSeason`'s first act), `ui/` (the map, the ladders, the cups).
+* **Dependencies.** Stages 2–5, all of them, including the screens: a district nobody can choose is not a district.
+* **Tests.** `simulation/countyWorld.test.ts` (the county as one world: six ladders, thirteen competitions, a full season rolled over, a save round trip, a career begun in any district and named after it), `simulation/worldExpansion.test.ts` (expanded in place: nothing the county held moves, the districts arrive once, repeatedly-rolled careers do not grow a seventh), `generation/worldGenerator.test.ts` (a two-district world is byte-for-byte what it was; the two districts the county has always had are unchanged in a six-district world), `geography/*` and `ui/worldNav.test.ts`/`ui/views/competitionNaming.test.ts` for the map, the names and the screens.
+* **Acceptance.** 216 clubs in eighteen divisions of twelve; every one of the thirteen competitions has a field of its own ladder's clubs or of the whole county; no club twice on a date; the season finishes and rolls over with all six standing; a legacy one-ladder save gains five districts at its next boundary and a two-ladder save four, exactly once; the map, the tables and the cups agree about which district is which.
+* **Risk.** The world's size (state and season time) and, above all, the temptation to give the sixth district a code path the fifth does not have. Both are measured, not assumed: §8–9 of `PHASE3_COMPLETION_REPORT.md`.
+* **Persistence.** `from < 28` marks the career; nothing is generated on load.
+
+**Delivered (Stage 6, as built).** The county is data. `domain/districts.ts` holds six `DistrictDefinition`s (region id, the map's name, level, ladder config, and — for the two districts the world has always had — `legacy`), `alderfordshireDistricts()` fills each map district's centre from the atlas, and `generateWorld` founds every one of them with `foundDistrictPyramid` — the function this audit knew as `foundSecondPyramid`, which is still the whole of the generator's district path. `foundSecondPyramid` is gone as a name because it was a true description of a two-ladder world and a false one of this one; its only callers were the generator and the expansion, and both moved to the district-shaped API in the same change.
+
+The expansion is a statement about districts rather than about a second ladder. `state.worldExpansion: { pending, expandedInSeasonId? }` keeps the shape Stage 4 gave it, and *what is owed* is read off the world — `missingDistricts` compares the career's own regions with the authored six — so a one-ladder save gains five, a two-ladder save four, a complete county none, and no roll-over can found a seventh district. `activateWorldExpansion` spends the mark before it mints anything, founds every owed district in the map's order, and hands the divisions back to the season that is being built; nothing the career already holds moves, and `worldExpansion.test.ts` holds it to that field for field, managers included.
+
+The geography is authoritative. Every town is drawn inside the region of the district it was founded for (`town.regionId` is the district's own id), every club's town is in the district its ladder belongs to, and a town-based club name is therefore a name from the place the club actually plays. The four districts the map added stand where the atlas draws them (`districtCentreInWorld`); the founding county and the district next door keep the ground the world has always drawn for them, which is what keeps a two-district world byte-for-byte the world it was — `worldGenerator.test.ts`'s `LEGACY_DRAFTS` baselines and `countyWorld.test.ts`'s "the two-district county with four districts beside it" are the two halves of that proof.
+
+The names come from the data. A ladder is `<region> Sunday League`, its divisions `<region> Sunday League Division One|Two|Three`, its cups `<region> Sunday League Cup` and `… Plate`, and the county's is **Alderfordshire County Cup** — all composed by the central helpers (`leagueNameFor`/`cupNameFor`/`divisionNameFor`), which is why the sixth district's names needed no code and why two districts cannot share a competition id (`comp_<ladder>_cup`, `comp_<ladder>_plate`, `comp_county_cup`).
+
+**Measured after Stage 6** (the run after the last code edit; this machine, branch `main`).
+
+| Command | Result |
+| --- | --- |
+| `npm run typecheck` | exit 0, no output |
+| `npm test` (the **fast** half) | **132 files, 1,646 tests, all passing**, 251.4 s |
+| `npm run test:slow` | exit 0, **44 files, 679 passed, 2 skipped** (760.6 s) |
+| `npm run build` | exit 0 (14.3 s, `dist/` written, precache manifest 90 files) |
+| `npm run benchmark -- --seasons=1` | six districts, **216 active clubs** in 18 divisions of 12, **2,407 fixtures** listed a season (2,376 league, 28 cup, 3 friendly), **97 calendar entries** (22 league Sundays, 75 cup rounds), each League Cup 36 entrants, each Plate 0 (filled by the League Cup's losers), the **County Cup 216**; fresh state **20,201 KB**, season-end **200,102 KB**; full engine **1,110.0 ms/match**, fast **2.79 ms/match** (398×), season loop **142.8 s** (2,886 fast + 31 full fixtures) |
+| `npm run benchmark -- --districts=2 --seasons=1` (the compatibility world, for comparison) | 72 clubs, **807 fixtures**, fresh state **6,544 KB**, season-end **83,431 KB** |
+| Browser walk-through (Electron against `npm run dev`, `.verify/se27-career.cjs`) | three careers — `region_1`, `region_2` and `region_3` — each from the profile step through the county map, district selection, club selection and into the game: six districts offered and none locked, the chosen district's **36 clubs in 3 divisions** and no picker to escape it, a league screen offering **6 ladders / 18 divisions** with the manager's own marked `— yours`, a cup screen offering **13 competitions** across 7 groups, a world screen naming all six ladders and counting **216 clubs, 216 grounds**, browsing another division without the career changing, **no console errors** |
+
+The two halves' counts and the four numbers this milestone turns on — 216 clubs, 2,407 fixtures, 142.8 s a season, 200 MB at a season end — are set out with their breakdowns in `PHASE3_COMPLETION_REPORT.md` §8–9.
+
+**Known limitations after Stage 6**, stated here because they are what a second county would meet first: the end-of-season state is ~200 MB (73% of it `state.matches`), which is measured rather than capped — there is still no state-size budget test in `soak.ts`; the season loop takes ~143 s for the six-district county and no per-day latency instrumentation (mean/p95) exists, so §6.4's budget is checked coarsely; the per-competition archive is still Phase 4, so a finished cup's brackets are still lost at the roll-over; and no second county exists yet, so "the generator is reusable" is demonstrated by the *absence of county-specific branches* rather than by a second county playing.
 
 ---
 

@@ -5,7 +5,7 @@ import type { GameState } from '@/domain/game';
 import type { Match } from '@/domain/match';
 import { formatDayMonth, formatKickOff } from '@/simulation/calendar';
 import { cupRoundName, cupRoundOf, isPostponed } from '@/simulation/cup';
-import { clubMatches, matchVenueLabel } from '@/simulation/queries';
+import { clubMatches, clubTown, matchVenueLabel } from '@/simulation/queries';
 import { NextFixturePanel } from '../components/FixtureInfo';
 import { ClubBadge } from '../components/Badge';
 import { MatchReportModal } from '../components/MatchReportModal';
@@ -21,34 +21,67 @@ import { Button, PageHeader, Panel, Pill } from '../components/primitives';
  * "MD 27" was asking the manager to work out all of that themselves, and the
  * matchday numbers are worse than useless on a cup tie because the two
  * competitions are numbered off different bases.
+ *
+ * Two things are said, in the two places each belongs: the chip is the *kind* of
+ * afternoon — a rung of the ladder, a round of a cup, a friendly — and the line
+ * under the opponent names the competition in full, because that is the line a
+ * long name can wrap on. A cup is never offered as 'Cup' or 'Plate': with two
+ * ladders in the county there are four cups, and the one a Saturday belongs to is
+ * the whole point of saying so.
+ *
+ * Exported for the same reason the other screens' pieces are: what a fixture is
+ * labelled is a rule about how competitions are named, and a rule that only a
+ * rendered screen can show is a rule nothing can hold.
  */
-function fixtureKind(
+export function fixtureKind(
   state: GameState,
   match: Match,
-): { label: string; detail: string; tone: 'accent' | 'ok' | 'muted' } {
+): { label: string; detail: string | null; tone: 'accent' | 'ok' | 'muted' } {
   const competition: Competition | undefined = state.competitions[match.competitionId];
   // A friendly is arranged between two clubs and belongs to no competition, so
   // it never touches a table, a record or a career appearance.
   if (!competition) {
-    return { label: 'Friendly', detail: 'pre-season', tone: 'muted' };
+    return { label: 'Friendly', detail: null, tone: 'muted' };
   }
   if (competition.kind === 'cup' && competition.cup) {
     const round = cupRoundOf(state, competition, match);
-    const name = competition.name.replace(/^.*Sunday League /, '');
     return {
-      // The competition's own name for the round, not "the 1st round": the same
-      // eight clubs are the quarter-finals in one round and the preliminary in
-      // another, and only the plan knows which.
-      label: round > 0 ? `${name} · ${cupRoundName(competition, round)}` : name,
-      detail: 'cup tie',
+      // What kind of afternoon it is: the competition's own name for the round,
+      // not "the 1st round" — the same eight clubs are the quarter-finals in one
+      // round and the preliminary in another, and only the plan knows which.
+      label: round > 0 ? cupRoundName(competition, round) : 'Cup tie',
+      // And *which* cup, in full, on the line under the opponent. It used to be
+      // squeezed into the chip in front of the round, shortened to the one word
+      // that fitted — which in a county of six districts is thirteen cups arriving
+      // as one word ('Alderford Sunday League Cup', 'Millwater Sunday League Plate'
+      // and the rest all became 'Cup'). The chip is the kind of fixture; the name
+      // belongs on the
+      // line with the ground, where a long name wraps instead of taking the row.
+      detail: competition.name,
       tone: 'accent',
     };
   }
   return {
-    label: competition.name.replace(/^.*Sunday League /, ''),
-    detail: 'league',
+    label: leagueRung(competition.name),
+    // The league is named on the chip by the rung alone: the schedule is the
+    // manager's own season, every league fixture on it is in his own division,
+    // and the ladder's name in front of all of them would be the same few words
+    // on every row of the page.
+    detail: null,
     tone: 'ok',
   };
+}
+
+/**
+ * The rung a league fixture is in: 'Alderford Sunday League Division One' →
+ * 'Division One'.
+ *
+ * A competition named some other way — a county's or a district's cup, an
+ * invitational — is left exactly as it is, because there is no ladder in front of
+ * it to take off.
+ */
+function leagueRung(name: string): string {
+  return name.replace(/^.*Sunday League /, '');
 }
 
 /**
@@ -180,6 +213,7 @@ function FixtureRow({
   const result = match.result;
   const ground = state.world.grounds[match.groundId];
   const kind = fixtureKind(state, match);
+  const place = clubTown(state, opponentId);
   // A called-off fixture stays in the month it was due, marked P-P, with the
   // replay listed separately on its new date: both are true, and a manager
   // planning his month needs to see both.
@@ -193,12 +227,23 @@ function FixtureRow({
         <span className="muted small">{formatKickOff(match.kickOff)}</span>
       </span>
       <span className="fixture__teams">
-        <span className="person-identity"><ClubBadge club={opponent} size={30} /><strong>
-          {venue === 'Home' ? 'v ' : 'at '}
-          {opponent.identity.name}
-        </strong></span>
+        {/* The opponent and the place it plays in. The diary is his own season,
+            where every name on it is somebody he has to travel to: the town under
+            the name is the half of that a fixture list has always lacked. */}
+        <span className="person-identity"><ClubBadge club={opponent} size={30} />
+          <span className="fixture__opponent">
+            <strong>
+              {venue === 'Home' ? 'v ' : 'at '}
+              {opponent.identity.name}
+            </strong>
+            {place && <span className="clubcell__town">{place.name}</span>}
+          </span>
+        </span>
         <span className="muted small">
           {venue} · {ground?.name}
+          {/* Which competition, in full, where a long name wraps rather than
+              taking the width a fixture row needs for its two clubs. */}
+          {kind.detail ? ` · ${kind.detail}` : ''}
           {isCurrent ? ' · next up' : ''}
           {calledOff
             ? replay

@@ -4,7 +4,7 @@ import { createTestGame } from './testSupport';
 import { generateManager } from './generation/worldGenerator';
 import { appointStaff, rolesAtClub } from './staff';
 import { Rng } from './rng';
-import { fillVacantPost, MANAGER_MARKET, runManagerMarket, type ManagerMarketContext } from './managers';
+import { fillVacantPost, leaveClub, MANAGER_MARKET, runManagerMarket, type ManagerMarketContext } from './managers';
 
 /**
  * The managers' market is only meaningful if it both moves and bounds the men in
@@ -183,5 +183,28 @@ describe('the managers’ market', () => {
       ].filter((id): id is string => Boolean(id));
       for (const id of named) expect(state.people[id], `${candidate.id} names ${id}`).toBeDefined();
     }
+  });
+
+  /**
+   * A sacked manager who had also been the club's coach leaves the club in every
+   * sense — his roles are cleared — so the coaching staff must stop naming him too.
+   * Otherwise he is hired elsewhere, later deleted from the world, and the club he
+   * left is left pointing at him: `club-staff-exists` in the soak, which caught
+   * `mgr_11` on club_11's coaching staff two seasons after he had gone.
+   */
+  it('releases the coaching post a manager held at the club he leaves', () => {
+    const { state } = createTestGame('managers-sacked-coach');
+    const competition = Object.values(state.competitions)[0]!;
+    const club = state.clubs[competition.clubIds.find((id) => id !== state.userClubId)!]!;
+    const manager = state.people[club.managerId!];
+    if (!isOfficial(manager)) throw new Error('the fixture club is player-managed');
+    appointStaff(state, club.id, manager.id, 'coach', state.date);
+    expect(club.staff!.coachIds).toContain(manager.id);
+
+    leaveClub(club, manager, state.date);
+
+    expect(club.managerId).toBeNull();
+    expect(rolesAtClub(manager, club.id)).toEqual([]);
+    expect(club.staff!.coachIds).not.toContain(manager.id);
   });
 });

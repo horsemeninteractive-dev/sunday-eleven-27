@@ -1,0 +1,69 @@
+/* The same pre-game frame as the profile, the club chooser and the club
+   designer: the sheet sits on the photographed pitch, and the padding reserves
+   the system bars the way those three do. */
+.geography-select {
+  max-width: 1420px;
+  margin: 0 auto;
+  padding: calc(var(--s4) + var(--safe-top)) calc(var(--s3) + var(--safe-right)) calc(var(--s5) + var(--safe-bottom)) calc(var(--s3) + var(--safe-left));
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+.atlas-layout { display: grid; grid-template-columns: minmax(0, 1fr) 285px; gap: 28px; align-items: start; }
+.atlas { min-width: 0; background: #b8cbd0; color: #263a39; border: 1px solid #829c9f; border-radius: 5px; overflow: hidden; box-shadow: 0 18px 50px rgba(0, 0, 0, .38); }
+.atlas__masthead { min-height: 46px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 18px; border-bottom: 1px solid #8ca5a9; font-size: 11px; font-weight: 700; letter-spacing: .16em; }
+.atlas__map { display: block; width: 100%; height: min(76vh, 900px); min-height: 540px; touch-action: pan-y; }
+.atlas__region { fill: #dad9c6; stroke: #7f8776; stroke-width: 1.1; vector-effect: non-scaling-stroke; cursor: pointer; transition: fill .16s; }
+.atlas__region--available { fill: #92b291; stroke: #355c42; stroke-width: 1.8; }
+.atlas__region:hover { fill: #e9e5d2; }
+.atlas__region--available:hover { fill: #a6c9a2; }
+.atlas__region:focus-visible { outline: none; fill: #efdb9e; stroke: #162f29; stroke-width: 3.5; }
+.atlas__region--context { fill: #c1ccbe; stroke: #a1b3aa; opacity: .45; cursor: default; pointer-events: none; }
+.atlas__district { fill: #dedcc5; stroke-width: 1.5; }
+.atlas__region--selected { fill: #b7cc85; stroke: #213d28; stroke-width: 3; }
+.atlas__coast-shadow { fill: none; stroke: #839fa7; stroke-width: 9; opacity: .3; vector-effect: non-scaling-stroke; }
+.atlas__coast { fill: none; stroke: #4c635c; stroke-width: 1.5; vector-effect: non-scaling-stroke; pointer-events: none; }
+.atlas__features { pointer-events: none; }
+.atlas__river { fill: none; stroke: #608d9e; stroke-width: 1.4; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; opacity: .85; }
+.atlas__ridge { fill: none; stroke: #8d8d6c; stroke-width: 8; stroke-dasharray: 1 6; stroke-linecap: round; vector-effect: non-scaling-stroke; opacity: .35; }
+.atlas__label { fill: #26382f; font-weight: 650; font-family: Georgia, 'Times New Roman', serif; pointer-events: none; paint-order: stroke; stroke: #e4e2ce; stroke-width: 3; stroke-linejoin: round; }
+.atlas__availability { font-family: var(--font-body, sans-serif); font-weight: 600; letter-spacing: .5px; fill: #3d5547; }
+.atlas__sea-labels { fill: #4d747e; font: italic 16px Georgia, serif; letter-spacing: 3px; pointer-events: none; }
+.atlas__legend { display: flex; gap: 10px 18px; flex-wrap: wrap; padding: 12px 18px; border-top: 1px solid #8ca5a9; font-size: 11px; }
+.atlas__legend span { display: inline-flex; align-items: center; gap: 6px; }
+.atlas__legend i { width: 10px; height: 10px; background: #92b291; border: 1px solid #355c42; }
+.atlas__legend .atlas__key--locked { background: #dad9c6; border-color: #7f8776; }
+/* The district's own settlements: a mark for the place and its name beside it,
+   drawn on the district's ground. The name wears a light halo so it stays
+   readable where it crosses a boundary or a river. */
+.atlas__towns { pointer-events: none; }
+.atlas__town-dot { fill: #2f4a37; stroke: #f2f0dc; stroke-width: .55; vector-effect: non-scaling-stroke; }
+.atlas__town-name { fill: #23382c; font-weight: 620; font-family: var(--font-body, sans-serif); letter-spacing: .2px; paint-order: stroke; stroke: #e9e7d3; stroke-width: 2.6; stroke-linejoin: round; }
+.atlas__key--town { background: #2f4a37; border-color: #f2f0dc; border-radius: 50%; }
+/* A neighbouring district's name, on this district's page: context, not subject,
+   so it is dimmer than the district's own settlements and its halo is thinner. */
+.atlas__neighbour { opacity: .5; }
+.atlas__neighbour .atlas__label { font-weight: 600; fill: #43554a; stroke-width: 2; }
+.geography-select--district .atlas__map { min-height: 460px; }
+.atlas-info__towns { margin: 0; }
+.atlas__back { color: #233e35; font: inherit; letter-spacing: 0; background: #dae2d3; border: 1px solid #7b9385; border-radius: 3px; padding: 10px; min-height: 40px; cursor: pointer; }
+.atlas__back:focus-visible { outline: 3px solid #233e35; outline-offset: 2px; }
+.atlas-info { padding: 0; position: sticky; top: 16px; text-shadow: 0 1px 10px rgba(0, 0, 0, .6); }
+.atlas-info h2 { font-family: Georgia, serif; font-size: 30px; line-height: 1.15; margin: 12px 0 20px; }
+.atlas-info p { line-height: 1.65; }
+.atlas-info__status { border-left: 2px solid var(--accent); padding-left: 14px; margin: 24px 0; }
+.atlas-info .button, .atlas-info .btn { white-space: normal; width: 100%; }
+.geography-select--county .atlas__map { min-height: 430px; }
+@media (max-width: 850px) {
+  .atlas-layout { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .atlas-info { position: static; padding: 12px 2px; }
+  .atlas-info h2 { font-size: 26px; margin: 8px 0; }
+  .atlas-info__status { margin: 14px 0; }
+  .atlas__map { height: auto; aspect-ratio: 865 / 1125; min-height: 0; }
+  .geography-select--county .atlas__map { height: 440px; min-height: 0; aspect-ratio: auto; }
+  .geography-select--district .atlas__map { height: 420px; min-height: 0; aspect-ratio: auto; }
+  .atlas__masthead { padding: 8px 10px; font-size: 9px; }
+  .atlas__legend { padding: 10px; gap: 8px; }
+  .atlas__label { font-weight: 700; }
+}
+@media (prefers-reduced-motion: reduce) { .atlas__region { transition: none; } }

@@ -174,8 +174,8 @@ describe('the commentary says the same moment the same way, and different moment
 
 describe('a county has more than a handful of anything', () => {
   it('builds a wide county, and a different one for a different seed', () => {
-    const a = generateDraft({ seed: 'variety-county-a' });
-    const b = generateDraft({ seed: 'variety-county-b' });
+    const a = generateDraft({ seed: 'variety-county-a', pyramids: 2 });
+    const b = generateDraft({ seed: 'variety-county-b', pyramids: 2 });
 
     const towns = Object.values(a.world.towns);
     expect(towns.length).toBeGreaterThanOrEqual(15);
@@ -199,13 +199,13 @@ describe('a county has more than a handful of anything', () => {
 
     // The same seed is the same county, and a different seed is not.
     expect(
-      Object.values(generateDraft({ seed: 'variety-county-a' }).world.towns).map((town) => town.name),
+      Object.values(generateDraft({ seed: 'variety-county-a', pyramids: 2 }).world.towns).map((town) => town.name),
     ).toEqual(towns.map((town) => town.name));
     expect(Object.values(b.world.towns).map((town) => town.name)).not.toEqual(towns.map((town) => town.name));
   });
 
   it('draws a squad from a wide pool of names rather than from a shortlist', () => {
-    const world = generateDraft({ seed: 'variety-names' });
+    const world = generateDraft({ seed: 'variety-names', pyramids: 2 });
     const players = Object.values(world.people).filter(isPlayer);
     expect(players.length).toBeGreaterThan(700);
 

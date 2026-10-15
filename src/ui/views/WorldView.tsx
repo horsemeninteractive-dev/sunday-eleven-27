@@ -2,10 +2,13 @@ import { useState } from 'react';
 import { CLUB_STRUCTURE_LABEL, type Club } from '@/domain/club';
 import type { GameState } from '@/domain/game';
 import { isPlayer } from '@/domain/person';
+import { NATION_NAME } from '@/domain/world';
 import { managingClubId } from '@/simulation/career';
+import { COUNTY_CUP_NAME, divisionOf } from '@/simulation/pyramid';
 import { leaguePosition, squadAverageAge } from '@/simulation/queries';
 import { useGame } from '../hooks';
 import { moneyShort } from '../format';
+import { levelLabel, pyramidOptions } from '../worldNav';
 import { PageHeader, Panel, Pill, SortTh, Stat } from '../components/primitives';
 import { MetricTile, Section, TileGrid } from '../components/hierarchy';
 import { ClubLink } from '../components/Links';
@@ -63,6 +66,14 @@ export function WorldView() {
   // The club he manages, which is nobody's while he is between jobs: the world
   // is still readable, but it does not mark a club as his when it is not.
   const myClubId = managingClubId(game);
+  // The county as it is actually made: more than one ladder since the district
+  // next door was founded, each drawing its clubs from its own region. The screen
+  // is the one that says what the world *is*, so it names both of them rather
+  // than the founding region as though it were the whole county.
+  const ladders = pyramidOptions(game);
+  const regions = Object.values(game.world.regions ?? {});
+  const regionNameOf = (regionId: string | undefined): string =>
+    (regionId ? game.world.regions?.[regionId]?.name : undefined) ?? game.world.regionName;
   const towns = Object.values(game.world.towns);
   const clubs = Object.values(game.clubs);
   const grounds = Object.values(game.world.grounds);
@@ -78,6 +89,10 @@ export function WorldView() {
         photo="/photos/world-aerial-parks.webp"
         meta={
           <>
+            {/* The county, in the country it sits in: a career is played inside
+                one of Alderland's counties, and the screen that says what the
+                world *is* is the place to say which two. */}
+            <span className="small muted">{`${game.world.countyName}, ${game.world.nationName ?? NATION_NAME}`}</span>
             <span className="small muted">{clubs.length} clubs</span>
             <span className="small muted">{grounds.length} grounds</span>
             <span className="small muted">{towns.length} towns and villages</span>
@@ -85,7 +100,26 @@ export function WorldView() {
         }
       />
 
-      <Section title={`${game.world.regionName}, ${game.world.countyName}`}>
+      <Section title={`The football in ${game.world.countyName}`}>
+        <Panel
+          title={ladders.length > 1 ? `The county's ${ladders.length} leagues` : 'The league'}
+          subtitle={`Each ladder runs its own divisions, its own League Cup and Plate; the ${COUNTY_CUP_NAME} is the one competition that takes clubs from both`}
+        >
+          <ul className="tight-list">
+            {ladders.map((ladder) => (
+              <li key={ladder.id}>
+                <strong>{ladder.name}</strong>{' '}
+                {ladder.mine && <Pill tone="accent">yours</Pill>}{' '}
+                <span className="muted small">
+                  {ladder.region} · {levelLabel(ladder.level)} · {ladder.clubCount} clubs
+                </span>
+                <div className="muted small">
+                  {ladder.divisions.map((division) => division.name).join(' · ') || 'No divisions this season'}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </Panel>
         <div className="row row--wrap"><label className="field"><span className="field__label">Find a club</span><input className="input" type="search" value={query} onChange={(event) => { setQuery(event.target.value); setLimit(12); }} placeholder="Club or nickname" /></label><label className="field"><span className="field__label">Town or village</span><select className="input" value={townId} onChange={(event) => { setTownId(event.target.value); setLimit(12); }}><option value="">Every town</option>{towns.map((town) => <option key={town.id} value={town.id}>{town.name}</option>)}</select></label></div>
         <ul className="club-directory">{visibleClubs.slice(0, limit).map((club) => <li key={club.id}><ClubBadge club={club} size={44} /><div className="club-directory__text"><ClubLink clubId={club.id}>{club.identity.name}</ClubLink><span className="small muted">{game.world.towns[club.townId]?.name} · {club.identity.nickname}{club.id === myClubId ? ' · Your club' : ''}</span><span className="small muted">{game.world.grounds[club.groundId]?.name}</span></div></li>)}</ul>
         {visibleClubs.length > limit && <button type="button" className="btn btn--ghost" onClick={() => setLimit((value) => value + 12)}>More local clubs · {limit} of {visibleClubs.length} shown</button>}
@@ -94,6 +128,8 @@ export function WorldView() {
       <details className="more"><summary>The county in numbers</summary><Section>
         <TileGrid min={170}>
           <MetricTile label="Clubs" value={clubs.length} tone="accent" />
+          <MetricTile label="Leagues" value={ladders.length} />
+          <MetricTile label="Regions" value={regions.length} />
           <MetricTile label="Towns and villages" value={towns.length} />
           <MetricTile label="Grounds" value={grounds.length} />
           <MetricTile label="Pubs and businesses" value={businesses.length} />
@@ -116,7 +152,7 @@ export function WorldView() {
                     <div>
                       <strong>{town.name}</strong>{' '}
                       <Pill tone="muted">
-                        {town.kind} · {town.population.toLocaleString('en-GB')}
+                        {town.kind} · {regionNameOf(town.regionId)} · {town.population.toLocaleString('en-GB')}
                       </Pill>
                       <div className="muted small">{town.description}</div>
                       <div className="muted small">
@@ -225,6 +261,10 @@ export function WorldView() {
         >
           <div className="stat-grid">
             <Stat label="Town" value={game.world.towns[selected.townId]?.name ?? '—'} />
+            {/* Where he plays as well as where he is: a club's region is its
+                address, and its league is the football that address belongs to. */}
+            <Stat label="Region" value={regionNameOf(game.world.towns[selected.townId]?.regionId)} />
+            <Stat label="League" value={divisionOf(game, selected.id)?.name ?? 'No league this season'} />
             <Stat label="Ground" value={game.world.grounds[selected.groundId]?.name ?? '—'} />
             <Stat label="Standing" value={Math.round(selected.reputation)} hint="Local reputation out of 100" />
             <Stat label="Squad" value={selected.squadIds.length} />

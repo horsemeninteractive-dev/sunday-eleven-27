@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { systemBarStyleFor } from '@/platform/systemBars';
 import { COLOUR_PAIRS } from '@/simulation/generation/names';
 import { DEFAULT_PREFERENCES, THEME_COLOUR } from '@/state/preferences';
 import { CLUB_TEXT_SURFACE, TEXT_CONTRAST_FLOOR, clubStyle, contrastRatio } from './colour';
@@ -362,5 +363,19 @@ describe('the first paint', () => {
     // And it resolves `system` rather than passing it on: the stylesheet has two
     // palettes and no third answer for "whatever the machine says".
     expect(page).not.toContain("setAttribute('data-theme', chosen)");
+  });
+
+  it('opens the phone bars on the side the game itself opens on', () => {
+    // The shell's own answer — `plugins.SystemBars.style` — is the one frame the
+    // page cannot correct in time: it is what the status bar and the gesture bar
+    // wear before the bundle has landed. The game opens dark, so it has to be the
+    // dark theme's answer; the page takes it from there (`applyTheme`), and a
+    // preference changed later is a change the bars are told about. Written down
+    // twice, therefore checked here.
+    const config = readFileSync(new URL('../../capacitor.config.ts', import.meta.url), 'utf8');
+    // The default preference is a real answer already, never `system` — which is
+    // what makes it the one the static value can be written from.
+    const opening: 'dark' | 'light' = DEFAULT_PREFERENCES.theme === 'light' ? 'light' : 'dark';
+    expect(config).toContain(`style: '${systemBarStyleFor(opening)}'`);
   });
 });

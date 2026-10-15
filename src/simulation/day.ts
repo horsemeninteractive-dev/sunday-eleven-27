@@ -1,4 +1,4 @@
-import type { Competition } from '@/domain/competition';
+import { cupFieldOf, type Competition } from '@/domain/competition';
 import type { GameState } from '@/domain/game';
 import type { ClubId, ISODate, MatchId } from '@/domain/ids';
 import type { GameEvent, NewsItem } from '@/domain/news';
@@ -37,6 +37,7 @@ import { rollWeeklyAvailabilityForAll } from './gameSetup';
 import { decidePostponement, isActiveFixture, postponeFixture } from './postponement';
 import { settleShortSides } from './forfeit';
 import { stream } from './rng';
+import { fieldClubs } from './seasonStructure';
 import { everyFixtureSettled, finishSeason } from './season';
 import { snapshotStandings } from './gameSetup';
 import { eventsOn, markNotifiedThrough, nextFixtureFor, recursOn, recurringEvents } from './schedule';
@@ -281,8 +282,15 @@ export function readyForToday(state: GameState, date: ISODate = state.date): voi
 }
 
 function prepareToday(state: GameState, date: ISODate): void {
-  const matchday = state.season.calendar.find((entry) => entry.date === date)?.matchday;
-  if (matchday) prepareMatchday(state, matchday);
+  // Every matchday dated today, not just the first one the calendar happens to
+  // hold. A Sunday can carry more than one competition's round — the two
+  // ladders' cups play side by side on the same afternoon — and a reader that
+  // took the first entry would prepare one ladder's ties and leave the other
+  // ladder's eleven men short.
+  for (const entry of state.season.calendar) {
+    if (entry.date !== date) continue;
+    prepareMatchday(state, entry.matchday);
+  }
 
   // A match rearranged into a midweek slot still needs preparing on the day.
   for (const match of Object.values(state.matches)) {
@@ -1032,7 +1040,10 @@ function advanceCups(state: GameState): GameEvent[] {
       plan.length > 0
         ? plan.some((entry) => entry.round === cupState.round)
         : allCupRoundSlots(
-            leagueCupField(state),
+            // How big this cup's field is, read from the field it declares rather
+            // than from the whole county: a second ladder's cup, or the county's,
+            // would otherwise be given the founding cup's plan.
+            fieldClubs(state, cupFieldOf(cupState)).length,
             leagueMatchdayCount(state),
             Boolean(cupState.consolationFor),
           ).some((entry) => entry.round === cupState.round);
@@ -1111,11 +1122,6 @@ function losersOfRound(state: GameState, competition: Competition, round: number
   return matchesForRound(state, competition, round)
     .filter((tie) => !isActiveFixture(tie))
     .map(loserOf);
-}
-
-/** How many clubs the League Cup starts with. */
-function leagueCupField(state: GameState): number {
-  return leagueClubIds(state).length;
 }
 
 // ---------------------------------------------------------------------------

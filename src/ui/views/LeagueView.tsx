@@ -1,11 +1,16 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { StandingRow } from '@/domain/club';
-import type { Competition } from '@/domain/competition';
+import type { Competition, MovementRecord } from '@/domain/competition';
+import type { GameState } from '@/domain/game';
+import type { SeasonLeagueRecord } from '@/domain/history';
+import type { ClubId, CompetitionId } from '@/domain/ids';
 import { formatDayMonth, formatKickOff } from '@/simulation/calendar';
 import { currentMatchday, userClub } from '@/simulation/queries';
-import { divisionOf, fixtureIdsFor, leagueCompetitions, standingsFor } from '@/simulation/pyramid';
+import { divisionOf, fixtureIdsFor, standingsFor } from '@/simulation/pyramid';
+import { lastFinalTable, lastSeasonRecord, movementsFor } from '@/simulation/seasonHistory';
 import { ordinal } from '@/simulation/news';
 import { gameActions, useGame, useStandings } from '../hooks';
+import { divisionShortName, pyramidOptions } from '../worldNav';
 import { Button, FormPips, PageHeader, Panel, Pill, SortTh } from '../components/primitives';
 import { FocalFact, MetricTile, Section, TileGrid } from '../components/hierarchy';
 import { ClubLink } from '../components/Links';
@@ -14,7 +19,6 @@ import { Statistics } from '../components/Statistics';
 import { competitionStats } from '@/simulation/tables';
 import { useRememberedSort } from '../rememberedSort';
 import { applySort, type SortAccessors } from '../tableSort';
-import { handleTabKeys } from '../components/Tabs';
 
 /**
  * Which part of the table a row is in.
@@ -102,6 +106,139 @@ export function contextValue(
 /** A standing row that still knows where it sits, whatever the table is sorted by. */
 type PositionedRow = StandingRow & { position: number; name: string };
 
+/**
+ * Which mark a row of a *finished* table wears.
+ *
+ * Not `zoneFor`, which reads the competition as it stands this afternoon: the
+ * promotion places in a table that was settled last April are a fact about that
+ * season, and the ladder's own record of its boundary — the movements written on
+ * the save when the season closed — is the only honest way to say who went up
+ * and who went down out of it. A club that has since folded or been relegated
+ * again still wears the mark it earned; a club that has moved divisions since is
+ * shown in the table it actually played in.
+ */
+export function archivedZone(
+  position: number,
+  direction: MovementRecord['direction'] | undefined,
+): 'title' | 'promotion' | 'relegation' | 'mid' {
+  if (position === 1) return 'title';
+  if (direction === 'promoted') return 'promotion';
+  if (direction === 'relegated') return 'relegation';
+  return 'mid';
+}
+
+/**
+ * A division's final table, from a season that has closed.
+ *
+ * Read out of the season archive rather than out of the world, because the world
+ * has moved on: the clubs in this table have been promoted, relegated, folded or
+ * rebuilt since the last Sunday of that season, and the competition it belonged to
+ * has been cut again from a different field. It is drawn in its own final order
+ * and cannot be sorted — a final table has one shape, and it is the shape it
+ * ended in — and it carries no form column, because last season's last five
+ * results are of no use to anybody this afternoon.
+ *
+ * Exported for the same reason the other screens' pieces are: a layout that reads
+ * nothing but its props can be printed and checked without a browser.
+ */
+export function FinalTable({
+  game,
+  league,
+  seasonLabel,
+  movements,
+  ownClubId,
+}: {
+  game: GameState;
+  league: SeasonLeagueRecord;
+  seasonLabel: string;
+  movements: readonly MovementRecord[];
+  ownClubId: ClubId;
+}) {
+  const moved = new Map(movements.map((movement) => [movement.clubId, movement.direction]));
+  const up = movements.filter((movement) => movement.direction === 'promoted').length;
+  const down = movements.filter((movement) => movement.direction === 'relegated').length;
+  const champion = league.rows[0] ? game.clubs[league.rows[0].clubId] : undefined;
+  const mine = league.rows.findIndex((row) => row.clubId === ownClubId);
+
+  return (
+    <>
+      <div className="table-wrapper">
+        <table className="table table--league">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Club</th>
+              <th>P</th>
+              <th className="col--opt">W</th>
+              <th className="col--opt">D</th>
+              <th className="col--opt">L</th>
+              <th className="col--opt">GF</th>
+              <th className="col--opt">GA</th>
+              <th>GD</th>
+              <th>Pts</th>
+            </tr>
+          </thead>
+          <tbody>
+            {league.rows.map((row, index) => {
+              const direction = moved.get(row.clubId);
+              const isMine = row.clubId === ownClubId;
+              const zone = archivedZone(index + 1, direction);
+              return (
+                <tr key={row.clubId} className={isMine ? 'table__row--mine' : undefined}>
+                  <td>
+                    <span
+                      className={`zone zone--${zone}`}
+                      title={
+                        zone === 'promotion'
+                          ? 'Promoted that season'
+                          : zone === 'relegation'
+                            ? 'Relegated that season'
+                            : zone === 'title'
+                              ? 'Champions'
+                              : undefined
+                      }
+                    >
+                      {index + 1}
+                    </span>
+                  </td>
+                  <td>
+                    <ClubLink clubId={row.clubId} town />
+                    {isMine && <Pill tone="accent">you</Pill>}
+                    {direction === 'promoted' && <Pill tone="ok">promoted</Pill>}
+                    {direction === 'relegated' && <Pill tone="bad">relegated</Pill>}
+                  </td>
+                  <td>{row.played}</td>
+                  <td className="col--opt">{row.won}</td>
+                  <td className="col--opt">{row.drawn}</td>
+                  <td className="col--opt">{row.lost}</td>
+                  <td className="col--opt">{row.goalsFor}</td>
+                  <td className="col--opt">{row.goalsAgainst}</td>
+                  <td>{row.goalDifference > 0 ? `+${row.goalDifference}` : row.goalDifference}</td>
+                  <td>
+                    <strong>{row.points}</strong>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="small muted">
+        {league.name} in {seasonLabel}, as it stood when the last Sunday was played
+        {champion ? ` · won by ${champion.identity.name}` : ''}
+        {mine >= 0 ? ` · you finished ${ordinal(mine + 1)}` : ''}.
+      </p>
+      {/* The boundary, said out loud: the marks in the position column are the
+          ladder's own record of who moved, and a manager promoted out of this
+          table should be able to read why his old row is lit. */}
+      <p className="small muted">
+        {up > 0 ? `${up} club${up === 1 ? '' : 's'} went up out of it` : 'Nobody went up out of it'}
+        {down > 0 ? ` and ${down} went down.` : '.'}
+      </p>
+    </>
+  );
+}
+
 
 type TableSortKey =
   | 'position'
@@ -146,18 +283,52 @@ export function LeagueView() {
   const game = useGame();
   const ownStandings = useStandings();
   const [sort, setSort] = useRememberedSort('league', game?.saveId ?? null, TABLE_SORT);
-  // The manager opens on their own division; the rest of the ladder is a door
-  // away rather than a separate screen, because a pyramid you have to go and
-  // look at is not a pyramid.
-  const [tier, setTier] = useState<number | null>(null);
+  // Which ladder he is looking at, and which division of it. Both are this
+  // screen's own view state: a manager reading the district's table has not
+  // changed club, and nothing here writes to the world at all.
+  const ladders = useMemo(() => (game ? pyramidOptions(game) : []), [game]);
+  // Which division he is reading. One piece of view state rather than two,
+  // because the choice is one: a rung means nothing without the ladder it is a
+  // rung *of* — the district has a Division One of its own — so the ladders are
+  // the groups of the selector and the divisions are the options inside them.
+  const [picked, setPicked] = useState<CompetitionId | null>(null);
   if (!game) return null;
 
-  const divisions = leagueCompetitions(game);
   const clubRow = userClub(game);
   const ownDivision = divisionOf(game, clubRow.id);
-  const competition = divisions.find((entry) => entry.tier === (tier ?? ownDivision?.tier)) ?? divisions[0];
-  if (!competition) return null;
+  // Every division of every ladder, each with the ladder it belongs to, in the
+  // order the ladders are read in. The county's football as a whole is never the
+  // list read here: every district has a Division One at the same rung, and
+  // looking up "tier 1" across six ladders would hand a manager a neighbour's
+  // table under his own heading.
+  const everyDivision = ladders.flatMap((entry) =>
+    entry.divisions.map((division) => ({ ladder: entry, division })),
+  );
+  // The manager opens on his own division; the rest of the ladder is a door away
+  // rather than a separate screen, because a pyramid you have to go and look at is
+  // not a pyramid. Anywhere else opens where the ladders do — his own first if he
+  // is in one, the top of the founding ladder if he is between jobs.
+  const shown =
+    everyDivision.find((entry) => entry.division.id === picked) ??
+    everyDivision.find((entry) => entry.division.id === ownDivision?.id) ??
+    everyDivision.find((entry) => entry.ladder.mine) ??
+    everyDivision[0];
+  if (!shown) return null;
+  const { ladder } = shown;
+  const competition = shown.division;
+  // A selector is only drawn when there is a choice to make: one division in one
+  // ladder is not one, and a control that cannot change anything is noise.
+  const selectable = ladders.length > 1 || ladder.divisions.length > 1;
   const standings = competition.id === ownDivision?.id ? ownStandings : standingsFor(game, competition);
+  // The last season this career finished, and this division's own table from it.
+  // The world was rebuilt at the boundary — the divisions cut again, the cups
+  // redrawn from the field that came out of it — so the archive is the only place
+  // last season's table still exists. A division that did not play that season
+  // (the county's second ladder, in its first year) has no record, and says so
+  // rather than showing a table from somewhere else.
+  const past = lastSeasonRecord(game);
+  const final = lastFinalTable(game, competition.id);
+  const movements = final ? movementsFor(game, final.season.seasonId, competition.id) : [];
 
   const matchday = currentMatchday(game);
   const myPosition = standings.findIndex((row) => row.clubId === clubRow.id) + 1;
@@ -175,18 +346,17 @@ export function LeagueView() {
   }));
   const sortedRows = applySort(rows, sort, TABLE_SORT);
   const inDrop = inDropZone(standings, myPosition, competition);
-  // A tabstrip is only drawn when there is more than one division to move
-  // between, so the panel is only a tab panel when there are tabs to own it: a
-  // panel labelled by an id that is not on the screen is a reference to nothing.
-  const tabbed = divisions.length > 1;
 
   return (
     <div className="stack">
+      {/* Whose division this is, said under its own name: a manager browsing one
+          of the county's other districts has to be able to see which league he is
+          reading before he reads a table off it. */}
       <PageHeader
         eyebrow="Competition"
         title={competition.name}
         photo="/photos/league-trophy.webp"
-        subtitle={`${playerCount} clubs · ${promotionLabel(competition)} · ${relegationLabel(competition)}`}
+        subtitle={`${ladder.name} · ${playerCount} clubs · ${promotionLabel(competition)} · ${relegationLabel(competition)}`}
         meta={
           <>
             <span className="small muted">
@@ -204,24 +374,34 @@ export function LeagueView() {
         }
       />
 
-      {tabbed && (
-        <div className="segmented" role="tablist" aria-label="Divisions" onKeyDown={handleTabKeys}>
-          {divisions.map((division) => (
-            <button
-              key={division.id}
-              type="button"
-              role="tab"
-              tabIndex={division.id === competition.id ? 0 : -1}
-              id={`league-tab-${division.id}`}
-              aria-controls="league-table-panel"
-              aria-selected={division.id === competition.id}
-              className={`segmented__item${division.id === competition.id ? ' segmented__item--active' : ''}`}
-              onClick={() => setTier(division.tier)}
-            >
-              {division.name.replace(/^.*Sunday League /, '')}
-            </button>
-          ))}
-        </div>
+      {/* The county's ladders and the divisions inside them, in one control.
+          A manager has to be able to reach the league next door — and to leave it
+          again — without the screen deciding for him which one he meant, and a
+          rung is only meaningful inside a ladder: there is a Division One in the
+          district as well as in the county. The ladders are the groups, so the
+          county/district choice and the division within it are the same choice
+          rather than two rows of tabs — a row that grows with the world, and one
+          that wrapped onto a second line on a phone the moment a fifth
+          competition existed. */}
+      {selectable && (
+        <label className="field competition-picker">
+          <span className="field__label">Division</span>
+          <select className="input" value={competition.id} onChange={(event) => setPicked(event.target.value)}>
+            {ladders.map((entry) => (
+              <optgroup key={entry.id} label={`${entry.name}${entry.mine ? ' — yours' : ''}`}>
+                {entry.divisions.map((division) => (
+                  <option key={division.id} value={division.id}>
+                    {divisionShortName(division, entry)}
+                    {/* His own division is marked on the option as well as in the
+                        table: the whole ladder is somebody's, and only one rung
+                        of it is his. */}
+                    {division.id === ownDivision?.id ? ' — yours' : ''}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </label>
       )}
 
       {myPosition > 0 && (
@@ -252,11 +432,7 @@ export function LeagueView() {
       )}
 
       <p className="small muted">{(competition.promotionPlaces ?? 0) > 0 ? `Top ${competition.promotionPlaces} go up. ` : ''}{(competition.relegationPlaces ?? 0) > 0 ? `Bottom ${competition.relegationPlaces} go down. ` : ''}Coloured position marks follow the club's league place, even when you sort.</p>
-      <div
-        role={tabbed ? 'tabpanel' : undefined}
-        id="league-table-panel"
-        aria-labelledby={tabbed ? `league-tab-${competition.id}` : undefined}
-      ><Section title="The table">
+      <Section title="The table">
       <Panel level="primary">
         <div className="table-wrapper">
           <table className="table table--league">
@@ -299,7 +475,11 @@ export function LeagueView() {
                       </span>
                     </td>
                     <td>
-                      <ClubLink clubId={row.clubId} />
+                      {/* The club and the place it plays in. A table is a list of
+                          names a manager meets for the first time here, and the
+                          town is the half of that he read off the district map
+                          before he picked a club at all. */}
+                      <ClubLink clubId={row.clubId} town />
                       {isMine && <Pill tone="accent">you</Pill>}
                       {rival && !isMine && (
                         <span className="muted small" title={rival.note}>
@@ -328,7 +508,32 @@ export function LeagueView() {
           </table>
         </div>
       </Panel>
-      </Section></div>
+      </Section>
+
+      {/* Last season, one click under this one: a manager reads the table he is
+          in, and the table he left, without going anywhere else for it. */}
+      {final && (
+        <details className="more">
+          <summary>
+            {final.season.seasonLabel} · the final table
+            {final.league.rows[0]
+              ? ` · won by ${game.clubs[final.league.rows[0].clubId]?.identity.shortName ?? '—'}`
+              : ''}
+          </summary>
+          <FinalTable
+            game={game}
+            league={final.league}
+            seasonLabel={final.season.seasonLabel}
+            movements={movements}
+            ownClubId={clubRow.id}
+          />
+        </details>
+      )}
+      {!final && past && (
+        <p className="small muted">
+          {competition.name} was not played in {past.seasonLabel}: it is younger than that season.
+        </p>
+      )}
 
       <div className="split">
         <Panel title="This week" subtitle={`Matchday ${matchday}`}>

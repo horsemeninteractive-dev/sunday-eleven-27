@@ -23,6 +23,18 @@ import {
  * full motion even on a machine that did.
  */
 
+/**
+ * The bars are the shell's, so they are watched rather than driven: what matters
+ * here is that applying the lights tells them, because the one thing the page
+ * cannot do for itself is colour icons it does not draw. The module's own test
+ * holds the mapping; this one holds the wiring.
+ */
+const bars = vi.hoisted(() => ({ applied: vi.fn<(theme: 'dark' | 'light') => Promise<void>>() }));
+
+vi.mock('@/platform/systemBars', () => ({
+  applySystemBars: (theme: 'dark' | 'light') => bars.applied(theme),
+}));
+
 function installStorage(seed?: string): void {
   const map = new Map<string, string>();
   if (seed !== undefined) map.set('slfm26.preferences', seed);
@@ -172,5 +184,28 @@ describe('preferences', () => {
 
     expect(applyMotion('full')).toBe('full');
     expect(currentMotion()).toBe('full');
+  });
+
+  it('tells the phone bars which way the lights ended up', () => {
+    installStorage();
+    vi.stubGlobal('document', {
+      documentElement: { setAttribute: () => undefined, getAttribute: () => null },
+      querySelector: () => null,
+    });
+    vi.stubGlobal('window', { matchMedia: () => ({ matches: false }) });
+    bars.applied.mockReset();
+    bars.applied.mockResolvedValue(undefined);
+
+    // Both palettes, and each answered with itself: the icons drawn on the bars
+    // are the shell's, and a light theme wearing the dark theme's white icons is
+    // the clock nobody can read.
+    expect(applyTheme('light')).toBe('light');
+    expect(bars.applied).toHaveBeenLastCalledWith('light');
+    expect(applyTheme('dark')).toBe('dark');
+    expect(bars.applied).toHaveBeenLastCalledWith('dark');
+
+    // And never the preference the manager chose: `system` is resolved before
+    // anything is told, because the bars have no third colour to be given.
+    expect(bars.applied).toHaveBeenCalledTimes(2);
   });
 });

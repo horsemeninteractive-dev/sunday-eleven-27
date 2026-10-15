@@ -34,6 +34,7 @@ const view = (loader: () => Promise<Record<string, unknown>>, name: string): Laz
   lazy(async () => ({ default: (await loader())[name] as ComponentType }));
 
 export const ProfileView = view(() => import('./views/ProfileView'), 'ProfileView');
+export const GeographySelectView = view(() => import('./views/GeographySelectView'), 'GeographySelectView');
 export const ClubSelectView = view(() => import('./views/ClubSelectView'), 'ClubSelectView');
 export const CreateClubView = view(() => import('./views/CreateClubView'), 'CreateClubView');
 export const DashboardView = view(() => import('./views/DashboardView'), 'DashboardView');

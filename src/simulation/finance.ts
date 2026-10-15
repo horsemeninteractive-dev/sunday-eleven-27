@@ -260,9 +260,100 @@ export function collectPlayerSubs(
     ...(person.subs.payments ?? []),
     { id: nextId(state, 'subpayment'), date, amount: collected },
   ];
+  // A debt carried over from a season that has closed, and cleared in this one,
+  // is a settled record the next boundary would fold away. Fold it now by the
+  // same rule, so the book in memory matches what a save loads back to at every
+  // moment, not only at the boundary.
+  foldSubsBook(person.subs, state.season.startDate);
   person.subs.lastPaidOn = date;
   refreshSubSummary(person.subs);
   return entry?.amount ?? collected;
+}
+
+/* ------------------------------------------------------------------------ *
+ * What of the book a career keeps
+ * ------------------------------------------------------------------------ */
+
+/**
+ * Fold the seasons that have closed out of the subs books.
+ *
+ * A matchday liability is raised for every man the engine put on the pitch, in
+ * every fixture the county plays: 80,779 of them across 4,735 players in the
+ * six-district county's first season alone, four fifths of them settled by the
+ * time the season closes. All of them used to be kept for ever — the settled
+ * ones as a history nothing in the game reads, and the payments behind them as
+ * a second copy of lines the club's own ledger already holds — and that book,
+ * not the number of people in the world, is the whole of the growth the state
+ * budget found. The county's `state.people` reads 26,564 KB at the close of its
+ * first season and 73,151 KB at the close of its fourth while the store holds
+ * the same 6,361 people throughout, and 16,918 KB of that first reading — 94% of
+ * the season's growth — is settled liabilities and payments for matches nobody
+ * is going to ask about again.
+ *
+ * So a career keeps the season's book and the debts in it:
+ *
+ *  - every liability still owed, however old, because a debt the game forgets
+ *    is worse than a save that grows — this is what the treasurer's list, the
+ *    payment conversations and "why does he owe £8?" are all read from;
+ *  - every liability and every payment from a season that has not closed,
+ *    settled or not, because that is the book the manager is reading.
+ *
+ * What goes is the settled history of seasons already over — the same line the
+ * club's ledger draws when it folds its oldest lines into the opening balance,
+ * and for the same reason. `before` is the start of the season being played: a
+ * match dated since then is one the world could still settle again, and the id
+ * its liability carries is what stops it being charged twice (see
+ * `recordMatchdaySubs`), so that guard is never folded away.
+ *
+ * Nothing about the money moves. A settled liability contributes nothing to
+ * `owed` or `missedWeeks`, both of which are re-derived from what is still
+ * outstanding; `lastPaidOn` is a field of its own and is kept; and it is
+ * `finances.ledger` — not this list — that holds the club's takings. The
+ * summaries are deliberately not recomputed here: they are the book's own
+ * reading, and re-deriving them while folding would be a second opinion about it
+ * rather than the book.
+ *
+ * Returns how much was folded away, so the loader can be held to the same rule
+ * as the boundary and a test can measure the book that was there.
+ */
+export function pruneSubsHistory(state: GameState, before: ISODate): { liabilities: number; payments: number } {
+  const folded = { liabilities: 0, payments: 0 };
+  for (const person of Object.values(state.people)) {
+    if (person.kind !== 'player' || !person.subs) continue;
+    const removed = foldSubsBook(person.subs, before);
+    folded.liabilities += removed.liabilities;
+    folded.payments += removed.payments;
+  }
+  return folded;
+}
+
+/**
+ * One man's book, folded by the rule `pruneSubsHistory` states. It is also run
+ * the moment a debt carried over from a closed season is settled, so the book in
+ * memory is always the book a save would load to.
+ */
+export function foldSubsBook(
+  subs: NonNullable<Player['subs']>,
+  before: ISODate,
+): { liabilities: number; payments: number } {
+  let liabilities = 0;
+  let payments = 0;
+  const book = subs.liabilities ?? [];
+  const kept = book.filter(
+    (liability) => liability.date >= before || outstandingOnLiability(liability) > 0,
+  );
+  if (kept.length !== book.length) {
+    liabilities += book.length - kept.length;
+    subs.liabilities = kept;
+  }
+
+  const settled = subs.payments ?? [];
+  const keptPayments = settled.filter((payment) => payment.date >= before);
+  if (keptPayments.length !== settled.length) {
+    payments += settled.length - keptPayments.length;
+    subs.payments = keptPayments;
+  }
+  return { liabilities, payments };
 }
 
 /** Give a player the record if a save predates it. Never invents a debt. */

@@ -28,7 +28,7 @@ import {
  * him choosing between trying again and giving up.
  */
 const SEED = 'career-file';
-const draft = generateDraft({ seed: SEED, startYear: 2026 });
+const draft = generateDraft({ seed: SEED, startYear: 2026, pyramids: 2 });
 const state: GameState = startGameFromDraft(draft, {
   seed: SEED,
   startYear: 2026,

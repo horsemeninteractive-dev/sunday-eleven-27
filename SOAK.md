@@ -26,11 +26,23 @@ npm run soak                              # 10 seasons, seed "soak"
 npm run soak -- --seasons=20              # longer
 npm run soak -- --seed=soak-scratch       # a specific world
 npm run soak -- --club=3                  # take over the fourth club, not the first
+npm run soak -- --districts=2             # the two-district world the soaks below were measured on
+npm run soak -- --budget=260000           # a state-size budget, in KB, instead of the band
 npm run soak -- --json=soak-reports/run.json   # write the full report
 npm run soak -- --quiet                   # one line a season, no tables
 ```
 
 Reports written with `--json` go to `soak-reports/`, which is gitignored.
+
+**The world a run soaks is the whole county** — six districts, eighteen divisions
+and 216 clubs, 2,376 league fixtures a season — because that is the world a career
+founded today is founded in, and the world `npm run benchmark` already measures. It
+is three times the football of the two-district world the long runs recorded below
+were measured on, so a season is a few minutes and ten of them is about half an
+hour. `--districts=2` and `--districts=1` are those smaller worlds, for a run that
+is about the loop rather than about the county. The two-season smoke test in the
+suite soaks two districts for the same reason: it is the cheapest world that runs
+the whole season loop, and the loop is what it is watching.
 
 ## What it drives
 
@@ -66,7 +78,8 @@ reference, because season one is the world as generated — the question is neve
 Failures (`fail`) mean the world is broken: a season that will not close, squads
 that cannot field a side, attributes off the 1–20 scale, a save that does not
 round-trip, the clock going backwards, the archive written twice, a fixture or
-performance pointing at a club, ground or person that has gone.
+performance pointing at a club, ground or person that has gone — and a save that
+has outgrown its budget (`state-bounded`, below).
 
 The club lifecycle has its own set (`checkLifecycle`), because the links it
 leaves across the years are exactly the ones a single-season test cannot see:
@@ -127,6 +140,66 @@ decided about — a negative balance nobody reacts to, a social link to somebody
 who has left. The report prints the failures first, then the warnings, and caps
 each invariant at a handful of examples (the full list is in the JSON).
 
+## The state-size budget
+
+Every other thing a career keeps has a ceiling — news at 300 items, the standings
+history at 140 snapshots, the season archive at `SEASON_HISTORY_LIMIT`, a squad at
+26, a club's ledger at 400 lines — and the state as a whole had none. That is the
+one way a save grows without bound: a season that keeps a record per fixture, a
+world that gains a district, a retention change that holds two seasons of matches
+at once. All of them are quiet, and all of them leave a world every other invariant
+is happy with.
+
+`state-bounded` is the ceiling. It is read at the **close of every season**, with
+`stateSizeBytes(state)` — the benchmark's own reading
+(`JSON.stringify(state).length`), defined once in `src/simulation/soak.ts` so the
+two tools cannot disagree — and it is read there because that is where the state
+peaks: the season's football is all retained, the boundary that rolls the fixtures
+over has not run yet, and the days between two closes only add. A fresh career is a
+tenth of the number, which is why a guard that measured one would be measuring the
+wrong thing.
+
+**The budget is 400,000 KB** (`SOAK_BANDS.stateBudgetBytes` = 409,600,000 bytes).
+The baseline is the verified six-district county: **200,102 KB** at the close of its
+first season — 204,904,153 bytes over 2,917 fixtures, about three quarters of it the
+season's retained match records — measured by `npm run benchmark --districts=6` on
+seed `bench` and recorded in `reports/benchmark-se27-phase3.json`. The soak reads the
+same number on the same world, to the byte, which is what makes the budget a
+measurement rather than an estimate.
+
+The reading is not flat, though, and a budget written for one season would fail the game as it stands. Measured on seed `soak` over the ten seasons the tool plays by default — with the subs book folded at every boundary and the unattached pool held to its cap, both below — the county closes at **203,456 → 208,603 → 209,825 → 216,024 → 221,059 → 223,319 → 227,238 → 230,655 → 230,911 → 237,858 KB**, about 3,800 KB a season on average. Before the subs book was folded at each season boundary the same run closed at **333,330 KB**, growing by about 10,000–20,000 KB a season, and that growth was matchday bookkeeping (see below). So the budget is set for the run the tool makes: 400,000 KB is what a ten-season county career needs, with **162,142 KB (40.5%) of it still to spare** for a seed that draws a fuller county, a longer run, or growth that is not perfectly linear.
+
+What it still catches is what it is for: a world that keeps a season's match records
+twice (about +150,000 KB, at any season), a per-season structure that grows faster
+than the county's own people do, a retention or archive change that adds a fifth to
+the state. The comparison is inclusive — a state exactly at the budget holds, one
+byte past it does not.
+
+Over the budget is a `fail`, not a warning, so the run exits non-zero and the report
+prints it with everything else the world was held to. The failure is a sentence,
+because what to do about it depends on what caused it (wrapped here; the report
+prints it on one line):
+
+```
+FAIL  state-bounded  2026/27  the state serialises to 200,102 KB (204,904,153 bytes)
+      at the close of 2026/27, 10,102 KB past the 190,000 KB budget — the season's
+      match records are 147,526 KB of it (74%), and the world is 6 districts, 216
+      clubs and 3,137 fixtures. The county grows about 3,600 KB a season on average as
+      its subs book is folded at each boundary, so the budget is set for the
+      ten-season run `npm run soak` makes: raise SOAK_BANDS.stateBudgetBytes
+      (src/simulation/soak.ts) when the growth is wanted, or when the run is longer.
+```
+
+That last clause is the point of the failure naming a constant: the budget is meant to
+be raised deliberately, with a fresh measurement in hand, and lowered by nobody. A
+longer run is the ordinary reason — `npm run soak -- --seasons=20` plays a career that
+grows past a budget set for ten — and `npm run soak -- --budget=520000` tries the
+adjustment without editing the band. `npm run benchmark` prints the same budget beside
+its own season-end reading, so a world that is drifting is seen by both tools or by
+neither.
+
+**What the guard found the day it went in: `state.people`, and the subs book inside it.** The growth the first measurement showed was the people store, and the people store was matchday bookkeeping: every man on the pitch in every fixture raised a subs liability, and the settled ones and their payments were kept for ever, though nothing in the game reads a settled charge once its season is over. The book is now folded at each season boundary (`pruneSubsHistory`), and when a debt carried over from a closed season is paid (`foldSubsBook`), so the book in memory is always the book a save loads back to. Every debt still owed is kept, whatever its age. The budget was not changed by the fix. A season that grows faster than the county's own record of it will say so in a failure rather than in a report nobody re-read.
+
 ## Reading the report
 
 - **trend** — one row a season across the numbers that matter: squad size,
@@ -138,6 +211,10 @@ each invariant at a handful of examples (the full list is in the JSON).
   place) and `career` (distinct clubs on the manager's record).
 - **drift** — season one against the last season, as a sentence. This is the
   headline: what changed over the run.
+- **state size** — the fresh world and the largest season-end reading of the run,
+  against the budget and the headroom left in it, with the world they were measured
+  on. The peak is the number the budget is about, not the last season's: a season
+  that happened to shrink would not excuse the one before it.
 - **violations** — every invariant that broke, worst first.
 - **summary** — how many of each invariant broke.
 
@@ -268,7 +345,7 @@ structure, the clock, the saves — all stand up.
   there was no youth intake, so the median age rose 27 → 35 and the 90th
   percentile 33 → 39 over fifteen seasons. It is now fixed by the youth intake
   and the squad cap below, and the age distribution settles instead of springing.
-- **The pool no longer only grows — it now opens too full.** A summer trims the
+- **The pool no longer only grows — fixed: the cap is now per town, the same size as the opening draw (`POOL_PER_TOWN = 3`), and the 509-man opening pool holds in band (501 at season three).** The text that follows describes the pre-fix state, when the cap was per club and the opening pool was trimmed to it. A summer trims the
   pool to the cap (`POOL_PER_CLUB = 0.8` — 29 men for these 36 clubs) and then adds
   that summer's arrivals back (17 of them, measured), which is what holds the
   settled pool at 42–54; over fifteen seasons there is no lean either way, which is

@@ -388,12 +388,29 @@ a phone with no notch — both are zero, every rule that reads them is a no-op, 
 the web layout is exactly the layout it was. That is the property to keep: this is
 a native concern that costs the website nothing.
 
-The room is reserved where the frame is, not by every piece of furniture: the
-shell ([`.app`](src/ui/styles.css)) and the match (a full-screen takeover) reserve
-all four edges once, and anything fixed to the *viewport* inside them — a dialog,
-a bottom sheet, the dressing-room card — reserves its own, because `inset: 0`
-resolves against a padding box and would otherwise put `Kick off` under the
-gesture bar.
+The room is reserved where the frame is, not by every piece of furniture. There
+are three kinds of frame: the shell ([`.app`](src/ui/styles.css)), the match (a
+full-screen takeover), and the pre-game flow — the menu, the manager's profile,
+the club list and the club designer — which are documents that scroll rather
+than frames with a scroller of their own, so their sticky head bars pin to
+`--safe-top` rather than to the top of the window. All of them reserve the four
+edges once, and anything fixed to the *viewport* inside them — a dialog, a bottom
+sheet, the dressing-room card, the screen-opening status — reserves its own,
+because `inset: 0` resolves against a padding box and would otherwise put
+`Kick off` under the gesture bar.
+
+**The colour of the icons on the bars** is the other half of the same problem,
+and it is not geometry: the icons are drawn by the system, the surface behind
+them is the game's own page, and the game has two palettes. `plugins.SystemBars`
+`style` in [`capacitor.config.ts`](capacitor.config.ts) answers for the first
+frame only — the game opens dark, so it is light icons — and the page tells the
+shell again as soon as it knows which way the lights are: `applySystemBars` in
+[`src/platform/systemBars.ts`](src/platform/systemBars.ts), called from
+`applyTheme`, which is the one place that turns the manager's preference and the
+system's setting into an answer, and which therefore also covers a preference
+changed mid-session and a system that changes under a manager who is following
+it. Without that, light mode wears the dark theme's white icons on a light bar:
+a clock and a back gesture nobody can read.
 
 ### 3. The keyboard
 

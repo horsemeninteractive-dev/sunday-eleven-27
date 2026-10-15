@@ -1,0 +1,881 @@
+{
+  "seed": "bench",
+  "districts": 6,
+  "matchday": 1,
+  "world": {
+    "settlements": {
+      "total": 140,
+      "kinds": {
+        "town": 32,
+        "small-town": 18,
+        "village": 68,
+        "hamlet": 22
+      },
+      "withClub": 100,
+      "withoutClub": 40,
+      "withoutClubNames": [
+        "Bramby",
+        "Bramend",
+        "Broad Grostow",
+        "Chadview",
+        "Church Palthwaite",
+        "Cold Copsegreen",
+        "Dangate",
+        "Downmere",
+        "Easter Bonfield",
+        "Fincott",
+        "Helmoss",
+        "Hornlee",
+        "Huthough",
+        "Johnworth",
+        "Kaykiln",
+        "Lidvale",
+        "Little Trimfleet",
+        "Manlaw",
+        "Meadbank",
+        "Mingate",
+        "Olvyard",
+        "Over Millridge",
+        "Payham",
+        "Roughgreen",
+        "Shalview",
+        "Shipditch",
+        "Sudyard",
+        "Sundworth",
+        "Sutdon",
+        "Tatgate",
+        "Temcott",
+        "Thaxwell",
+        "Tilswall",
+        "Wadlaw",
+        "Wansey",
+        "Wavby",
+        "Withford",
+        "Wrenstow",
+        "Wyncdale",
+        "Yeanook"
+      ]
+    },
+    "clubs": {
+      "total": 216,
+      "active": 216
+    },
+    "pyramids": [
+      {
+        "id": "league",
+        "name": "Alderford Sunday League",
+        "level": 1,
+        "regionId": "region_1",
+        "divisions": [
+          {
+            "id": "comp_league_t1",
+            "name": "Alderford Sunday League Division One",
+            "tier": 1,
+            "clubs": 12
+          },
+          {
+            "id": "comp_league_t2",
+            "name": "Alderford Sunday League Division Two",
+            "tier": 2,
+            "clubs": 12
+          },
+          {
+            "id": "comp_league_t3",
+            "name": "Alderford Sunday League Division Three",
+            "tier": 3,
+            "clubs": 12
+          }
+        ]
+      },
+      {
+        "id": "cale",
+        "name": "Westbrook Valley Sunday League",
+        "level": 2,
+        "regionId": "region_2",
+        "divisions": [
+          {
+            "id": "comp_cale_t1",
+            "name": "Westbrook Valley Sunday League Division One",
+            "tier": 1,
+            "clubs": 12
+          },
+          {
+            "id": "comp_cale_t2",
+            "name": "Westbrook Valley Sunday League Division Two",
+            "tier": 2,
+            "clubs": 12
+          },
+          {
+            "id": "comp_cale_t3",
+            "name": "Westbrook Valley Sunday League Division Three",
+            "tier": 3,
+            "clubs": 12
+          }
+        ]
+      },
+      {
+        "id": "avon",
+        "name": "Marlowe Vale Sunday League",
+        "level": 2,
+        "regionId": "region_3",
+        "divisions": [
+          {
+            "id": "comp_avon_t1",
+            "name": "Marlowe Vale Sunday League Division One",
+            "tier": 1,
+            "clubs": 12
+          },
+          {
+            "id": "comp_avon_t2",
+            "name": "Marlowe Vale Sunday League Division Two",
+            "tier": 2,
+            "clubs": 12
+          },
+          {
+            "id": "comp_avon_t3",
+            "name": "Marlowe Vale Sunday League Division Three",
+            "tier": 3,
+            "clubs": 12
+          }
+        ]
+      },
+      {
+        "id": "yare",
+        "name": "Oakham and the Weald Sunday League",
+        "level": 2,
+        "regionId": "region_4",
+        "divisions": [
+          {
+            "id": "comp_yare_t1",
+            "name": "Oakham and the Weald Sunday League Division One",
+            "tier": 1,
+            "clubs": 12
+          },
+          {
+            "id": "comp_yare_t2",
+            "name": "Oakham and the Weald Sunday League Division Two",
+            "tier": 2,
+            "clubs": 12
+          },
+          {
+            "id": "comp_yare_t3",
+            "name": "Oakham and the Weald Sunday League Division Three",
+            "tier": 3,
+            "clubs": 12
+          }
+        ]
+      },
+      {
+        "id": "wyre",
+        "name": "Briar Glen Sunday League",
+        "level": 2,
+        "regionId": "region_5",
+        "divisions": [
+          {
+            "id": "comp_wyre_t1",
+            "name": "Briar Glen Sunday League Division One",
+            "tier": 1,
+            "clubs": 12
+          },
+          {
+            "id": "comp_wyre_t2",
+            "name": "Briar Glen Sunday League Division Two",
+            "tier": 2,
+            "clubs": 12
+          },
+          {
+            "id": "comp_wyre_t3",
+            "name": "Briar Glen Sunday League Division Three",
+            "tier": 3,
+            "clubs": 12
+          }
+        ]
+      },
+      {
+        "id": "dene",
+        "name": "Millwater Sunday League",
+        "level": 2,
+        "regionId": "region_6",
+        "divisions": [
+          {
+            "id": "comp_dene_t1",
+            "name": "Millwater Sunday League Division One",
+            "tier": 1,
+            "clubs": 12
+          },
+          {
+            "id": "comp_dene_t2",
+            "name": "Millwater Sunday League Division Two",
+            "tier": 2,
+            "clubs": 12
+          },
+          {
+            "id": "comp_dene_t3",
+            "name": "Millwater Sunday League Division Three",
+            "tier": 3,
+            "clubs": 12
+          }
+        ]
+      }
+    ],
+    "fixtures": {
+      "total": 2407,
+      "league": 2376,
+      "cup": 28,
+      "friendly": 3
+    },
+    "calendar": {
+      "entries": 97,
+      "leagueMatchdays": 22,
+      "cupRounds": 75,
+      "firstDate": "2026-09-06",
+      "lastDate": "2027-07-18",
+      "spanDays": 315,
+      "seasonStart": "2026-07-20",
+      "seasonEnd": "2027-07-18"
+    },
+    "cups": [
+      {
+        "id": "comp_league_cup",
+        "name": "Alderford Sunday League Cup",
+        "entrants": 36,
+        "round": 1,
+        "complete": false,
+        "plannedRounds": 6,
+        "rounds": [
+          {
+            "round": 1,
+            "field": 36,
+            "entrants": 8
+          },
+          {
+            "round": 2,
+            "field": 32,
+            "entrants": 32
+          },
+          {
+            "round": 3,
+            "field": 16,
+            "entrants": 16
+          },
+          {
+            "round": 4,
+            "field": 8,
+            "entrants": 8
+          },
+          {
+            "round": 5,
+            "field": 4,
+            "entrants": 4
+          },
+          {
+            "round": 6,
+            "field": 2,
+            "entrants": 2
+          }
+        ]
+      },
+      {
+        "id": "comp_plate",
+        "name": "Alderford Sunday League Plate",
+        "entrants": 0,
+        "round": 1,
+        "complete": false,
+        "plannedRounds": 5,
+        "rounds": [
+          {
+            "round": 1,
+            "field": 20,
+            "entrants": 8
+          },
+          {
+            "round": 2,
+            "field": 16,
+            "entrants": 16
+          },
+          {
+            "round": 3,
+            "field": 8,
+            "entrants": 8
+          },
+          {
+            "round": 4,
+            "field": 4,
+            "entrants": 4
+          },
+          {
+            "round": 5,
+            "field": 2,
+            "entrants": 2
+          }
+        ]
+      },
+      {
+        "id": "comp_county_cup",
+        "name": "Alderfordshire County Cup",
+        "entrants": 216,
+        "round": 1,
+        "complete": false,
+        "plannedRounds": 9,
+        "rounds": [
+          {
+            "round": 1,
+            "field": 216,
+            "entrants": 8
+          },
+          {
+            "round": 2,
+            "field": 212,
+            "entrants": 212
+          },
+          {
+            "round": 3,
+            "field": 106,
+            "entrants": 106
+          },
+          {
+            "round": 4,
+            "field": 53,
+            "entrants": 53
+          },
+          {
+            "round": 5,
+            "field": 27,
+            "entrants": 27
+          },
+          {
+            "round": 6,
+            "field": 14,
+            "entrants": 14
+          },
+          {
+            "round": 7,
+            "field": 7,
+            "entrants": 7
+          },
+          {
+            "round": 8,
+            "field": 4,
+            "entrants": 4
+          },
+          {
+            "round": 9,
+            "field": 2,
+            "entrants": 2
+          }
+        ]
+      },
+      {
+        "id": "comp_wyre_cup",
+        "name": "Briar Glen Sunday League Cup",
+        "entrants": 36,
+        "round": 1,
+        "complete": false,
+        "plannedRounds": 6,
+        "rounds": [
+          {
+            "round": 1,
+            "field": 36,
+            "entrants": 8
+          },
+          {
+            "round": 2,
+            "field": 32,
+            "entrants": 32
+          },
+          {
+            "round": 3,
+            "field": 16,
+            "entrants": 16
+          },
+          {
+            "round": 4,
+            "field": 8,
+            "entrants": 8
+          },
+          {
+            "round": 5,
+            "field": 4,
+            "entrants": 4
+          },
+          {
+            "round": 6,
+            "field": 2,
+            "entrants": 2
+          }
+        ]
+      },
+      {
+        "id": "comp_wyre_plate",
+        "name": "Briar Glen Sunday League Plate",
+        "entrants": 0,
+        "round": 1,
+        "complete": false,
+        "plannedRounds": 5,
+        "rounds": [
+          {
+            "round": 1,
+            "field": 20,
+            "entrants": 8
+          },
+          {
+            "round": 2,
+            "field": 16,
+            "entrants": 16
+          },
+          {
+            "round": 3,
+            "field": 8,
+            "entrants": 8
+          },
+          {
+            "round": 4,
+            "field": 4,
+            "entrants": 4
+          },
+          {
+            "round": 5,
+            "field": 2,
+            "entrants": 2
+          }
+        ]
+      },
+      {
+        "id": "comp_avon_cup",
+        "name": "Marlowe Vale Sunday League Cup",
+        "entrants": 36,
+        "round": 1,
+        "complete": false,
+        "plannedRounds": 6,
+        "rounds": [
+          {
+            "round": 1,
+            "field": 36,
+            "entrants": 8
+          },
+          {
+            "round": 2,
+            "field": 32,
+            "entrants": 32
+          },
+          {
+            "round": 3,
+            "field": 16,
+            "entrants": 16
+          },
+          {
+            "round": 4,
+            "field": 8,
+            "entrants": 8
+          },
+          {
+            "round": 5,
+            "field": 4,
+            "entrants": 4
+          },
+          {
+            "round": 6,
+            "field": 2,
+            "entrants": 2
+          }
+        ]
+      },
+      {
+        "id": "comp_avon_plate",
+        "name": "Marlowe Vale Sunday League Plate",
+        "entrants": 0,
+        "round": 1,
+        "complete": false,
+        "plannedRounds": 5,
+        "rounds": [
+          {
+            "round": 1,
+            "field": 20,
+            "entrants": 8
+          },
+          {
+            "round": 2,
+            "field": 16,
+            "entrants": 16
+          },
+          {
+            "round": 3,
+            "field": 8,
+            "entrants": 8
+          },
+          {
+            "round": 4,
+            "field": 4,
+            "entrants": 4
+          },
+          {
+            "round": 5,
+            "field": 2,
+            "entrants": 2
+          }
+        ]
+      },
+      {
+        "id": "comp_dene_cup",
+        "name": "Millwater Sunday League Cup",
+        "entrants": 36,
+        "round": 1,
+        "complete": false,
+        "plannedRounds": 6,
+        "rounds": [
+          {
+            "round": 1,
+            "field": 36,
+            "entrants": 8
+          },
+          {
+            "round": 2,
+            "field": 32,
+            "entrants": 32
+          },
+          {
+            "round": 3,
+            "field": 16,
+            "entrants": 16
+          },
+          {
+            "round": 4,
+            "field": 8,
+            "entrants": 8
+          },
+          {
+            "round": 5,
+            "field": 4,
+            "entrants": 4
+          },
+          {
+            "round": 6,
+            "field": 2,
+            "entrants": 2
+          }
+        ]
+      },
+      {
+        "id": "comp_dene_plate",
+        "name": "Millwater Sunday League Plate",
+        "entrants": 0,
+        "round": 1,
+        "complete": false,
+        "plannedRounds": 5,
+        "rounds": [
+          {
+            "round": 1,
+            "field": 20,
+            "entrants": 8
+          },
+          {
+            "round": 2,
+            "field": 16,
+            "entrants": 16
+          },
+          {
+            "round": 3,
+            "field": 8,
+            "entrants": 8
+          },
+          {
+            "round": 4,
+            "field": 4,
+            "entrants": 4
+          },
+          {
+            "round": 5,
+            "field": 2,
+            "entrants": 2
+          }
+        ]
+      },
+      {
+        "id": "comp_yare_cup",
+        "name": "Oakham and the Weald Sunday League Cup",
+        "entrants": 36,
+        "round": 1,
+        "complete": false,
+        "plannedRounds": 6,
+        "rounds": [
+          {
+            "round": 1,
+            "field": 36,
+            "entrants": 8
+          },
+          {
+            "round": 2,
+            "field": 32,
+            "entrants": 32
+          },
+          {
+            "round": 3,
+            "field": 16,
+            "entrants": 16
+          },
+          {
+            "round": 4,
+            "field": 8,
+            "entrants": 8
+          },
+          {
+            "round": 5,
+            "field": 4,
+            "entrants": 4
+          },
+          {
+            "round": 6,
+            "field": 2,
+            "entrants": 2
+          }
+        ]
+      },
+      {
+        "id": "comp_yare_plate",
+        "name": "Oakham and the Weald Sunday League Plate",
+        "entrants": 0,
+        "round": 1,
+        "complete": false,
+        "plannedRounds": 5,
+        "rounds": [
+          {
+            "round": 1,
+            "field": 20,
+            "entrants": 8
+          },
+          {
+            "round": 2,
+            "field": 16,
+            "entrants": 16
+          },
+          {
+            "round": 3,
+            "field": 8,
+            "entrants": 8
+          },
+          {
+            "round": 4,
+            "field": 4,
+            "entrants": 4
+          },
+          {
+            "round": 5,
+            "field": 2,
+            "entrants": 2
+          }
+        ]
+      },
+      {
+        "id": "comp_cale_cup",
+        "name": "Westbrook Valley Sunday League Cup",
+        "entrants": 36,
+        "round": 1,
+        "complete": false,
+        "plannedRounds": 6,
+        "rounds": [
+          {
+            "round": 1,
+            "field": 36,
+            "entrants": 8
+          },
+          {
+            "round": 2,
+            "field": 32,
+            "entrants": 32
+          },
+          {
+            "round": 3,
+            "field": 16,
+            "entrants": 16
+          },
+          {
+            "round": 4,
+            "field": 8,
+            "entrants": 8
+          },
+          {
+            "round": 5,
+            "field": 4,
+            "entrants": 4
+          },
+          {
+            "round": 6,
+            "field": 2,
+            "entrants": 2
+          }
+        ]
+      },
+      {
+        "id": "comp_cale_plate",
+        "name": "Westbrook Valley Sunday League Plate",
+        "entrants": 0,
+        "round": 1,
+        "complete": false,
+        "plannedRounds": 5,
+        "rounds": [
+          {
+            "round": 1,
+            "field": 20,
+            "entrants": 8
+          },
+          {
+            "round": 2,
+            "field": 16,
+            "entrants": 16
+          },
+          {
+            "round": 3,
+            "field": 8,
+            "entrants": 8
+          },
+          {
+            "round": 4,
+            "field": 4,
+            "entrants": 4
+          },
+          {
+            "round": 5,
+            "field": 2,
+            "entrants": 2
+          }
+        ]
+      }
+    ],
+    "people": {
+      "total": 6283,
+      "players": 5299,
+      "others": 984,
+      "playersPerClub": 24.5
+    },
+    "stateBytes": 20686253,
+    "largest": "people 8,535 KB · relationships 7,307 KB · matches 3,324 KB · clubs 516 KB · world 222 KB"
+  },
+  "headToHead": {
+    "fixtures": 18,
+    "fullMs": 19707.931400000005,
+    "fastMs": 54.7358000000022,
+    "speedup": 360.0556016354783
+  },
+  "seasons": [
+    {
+      "season": "2026/27",
+      "days": 364,
+      "seconds": 138.42115619999998,
+      "matches": 2917
+    }
+  ],
+  "stateBytesAtSeasonEnd": 204904153,
+  "stateBudgetBytes": 409600000,
+  "withinStateBudget": true,
+  "seasonDays": 364,
+  "fingerprints": {
+    "full": {
+      "matches": 18,
+      "games": 18,
+      "goals": 61,
+      "shots": 450,
+      "shotsOnTarget": 181,
+      "saves": 123,
+      "fouls": 930,
+      "yellows": 49,
+      "reds": 4,
+      "corners": 154,
+      "offsides": 192,
+      "blocked": 98,
+      "passes": 26742,
+      "passesCompleted": 18107,
+      "tackles": 2695,
+      "interceptions": 3254,
+      "injuries": 28,
+      "subs": 108,
+      "appearances": 504,
+      "events": 44911,
+      "homePossession": 914,
+      "ratingSum": 3387.5000000000027,
+      "ratingCount": 500,
+      "minutes": 38993,
+      "emptyMinutes": 0
+    },
+    "fast": {
+      "matches": 18,
+      "games": 18,
+      "goals": 46,
+      "shots": 315,
+      "shotsOnTarget": 174,
+      "saves": 128,
+      "fouls": 883,
+      "yellows": 57,
+      "reds": 2,
+      "corners": 0,
+      "offsides": 0,
+      "blocked": 88,
+      "passes": 27785,
+      "passesCompleted": 18252,
+      "tackles": 2701,
+      "interceptions": 3316,
+      "injuries": 34,
+      "subs": 102,
+      "appearances": 498,
+      "events": 1569,
+      "homePossession": 912,
+      "ratingSum": 3242.3999999999987,
+      "ratingCount": 478,
+      "minutes": 39008,
+      "emptyMinutes": 0
+    },
+    "seasonFast": {
+      "matches": 2886,
+      "games": 2886,
+      "goals": 7137,
+      "shots": 50965,
+      "shotsOnTarget": 27350,
+      "saves": 20213,
+      "fouls": 147819,
+      "yellows": 9223,
+      "reds": 198,
+      "corners": 0,
+      "offsides": 0,
+      "blocked": 13885,
+      "passes": 4456090,
+      "passesCompleted": 2924497,
+      "tackles": 434175,
+      "interceptions": 531020,
+      "injuries": 5630,
+      "subs": 16363,
+      "appearances": 79855,
+      "events": 257796,
+      "homePossession": 144172,
+      "ratingSum": 526795.1999999874,
+      "ratingCount": 77627,
+      "minutes": 6348843,
+      "emptyMinutes": 0
+    },
+    "seasonFull": {
+      "matches": 31,
+      "games": 31,
+      "goals": 156,
+      "shots": 904,
+      "shotsOnTarget": 463,
+      "saves": 305,
+      "fouls": 1866,
+      "yellows": 121,
+      "reds": 4,
+      "corners": 281,
+      "offsides": 418,
+      "blocked": 258,
+      "passes": 51383,
+      "passesCompleted": 34751,
+      "tackles": 5884,
+      "interceptions": 6763,
+      "injuries": 61,
+      "subs": 182,
+      "appearances": 864,
+      "events": 86877,
+      "homePossession": 1525,
+      "ratingSum": 5841.5999999999985,
+      "ratingCount": 847,
+      "minutes": 68172,
+      "emptyMinutes": 0
+    }
+  }
+}

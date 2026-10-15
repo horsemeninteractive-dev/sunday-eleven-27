@@ -10,6 +10,8 @@
  * before one is started.
  */
 
+import { applySystemBars } from '@/platform/systemBars';
+
 export type MotionPreference = 'system' | 'reduced' | 'full';
 
 /**
@@ -243,6 +245,13 @@ export function applyTheme(preference: ThemePreference = loadPreferences().theme
     const meta = document.querySelector('meta[name="theme-color"]');
     meta?.setAttribute('content', THEME_COLOUR[resolved]);
   }
+  // And on a phone the same question is asked again, because the `theme-color`
+  // above is the *browser's* chrome and a packaged build has no browser chrome:
+  // the icons the system draws on its own bars are told separately, and a light
+  // theme still wearing the dark theme's white icons is a clock nobody can read.
+  // Fire and forget — nothing about the lights is worth waiting for, and a
+  // browser has no bars to tell.
+  void applySystemBars(resolved);
   return resolved;
 }
 

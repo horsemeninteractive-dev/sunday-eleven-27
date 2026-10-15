@@ -2,13 +2,14 @@ import { useMemo, useState } from 'react';
 import { CLUB_STRUCTURE_LABEL, type ClubStructure } from '@/domain/club';
 import { compactBadge, type BadgeDevice, type BadgePattern, type BadgeShape } from '@/domain/badge';
 import type { GroundSurface } from '@/domain/world';
-import type { TownId } from '@/domain/ids';
+import type { PyramidId, TownId } from '@/domain/ids';
 import { isPlayer } from '@/domain/person';
 import type { PositionGroup } from '@/domain/positions';
 import {
   CAREER_START_YEAR,
   EARLIEST_FOUNDED_YEAR,
   backingGrant,
+  bottomDivisionClubIds,
   CLUB_BACKINGS,
   displacedClubId,
   foundedYearWithin,
@@ -29,7 +30,9 @@ import { moneyWhole } from '../format';
 import { BADGE_DEVICES, BADGE_PATTERNS, BADGE_SHAPES } from '../badge';
 import { Button, PageHeader, Panel, Stat } from '../components/primitives';
 import { ClubBadge } from '../components/Badge';
+import { PyramidPicker } from '../components/PyramidPicker';
 import { SceneBackdrop } from '../components/SceneBackdrop';
+import { draftLadderOptions, ladderChoices, townChoicesFor } from '../worldNav';
 
 const STRUCTURES: ClubStructure[] = ['committee', 'members', 'pub-backed', 'business-backed', 'community', 'chairman-led'];
 const SURFACES: GroundSurface[] = ['grass', 'grass (uneven)', '3G', 'cinder'];
@@ -132,15 +135,40 @@ function deviceLabel(device: BadgeDevice): string {
  */
 export function CreateClubView() {
   const draft = useGameStore((state) => state.draft);
+  const geography = useGameStore((state) => state.setup?.geography);
 
-  const towns = useMemo(
-    () => (draft ? draft.world.townIds.map((id) => draft.world.towns[id]!).sort((a, b) => b.population - a.population) : []),
-    [draft],
+  /**
+   * The ladder the club is being built in, which is the whole of the choice it makes.
+   *
+   * A club built by hand joins the foot of a ladder — the rule the game has always
+   * had, and one that does not change because the county now has six of them. What
+   * the manager chooses is *which* ladder: the county's own football, or any one of
+   * the five districts beside it.
+   */
+  const ladders = useMemo(() => (draft ? draftLadderOptions(draft).filter(ladder => !geography || ladder.id === geography.pyramidId) : []), [draft, geography]);
+  const [ladderId, setLadderId] = useState<PyramidId | null>(null);
+  const ladder = ladders.find((entry) => entry.id === ladderId) ?? ladders[0];
+
+  // The division the new club is registered in: the bottom of the ladder he chose.
+  const entryDivision = ladder?.divisions[ladder.divisions.length - 1];
+
+  /**
+   * The towns he can build in: the region the ladder draws its clubs from.
+   *
+   * A district club plays in the district, so the towns offered follow the ladder
+   * — and the town he had already picked follows it too, because a club whose
+   * address is inside one region's football while it plays in another's is not
+   * something the world has.
+   */
+  const towns = useMemo(() => (draft && ladder ? townChoicesFor(draft, ladder.id) : []), [draft, ladder]);
+
+  // The club whose place in the division the new one takes: the weakest side in
+  // the bottom division of the ladder he chose, whose registration and committee
+  // come across but whose players do not.
+  const replaced = useMemo(
+    () => (draft && ladder ? draft.clubs[displacedClubId(draft, ladder.id)] ?? null : null),
+    [draft, ladder],
   );
-
-  // The club whose place in the division the new one takes: the weakest side,
-  // whose registration and committee come across but whose players do not.
-  const replaced = useMemo(() => (draft ? draft.clubs[displacedClubId(draft)] ?? null : null), [draft]);
 
   const [name, setName] = useState('');
   const [shortName, setShortName] = useState('');
@@ -170,14 +198,20 @@ export function CreateClubView() {
   const left = budget - spend;
   const affordable = spend <= budget;
 
+  // The town actually on the screen: the pick falls back to the first of the
+  // ladder's own towns when the manager moves ladder, rather than reporting a
+  // town in another region's football.
+  const town = towns.find((candidate) => candidate.id === townId) ?? towns[0];
+
   // What the manager is about to be given, worked out exactly as the career
-  // will work it out — same seed, same shopping list, same squad.
+  // will work it out — same seed, same shopping list, same squad, same ladder.
   const projection = useMemo(() => {
-    if (!draft) return null;
+    if (!draft || !ladder) return null;
     const players = squadForCustomClub(draft, {
       squadStandard: standard,
       squadSize,
-      townId,
+      townId: town?.id ?? '',
+      pyramidId: ladder.id,
     });
     const byGroup: Record<PositionGroup, number> = { GK: 0, DEF: 0, MID: 0, FWD: 0 };
     let ageTotal = 0;
@@ -196,9 +230,11 @@ export function CreateClubView() {
     // Where that squad would sit in the division. Every club already in it is
     // measured the same way, and the new side is dropped in among them — which
     // is the only honest answer to "how good will this actually be?", because
-    // good is a relative word down the park.
-    const replacedId = displacedClubId(draft);
-    const rivals = draft.divisionClubIds
+    // good is a relative word down the park. The division is the one the club is
+    // actually joining: the bottom of the ladder he chose, not the county's top
+    // division and not another district's.
+    const replacedId = displacedClubId(draft, ladder.id);
+    const rivals = bottomDivisionClubIds(draft, ladder.id)
       .filter((clubId) => clubId !== replacedId)
       .map((clubId) => {
         const squad = draft.clubs[clubId]!.squadIds
@@ -219,7 +255,7 @@ export function CreateClubView() {
       rank: rivals.filter((rivalAbility) => rivalAbility > ability).length + 1,
       division: rivals.length + 1,
     };
-  }, [draft, standard, squadSize, townId]);
+  }, [draft, ladder, standard, squadSize, town]);
 
   // Only what he actually decided is kept, so anything he left as "as drawn"
   // is drawn by the generator exactly as it would be for any other club.
@@ -240,17 +276,17 @@ export function CreateClubView() {
   const standing = reputationFromAbility(projection?.ability ?? 0);
   const standingBand = projection ? abilityBandFor(projection.ability) : 'Solid';
 
-  if (!draft || !replaced) return null;
+  if (!draft || !replaced || !ladder || !entryDivision) return null;
 
   const named = name.trim().length >= MIN_CLUB_NAME_LENGTH;
-  const canRegister = affordable && named && Boolean(townId);
+  const canRegister = affordable && named && Boolean(town);
 
   const submit = () => {
     if (!named) {
       setError(`A club needs a name of at least ${MIN_CLUB_NAME_LENGTH} characters.`);
       return;
     }
-    if (!townId) {
+    if (!town) {
       setError('Choose the town the club plays in.');
       return;
     }
@@ -270,7 +306,8 @@ export function CreateClubView() {
       backing,
       squadStandard: standard,
       squadSize,
-      townId,
+      townId: town.id,
+      pyramidId: ladder.id,
       groundName,
       capacity,
       surface,
@@ -307,11 +344,27 @@ export function CreateClubView() {
         eyebrow="New club · step 2 of 2"
         title="Design your club"
         photo="/photos/create-club-crest.webp"
-        subtitle={`${draft.leagueName} · seed “${draft.seed}”. Your club takes the place of ${replaced.identity.name}.`}
+        subtitle={`${ladder.name} · seed “${draft.seed}”. Your club joins ${entryDivision.name}, taking the place of ${replaced.identity.name}.`}
         actions={
           <><Button variant="ghost" onClick={() => gameActions().abandonDraft()}>Back</Button><Button variant="primary" onClick={submit} disabled={!canRegister}>Register {name.trim() || 'your club'}</Button></>
         }
       />
+
+      {/* Which ladder the club is built in. A new club has always entered at the
+          foot of the county's ladder, and every district of the county is the same
+          rule: between them they are five sixths of the world's clubs. */}
+      <Panel title="Where your club starts" subtitle={`New clubs join the foot of a ladder — ${entryDivision.name}`}>
+        <PyramidPicker
+          label="Leagues"
+          choices={ladderChoices(ladders, null)}
+          selected={ladder.id}
+          onSelect={setLadderId}
+        />
+        <p className="muted small">
+          {ladder.name} · {ladder.region} · {ladder.clubCount} clubs. Registering takes{' '}
+          {replaced.identity.name}&rsquo;s place at the bottom of it.
+        </p>
+      </Panel>
 
       <div className="create-club__grid">
         <div className="create-club__column">
@@ -367,7 +420,7 @@ export function CreateClubView() {
         <Panel title="Ground and running" subtitle="Your home in the local game">
           <label className="field">
             <span className="field__label">Town</span>
-            <select className="input" value={townId} onChange={(e) => setTownId(e.target.value)}>
+            <select className="input" value={town?.id ?? ''} onChange={(e) => setTownId(e.target.value)}>
               {towns.map((town) => (
                 <option key={town.id} value={town.id}>
                   {town.name} ({town.population.toLocaleString('en-GB')})

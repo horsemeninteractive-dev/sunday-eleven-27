@@ -26,7 +26,7 @@ import {
  */
 
 function career(seed: string): GameState {
-  const draft = generateDraft({ seed, startYear: 2026 });
+  const draft = generateDraft({ seed, startYear: 2026, pyramids: 2 });
   return startGameFromDraft(draft, {
     seed,
     startYear: 2026,

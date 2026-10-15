@@ -24,6 +24,10 @@ export const SLOW_TEST_PATTERNS = [
   // more full seasons (or enough weeks to be one in all but name).
   'src/simulation/soak.test.ts',
   'src/simulation/progression.test.ts',
+  // The season archive: two careers played out a day at a time, because the
+  // record of a season can only be read from a season that has been played.
+  'src/simulation/seasonHistory.test.ts',
+  'src/ui/views/leagueView.test.ts',
   'src/simulation/training.test.ts',
   'src/simulation/recruitment.test.ts',
   'src/simulation/relationships.test.ts',
@@ -44,4 +48,8 @@ export const SLOW_TEST_PATTERNS = [
   // Reading careers out of files and back into a real store: several whole
   // worlds, because the flow only means anything against the real database.
   'src/ui/saveTransfer.test.ts',
+  // Deleting a saved career: the real store and the real database, because the
+  // question is what happens to the autosave's debounce when the manager says
+  // the career should be gone.
+  'src/ui/saveDelete.test.ts',
 ];

@@ -1,8 +1,10 @@
 import { MANAGER_PERSON_ID } from '@/domain/communication';
 import { FRIENDLY_COMPETITION_ID } from '@/domain/competition';
+import { ALDERFORDSHIRE_DISTRICTS } from '@/domain/districts';
 import { isOfficial, isPlayer, type Player } from '@/domain/person';
 import { isCompetitiveMatch, type Match } from '@/domain/match';
 import type { GameState } from '@/domain/game';
+import { SEASON_HISTORY_LIMIT } from '@/domain/history';
 import type { ISODate } from '@/domain/ids';
 import { daysBetween } from './calendar';
 import { CLUB_LIFECYCLE } from './clubLifecycle';
@@ -10,7 +12,8 @@ import { cupRoundMatchday, tiesOnMatchday } from './cup';
 import { processDay, currentAttention } from './day';
 import { REARRANGEMENT_GRACE_DAYS, rearrangementDeadlineFor } from './postponement';
 import { startNextSeason } from './season';
-import { cupCompetitions, leagueCompetitions, pyramidOf, tierOf } from './pyramid';
+import { seasonHistoryOf } from './seasonHistory';
+import { cupCompetitions, divisionsOf, leagueCompetitions, pyramidsOf, tierOf } from './pyramid';
 import { publishEvents } from './news';
 import { createTestGame } from './testSupport';
 import { serialiseGame, deserialiseGame } from '@/state/persistence';
@@ -49,6 +52,43 @@ import { serialiseGame, deserialiseGame } from '@/state/persistence';
  * because the point is to see the decade, and the report says how often the real
  * Continue button would have stopped.
  */
+
+// ---------------------------------------------------------------------------
+// Measuring the state
+// ---------------------------------------------------------------------------
+
+/**
+ * How big a career is: the size of its state, in bytes.
+ *
+ * One definition, in one place, because two readings of "the size of the game"
+ * that disagree are worse than no reading at all: the benchmark's world audit
+ * measures the world with this and the soak's `state-bounded` invariant holds the
+ * close of a season to it, so a growth that trips one of them is a growth both of
+ * them see.
+ *
+ * It is `JSON.stringify(state).length`: the bytes the game is, before the version
+ * header and the timestamp a save file adds, and before whatever a storage layer
+ * does to them. It is deliberately not the length of a compressed database row —
+ * that is a property of the storage, not of the career — and not the in-memory
+ * footprint either, which moves with the engine's own object shapes.
+ *
+ * It costs what serialising the state costs, which on a full county is a couple of
+ * seconds and the size of the state in memory, so it is read at the checkpoints
+ * that matter — the close of a season, the benchmark's audit — rather than on a
+ * timer or a screen.
+ *
+ * It takes any value rather than a `GameState` because the same reading of a
+ * *part* of the state is what says where the bytes are, and a breakdown of the
+ * whole has to be measured the same way the whole is.
+ */
+export function stateSizeBytes(value: unknown): number {
+  return JSON.stringify(value)?.length ?? 0;
+}
+
+/** `204904153` → `204,904,153`, so a size reads at a glance in a failure. */
+function group(value: number): string {
+  return value.toLocaleString('en-US');
+}
 
 // ---------------------------------------------------------------------------
 // Bands
@@ -98,6 +138,15 @@ export const SOAK_BANDS = {
    */
   standingHistoryMax: 140,
   /**
+   * The archive of finished seasons, which is capped at `SEASON_HISTORY_LIMIT`.
+   *
+   * One season is six divisions' final tables and every cup's rounds — the
+   * county's five competitions and both ladders' — so the whole archive is a few
+   * hundred rows and a few thousand ties at the very most, and it stops there
+   * rather than growing with the career.
+   */
+  seasonHistoryMax: SEASON_HISTORY_LIMIT,
+  /**
    * How far a single tier's mean ability may wander from its own season one.
    *
    * Deliberately tighter than the county-wide band: a pyramid that has
@@ -112,6 +161,41 @@ export const SOAK_BANDS = {
    * and the top of it drift towards each other and the pyramid flattens.
    */
   tierSeparation: 0.015,
+  /**
+   * The most a career's state may serialise to at the close of a season.
+   *
+   * The baseline is the verified six-district county: 204,904,153 bytes
+   * (200,102 KB) at the end of its first season — 2,917 fixtures, about three
+   * quarters of it the season's retained match records — measured by
+   * `npm run benchmark --districts=6` on seed `bench` and recorded in
+   * `reports/benchmark-se27-phase3.json`. The soak reads the same number on the
+   * same world, to the byte.
+   *
+   * That reading is not flat, and a budget written for season one alone would
+   * fail the game as it stands. A ten-season run of the county — seed `soak`,
+   * 2026/27 to 2035/36 — closes at 203,456 → 207,949 → 208,219 → 216,229 →
+   * 224,655 → 222,779 → 226,445 → 228,716 → 233,753 → 236,238 KB. The growth that
+   * was left is the subs book: the settled matchday charges and payments of closed
+   * seasons, which used to be kept for ever and are now folded away at each
+   * boundary (`pruneSubsHistory`, and `foldSubsBook` when a carried debt is paid),
+   * so the county grows about 3,600 KB a season on average. Before that fold the
+   * same run closed at 333,330 KB.
+   *
+   * Hence **400,000 KB**: twice what the county writes in its first season, and
+   * the room the tool's own run needs — `npm run soak` plays ten seasons of the
+   * county, which peak at 236,238 KB, 163,762 KB (40.9%) under the budget. The
+   * budget is not lowered for that, because a ceiling is meant to leave room for a
+   * seed that draws a fuller county, a longer career, or a season with more
+   * rearranged fixtures.
+   *
+   * What it still catches is what it is for: a world that keeps a season's match
+   * records twice (about +150,000 KB, at any season), a per-season structure that
+   * grows faster than the county's own people do, a retention or archive change
+   * that adds a fifth to the state. Raising it is a decision to make on purpose,
+   * with a fresh measurement in hand — and lengthening the soak's default run is
+   * a reason to revisit it, which the failure itself says.
+   */
+  stateBudgetBytes: 409_600_000,
 } as const;
 
 /**
@@ -243,9 +327,20 @@ export interface SoakSnapshot {    season: number;
   honoursTotal: number;
   seasonRecordsMax: number;
   standingHistoryMax: number;
+  seasonHistoryMax: number;
   postponements: number;
   rearrangements: number;
   abandoned: number;
+  /**
+   * `stateSizeBytes(state)` at the moment this season closed — what the game
+   * writes on every save, and the reading `state-bounded` holds to the budget.
+   *
+   * Read here rather than on a fresh career because here is where the state
+   * peaks: the season's football is all retained, the boundary that rolls the
+   * fixtures over has not run yet, and nothing in the days between makes the
+   * game smaller.
+   */
+  stateBytes: number;
 }
 
 export interface SoakOptions {
@@ -253,6 +348,23 @@ export interface SoakOptions {
   seasons: number;
   /** Which club in the division the manager takes over. */
   clubIndex?: number;
+  /**
+   * How many of the county's districts the soaked career is founded with.
+   *
+   * Left out, it is the whole county — the six districts, 216 clubs and 2,376
+   * league fixtures a career founded today gets, which is also the world the
+   * state budget is measured against. `tools/benchmark.ts` makes the same choice
+   * for the same reason. `1` and `2` are the smaller worlds the earlier soaks
+   * were measured on.
+   */
+  districts?: number;
+  /**
+   * The state budget this run is held to, in bytes. Left out, the band
+   * (`SOAK_BANDS.stateBudgetBytes`), which is what every ordinary run uses; it is
+   * here so a deliberate adjustment can be tried without editing the band, and so
+   * a test can hold a run to a budget it chooses.
+   */
+  stateBudgetBytes?: number;
   /** Called as each season closes, for a progress line. */
   onSeason?: (snapshot: SoakSnapshot) => void;
 }
@@ -261,7 +373,15 @@ export interface SoakResult {
   seed: string;
   clubId: string;
   seasons: number;
+  /** The districts the career was founded with. */
+  districts: number;
   seconds: number;
+  /** The state as the career opened: a season of football has not been played yet. */
+  stateBytesFresh: number;
+  /** The largest any season closed at, in bytes; 0 when no season was played. */
+  stateBytesAtSeasonEnd: number;
+  /** The budget this run was held to, in bytes. */
+  stateBudgetBytes: number;
   snapshots: SoakSnapshot[];
   violations: SoakViolation[];
 }
@@ -322,7 +442,17 @@ function snapshotSeason(
   // has no squad, no money worth reading and no season to archive. Every
   // reading of "the league" is a reading of the clubs that are still playing.
   const clubs = allClubs.filter((club) => club.active);
-  const divisions = leagueCompetitions(state);
+  // Every division in the world, each ladder's own together and in tier order,
+  // the founding ladder first.
+  //
+  // The readings below are rungs of a ladder, and a county with a district next
+  // door has two ladders in it. `[county 1, county 2, county 3, district 1,
+  // district 2, district 3]` is a list whose neighbours are comparable; ordering
+  // the lot by tier number instead puts two different ladders' top divisions side
+  // by side, and the check that asks whether each rung is above the one below it
+  // then reads the district's top division as a step down from the county's — as
+  // does the count of boundaries a season's promotions cross.
+  const divisions = pyramidsOf(state).flatMap((pyramid) => divisionsOf(state, pyramid.id));
   const competition = divisions[0];
   const registered = clubs.flatMap((club) => club.squadIds.map((id) => state.people[id]).filter(isPlayer));
   const unattached = playersOf(state).filter((player) => player.clubId === null);
@@ -429,9 +559,11 @@ function snapshotSeason(
     honoursTotal: allClubs.reduce((sum, club) => sum + club.history.honours.length, 0),
     seasonRecordsMax: Math.max(...allClubs.map((club) => club.history.seasons.length)),
     standingHistoryMax: state.standingHistory.length,
+    seasonHistoryMax: seasonHistoryOf(state).length,
     postponements: Object.values(state.matches).filter((match) => match.postponementReason).length,
     rearrangements: Object.values(state.matches).filter((match) => match.originalDate !== null).length,
     abandoned: Object.values(state.matches).filter((match) => match.status === 'abandoned').length,
+    stateBytes: stateSizeBytes(state),
   };
 }
 
@@ -623,11 +755,18 @@ function checkPyramid(state: GameState, snapshot: SoakSnapshot, baseline: SoakSn
       ),
     );
   }
-  const boundaries = Math.max(0, divisions.length - 1);
+  // Every boundary in the county, each counted on its own ladder and paid at that
+  // ladder's own rate: six divisions are not five boundaries when they are two
+  // ladders of three, and the district's places are the district's.
+  let boundaries = 0;
+  let expected = 0;
+  for (const pyramid of pyramidsOf(state)) {
+    const rungs = divisionsOf(state, pyramid.id).length;
+    if (rungs < 2) continue;
+    boundaries += rungs - 1;
+    expected += (rungs - 1) * (pyramid.config.promotionPlaces || 0);
+  }
   if (boundaries > 0) {
-    // The founding ladder's places, which is the ladder this world was built
-    // with and the one the boundary count above is read from.
-    const expected = boundaries * (pyramidOf(state).config.promotionPlaces || 0);
     if (snapshot.promoted !== expected) {
       out.push(
         violation(
@@ -1045,7 +1184,7 @@ export function seasonSnapshot(state: GameState, season = 1): SoakSnapshot {
  * *and* the top must stay ahead of the one below it (so the pyramid is still a
  * pyramid rather than thirty-six clubs of the same sort of football).
  */
-function checkTierStratification(snapshot: SoakSnapshot, baseline: SoakSnapshot): SoakViolation[] {
+function checkTierStratification(state: GameState, snapshot: SoakSnapshot, baseline: SoakSnapshot): SoakViolation[] {
   const out: SoakViolation[] = [];
   const now = snapshot.tierAbility;
   const then = baseline.tierAbility;
@@ -1067,20 +1206,30 @@ function checkTierStratification(snapshot: SoakSnapshot, baseline: SoakSnapshot)
     }
   }
 
-  for (let tier = 0; tier + 1 < now.length; tier += 1) {
-    const top = now[tier] ?? 0;
-    const bottom = now[tier + 1] ?? 0;
-    if (top === 0) continue;
-    if (top - bottom < SOAK_BANDS.tierSeparation * top) {
+  // Rungs are read inside one ladder at a time. A ladder's bottom rung is not
+  // below another ladder's top one: a district next door plays at a level beneath
+  // the county, and its own Division One is still the top of its own ladder, so
+  // the pairings are the county's rungs against each other and then the
+  // district's. (Where two ladders' *levels* meet is a Stage 4 question about
+  // movement between them, not a promise the world generator makes.)
+  let offset = 0;
+  for (const pyramid of pyramidsOf(state)) {
+    const rungs = divisionsOf(state, pyramid.id).length;
+    for (let tier = offset; tier + 1 < offset + rungs; tier += 1) {
+      const top = now[tier] ?? 0;
+      const bottom = now[tier + 1] ?? 0;
+      if (top === 0) continue;
+      if (top - bottom >= SOAK_BANDS.tierSeparation * top) continue;
       out.push(
         violation(
           snapshot,
           'fail',
           'tier-stratification',
-          `division ${tier + 1} (${top}) is not clearly ahead of division ${tier + 2} (${bottom})`,
+          `${pyramid.id} division ${tier - offset + 1} (${top}) is not clearly ahead of division ${tier - offset + 2} (${bottom})`,
         ),
       );
     }
+    offset += rungs;
   }
   return out;
 }
@@ -1495,6 +1644,43 @@ function checkBookkeeping(state: GameState, snapshot: SoakSnapshot, baseline: So
       violation(snapshot, 'fail', 'standing-history-bounded', `${state.standingHistory.length} snapshots`, null),
     );
   }
+  // The subs book is a season's book. Every settled matchday charge and every
+  // payment from a season that has closed is folded away at the boundary, and
+  // every debt is kept; keeping the settled ones for ever was the whole of the
+  // growth `state-bounded` found, 13,000–17,000 KB a season of matchday
+  // bookkeeping that nothing in the game reads. A settled charge or a payment
+  // dated before the season being played means the boundary — or the loader that
+  // applies the same rule — has stopped folding them. See `pruneSubsHistory`.
+  let staleCharges = 0;
+  let stalePayments = 0;
+  for (const person of Object.values(state.people)) {
+    if (person.kind !== 'player') continue;
+    const subs = person.subs;
+    if (!subs) continue;
+    for (const liability of subs.liabilities ?? []) {
+      if (liability.date < state.season.startDate && liability.paid >= liability.amount) staleCharges += 1;
+    }
+    for (const payment of subs.payments ?? []) {
+      if (payment.date < state.season.startDate) stalePayments += 1;
+    }
+  }
+  if (staleCharges > 0 || stalePayments > 0) {
+    out.push(
+      violation(
+        snapshot,
+        'fail',
+        'subs-book-closed',
+        `${staleCharges} settled matchday charge(s) and ${stalePayments} payment(s) from before ${state.season.startDate} are still in the books`,
+      ),
+    );
+  }
+
+  // The season archive grows by exactly one season a year and is capped, so a
+  // career that has played a hundred seasons carries twelve of them.
+  const seasons = seasonHistoryOf(state).length;
+  if (seasons > SOAK_BANDS.seasonHistoryMax) {
+    out.push(violation(snapshot, 'fail', 'season-history-bounded', `${seasons} seasons archived`, null));
+  }
   return out;
 }
 
@@ -1540,6 +1726,70 @@ function checkSave(state: GameState, snapshot: SoakSnapshot): SoakViolation[] {
     out.push(violation(snapshot, 'fail', 'save-round-trips', `round trip changed the game at ${difference}`));
   }
   return out;
+}
+
+/**
+ * The size of the save, held to its budget at the close of a season.
+ *
+ * It is the one reading of a career that nothing else bounds. News is capped at
+ * 300, the standings history at 140, the season archive at `SEASON_HISTORY_LIMIT`,
+ * a squad at 26 and a ledger at 400 lines — and the state as a whole has never
+ * had a ceiling at all. So the way a save grows without bound is a season that
+ * keeps one record per fixture, a world that gains a district, or a retention
+ * change that holds two seasons of matches at once: all of them quiet, all of
+ * them invisible until a career is years old and somebody's phone will not carry
+ * it, and all of them growth the world's own invariants are happy with, because a
+ * bigger save is a perfectly healthy game.
+ *
+ * The reading is `stateSizeBytes(state)` — the benchmark's own measurement, in
+ * the benchmark's own units — taken at the close of a season, which is where the
+ * state peaks: the roll-over at the boundary rebuilds `state.matches`, and the
+ * days between two closes only add to it. It is deliberately not read on a fresh
+ * career, where the season's football is still absent and the number is a tenth
+ * of what it becomes.
+ *
+ * The comparison is inclusive: a state exactly at the budget holds, because the
+ * budget is a ceiling rather than a target. Over it is a `fail`, and the failure
+ * names the measurement, the budget, the world it was measured on and the
+ * constant to raise. A soak that warned instead would be a soak that reported a
+ * save nobody can carry as a world that held up.
+ *
+ * `state` is read for the failure's context — where the size is, and what the
+ * world is — and never written to; the measurement itself is already in
+ * `snapshot.stateBytes`.
+ */
+export function checkStateBudget(
+  state: GameState,
+  snapshot: SoakSnapshot,
+  budgetBytes: number = SOAK_BANDS.stateBudgetBytes,
+): SoakViolation[] {
+  if (snapshot.stateBytes <= budgetBytes) return [];
+  return [violation(snapshot, 'fail', 'state-bounded', stateBudgetDetail(state, snapshot, budgetBytes))];
+}
+
+/**
+ * What a state over budget is told: what it measured, what it was allowed, where
+ * the size is, and which constant to raise when the growth is wanted.
+ */
+function stateBudgetDetail(state: GameState, snapshot: SoakSnapshot, budgetBytes: number): string {
+  const kb = (bytes: number): string => `${group(Math.round(bytes / 1024))} KB`;
+  const plural = (count: number, noun: string): string => `${group(count)} ${noun}${count === 1 ? '' : 's'}`;
+  const matches = stateSizeBytes(state.matches);
+  const clubs = Object.values(state.clubs).filter((club) => club.active).length;
+  const fixtures = Object.keys(state.matches).length;
+  const share = Math.round((matches / Math.max(1, snapshot.stateBytes)) * 100);
+  const overshoot = snapshot.stateBytes - budgetBytes;
+  // Under a kilobyte the difference is said in bytes, because "0 KB past the
+  // budget" is a failure nobody can act on.
+  const past = overshoot < 1024 ? `${group(overshoot)} byte${overshoot === 1 ? '' : 's'}` : kb(overshoot);
+  return (
+    `the state serialises to ${kb(snapshot.stateBytes)} (${group(snapshot.stateBytes)} bytes) at the close of ${snapshot.label}, ` +
+    `${past} past the ${kb(budgetBytes)} budget — the season's match records are ${kb(matches)} of it (${share}%), ` +
+    `and the world is ${plural(pyramidsOf(state).length, 'district')}, ${plural(clubs, 'club')} and ${plural(fixtures, 'fixture')}. ` +
+    'The county grows about 3,600 KB a season on average as its subs book is folded at each boundary, so the budget ' +
+    'is set for the ten-season run `npm run soak` makes: raise SOAK_BANDS.stateBudgetBytes ' +
+    '(src/simulation/soak.ts) when the growth is wanted, or when the run is longer.'
+  );
 }
 
 /**
@@ -1589,7 +1839,15 @@ export function firstDifference(a: unknown, b: unknown, path: string): string | 
  */
 export function runSoak(options: SoakOptions): SoakResult {
   const started = Date.now();
-  const { state } = createTestGame(options.seed, options.clubIndex ?? 0);
+  // The world a career founded today is founded in: the whole county, unless a
+  // caller asked for a smaller one. It is the world the state budget is measured
+  // against, and the same choice the benchmark makes.
+  const districts = options.districts ?? ALDERFORDSHIRE_DISTRICTS.length;
+  const stateBudgetBytes = options.stateBudgetBytes ?? SOAK_BANDS.stateBudgetBytes;
+  const { state } = createTestGame(options.seed, options.clubIndex ?? 0, 2026, districts);
+  // What the game is before a season of football is played into it, so the report
+  // can say how much of the state a season's retention is.
+  const stateBytesFresh = stateSizeBytes(state);
   const snapshots: SoakSnapshot[] = [];
   const violations: SoakViolation[] = [];
   let baseline: SoakSnapshot | null = null;
@@ -1638,8 +1896,10 @@ export function runSoak(options: SoakOptions): SoakResult {
     violations.push(...checkPyramid(state, snapshot, baseline));
     violations.push(...checkDoubleBookings(state, snapshot));
     violations.push(...checkCalendarIntegrity(state, snapshot));
-    violations.push(...checkTierStratification(snapshot, baseline));
+    violations.push(...checkTierStratification(state, snapshot, baseline));
     violations.push(...checkSave(state, snapshot));
+    // The save's size, read at the close of the season and held to the budget.
+    violations.push(...checkStateBudget(state, snapshot, stateBudgetBytes));
     if (state.date <= clock && season > 1) {
       violations.push(
         violation(snapshot, 'fail', 'clock-never-rewinds', `the season closed on ${state.date}, before it started`),
@@ -1686,7 +1946,13 @@ export function runSoak(options: SoakOptions): SoakResult {
     seed: options.seed,
     clubId: state.userClubId,
     seasons: options.seasons,
+    districts,
     seconds: round((Date.now() - started) / 1000, 1),
+    stateBytesFresh,
+    // The peak, not the last: the question the budget asks is the largest state a
+    // run ever wrote, and a season that shrank the game would not excuse it.
+    stateBytesAtSeasonEnd: snapshots.reduce((largest, item) => Math.max(largest, item.stateBytes), 0),
+    stateBudgetBytes,
     snapshots,
     violations,
   };

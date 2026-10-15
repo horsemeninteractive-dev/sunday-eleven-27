@@ -73,8 +73,16 @@ const config: CapacitorConfig = {
    */
   plugins: {
     SystemBars: {
-      // Light icons on the game's near-black, whatever the device's theme is:
-      // the game does not follow the system's light or dark setting.
+      // The one frame the page cannot correct in time: this is what the icons on
+      // the bars wear while the bundle is still arriving, and it has to be the
+      // palette the game opens on — its own near-black, which is light icons.
+      //
+      // It is *only* that frame. A manager who has turned the lights on would
+      // otherwise have white icons on a light bar for the whole session, so the
+      // page tells the shell the resolved answer as soon as it knows it and again
+      // whenever the lights change: see `applySystemBars` in
+      // `src/platform/systemBars.ts`. This value is never the device's theme,
+      // because the game does not follow the system's light or dark setting.
       style: 'DARK',
       insetsHandling: 'css',
       initialViewportFitValueHint: 'cover',

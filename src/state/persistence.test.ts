@@ -3,9 +3,31 @@ import { IDBFactory } from 'fake-indexeddb';
 import { generateDraft, startGameFromDraft } from '@/simulation/gameSetup';
 import { addDays } from '@/simulation/calendar';
 import { cupRoundMatchday, cupRoundOf } from '@/simulation/cup';
-import { LEAGUE_CUP_ID, PLATE_ID, divisionOf, divisionsOf, leagueCompetitions, registerFixture } from '@/simulation/pyramid';
-import { startNextSeason } from '@/simulation/season';
-import { FOUNDING_PYRAMID_ID } from '@/domain/competition';
+import {
+  COUNTY_CUP_ID,
+  COUNTY_CUP_NAME,
+  LEAGUE_CUP_ID,
+  LEAGUE_CUP_NAME,
+  PLATE_ID,
+  countyClubIds,
+  countyIdOfPyramid,
+  divisionOf,
+  divisionsOf,
+  leagueCompetitions,
+  registerFixture,
+} from '@/simulation/pyramid';
+import { fieldClubs } from '@/simulation/seasonStructure';
+import { processDay } from '@/simulation/day';
+import { finishSeason, startNextSeason } from '@/simulation/season';
+import { settleLeague } from '@/simulation/testSupport';
+import { FOUNDING_PYRAMID_ID, cupFieldOf, storedCupField } from '@/domain/competition';
+import {
+  FOUNDING_COUNTY_ID,
+  FOUNDING_COUNTY_NAME,
+  FOUNDING_REGION_ID,
+  NATION_NAME,
+} from '@/domain/world';
+import { ALDERFORDSHIRE_DISTRICTS } from '@/domain/districts';
 import { GAME_STATE_VERSION, type GameState } from '@/domain/game';
 import type { FaceChoices } from '@/domain/face';
 import type { MatchId } from '@/domain/ids';
@@ -72,12 +94,48 @@ function freshDatabase(): void {
 }
 
 function career(seed: string): GameState {
-  const draft = generateDraft({ seed, startYear: 2026 });
+  const draft = generateDraft({ seed, startYear: 2026, pyramids: 2 });
   return startGameFromDraft(draft, {
     seed,
     startYear: 2026,
     clubId: draft.divisionClubIds[0]!,
     saveName: `Test — ${seed}`,
+  });
+}
+
+/**
+ * A career founded with the whole county: six districts, eighteen divisions.
+ *
+ * The world a career born today is handed, and so the one the migration has
+ * nothing left to give.
+ */
+function countyCareer(seed: string): GameState {
+  const draft = generateDraft({ seed, startYear: 2026 });
+  return startGameFromDraft(draft, {
+    seed,
+    startYear: 2026,
+    clubId: draft.divisionClubIds[0]!,
+    saveName: `County — ${seed}`,
+  });
+}
+
+/**
+ * A career as a save written before the district next door existed holds it: one
+ * ladder, one region, thirty-six clubs.
+ *
+ * Every fixture that is about *old* saves starts here, because that is what an
+ * old save is. Stripping the pyramid model out of a two-ladder career would leave
+ * a world no version of the game ever wrote — six divisions and no record of who
+ * owns which three — and the migration would be being asked about a county that
+ * never existed.
+ */
+function legacyCareer(seed: string): GameState {
+  const draft = generateDraft({ seed, startYear: 2026, pyramids: 1 });
+  return startGameFromDraft(draft, {
+    seed,
+    startYear: 2026,
+    clubId: draft.divisionClubIds[0]!,
+    saveName: `Legacy — ${seed}`,
   });
 }
 
@@ -226,7 +284,8 @@ describe('the autosave', () => {
 
   it('forgets a mark pointing at a slot the manager deletes', async () => {
     await autosave(career('autosave-delete'));
-    await deleteSave(AUTOSAVE_SLOT);
+    const removed = await deleteSave(AUTOSAVE_SLOT);
+    expect(removed).toEqual({ ok: true, error: null });
     expect(await resumeSlot()).toBeNull();
     expect(await listSaveSlots()).toHaveLength(0);
   });
@@ -241,6 +300,65 @@ describe('the autosave', () => {
     expect(result.error).toBeNull();
     expect(result.info?.slot).toBe(AUTOSAVE_SLOT);
     expect(result.info?.auto).toBe(true);
+  });
+});
+
+/**
+ * Removing a saved career.
+ *
+ * The game could write a career out, read one back and move one in and out as a
+ * file long before it could remove one, and the removal it now offers has to
+ * survive the two things storage does on its own: writes queued behind each
+ * other for one slot, and a slot that never held anything. What a delete does
+ * *not* do is the third: a career is removed from one slot and from nowhere
+ * else, because the manager's own snapshot and the autosave are two separate
+ * copies of the same season and he asked about one of them.
+ */
+describe('deleting a saved career', () => {
+  it('empties the slot and says it did', async () => {
+    const state = career('delete-one');
+    await saveGame(state, 'slot-1');
+    await saveGame(state, 'slot-2');
+
+    const removed = await deleteSave('slot-1');
+
+    expect(removed).toEqual({ ok: true, error: null });
+    expect((await listSaveSlots()).map((entry) => entry.slot)).toEqual(['slot-2']);
+    expect((await loadGame('slot-1')).error).toBe('No save found in that slot.');
+  });
+
+  it('takes nothing else with it', async () => {
+    const state = career('delete-independent');
+    await saveGame(state, 'slot-1');
+    await autosave(playedOn(state, 5));
+
+    await deleteSave('slot-1');
+
+    // The career being played is still where it was, and is still what the next
+    // load opens: deleting a snapshot is not deleting the season.
+    expect((await loadGame(AUTOSAVE_SLOT)).state!.date).toBe(addDays(state.date, 5));
+    expect(await resumeSlot()).toBe(AUTOSAVE_SLOT);
+  });
+
+  it('lands after a save that was already on its way to the same slot', async () => {
+    // A delete is not a special case in the queue: asked for while a write into
+    // that slot is still in the air, it lands second, and the slot ends up empty
+    // rather than being refilled by the write it was queued behind.
+    const state = career('delete-behind-a-write');
+    const write = saveGame(state, 'slot-1');
+    const removed = deleteSave('slot-1');
+
+    expect((await write).error).toBeNull();
+    expect(await removed).toEqual({ ok: true, error: null });
+    expect(await listSaveSlots()).toHaveLength(0);
+  });
+
+  it('is not an error when there was nothing in the slot', async () => {
+    // A slot the game has never written to is the outcome the manager asked for,
+    // not a failure to report. (It is also how the second half of a double press
+    // lands, which must not raise an alert over a screen that is already up to
+    // date.)
+    expect(await deleteSave('slot-3')).toEqual({ ok: true, error: null });
   });
 });
 
@@ -288,7 +406,11 @@ describe('rapid writes', () => {
 });
 
 describe('the store’s autosave', () => {
-  it('writes once, a moment after the manager stops rather than on every change', async () => {
+  // The generous timeouts here are the county's size, not slack: the debounce is
+  // measured on the real clock, and the write behind it is a career with two
+  // ladders in it now — the same assertions, on a state that takes longer to
+  // serialise than it used to.
+  it('writes once, a moment after the manager stops rather than on every change', { timeout: 30_000 }, async () => {
     const store = useGameStore.getState();
     await useGameStore.getState().quitToMenu();
     store.createDraft('autosave-timing');
@@ -298,13 +420,15 @@ describe('the store’s autosave', () => {
     // for the debounce is the point: the manager has not stopped.
     expect(await resumeSlot()).toBeNull();
 
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    // The debounce is 800 ms; the write behind it is a whole career, and a
+    // career is two ladders now. What is asserted is that the write lands rather
+    // than that it lands inside any particular second.
+    await waitFor(async () => (await resumeSlot()) === AUTOSAVE_SLOT, 'the debounced autosave to land', 20_000);
 
-    expect(await resumeSlot()).toBe(AUTOSAVE_SLOT);
     expect((await listSaveSlots()).filter((entry) => entry.auto)).toHaveLength(1);
   });
 
-  it('keeps up with the calendar, so a reload lands where the manager left off', async () => {
+  it('keeps up with the calendar, so a reload lands where the manager left off', { timeout: 30_000 }, async () => {
     const store = useGameStore.getState();
     await useGameStore.getState().quitToMenu();
     store.createDraft('autosave-calendar');
@@ -313,7 +437,13 @@ describe('the store’s autosave', () => {
 
     const before = useGameStore.getState().game!;
     await store.advanceDays(3);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    // Waited for rather than assumed in: three days of a county with two ladders
+    // in it is more football and a bigger book than the old one-deep save.
+    await waitFor(
+      async () => (await resumeCareer()).state?.date === useGameStore.getState().game!.date,
+      'the autosave to catch up with the calendar',
+      20_000,
+    );
 
     const onDisk = (await resumeCareer()).state;
     expect(onDisk).not.toBeNull();
@@ -321,7 +451,7 @@ describe('the store’s autosave', () => {
     expect(onDisk!.date).toBe(addDays(before.date, 3));
   });
 
-  it('does not write out a change that was only ever on screen', async () => {
+  it('does not write out a change that was only ever on screen', { timeout: 30_000 }, async () => {
     const store = useGameStore.getState();
     await useGameStore.getState().quitToMenu();
     store.createDraft('autosave-presentation');
@@ -337,7 +467,7 @@ describe('the store’s autosave', () => {
     expect((await listSaveSlots()).filter((entry) => entry.auto)).toHaveLength(1);
   });
 
-  it('flushes a pending write when the page is going away', async () => {
+  it('flushes a pending write when the page is going away', { timeout: 30_000 }, async () => {
     const store = useGameStore.getState();
     await useGameStore.getState().quitToMenu();
     store.createDraft('autosave-flush');
@@ -522,7 +652,7 @@ describe('saves that are wrong', () => {
       nose: 'broad',
       mouth: 'thin',
     };
-    const draft = generateDraft({ seed: 'face-in-the-save', startYear: 2026 });
+    const draft = generateDraft({ seed: 'face-in-the-save', startYear: 2026, pyramids: 2 });
     const state = startGameFromDraft(draft, {
       seed: 'face-in-the-save',
       startYear: 2026,
@@ -546,7 +676,7 @@ describe('old save versions', () => {
   it('migrates a version 7 save — one league, no cups — into the pyramid', async () => {
     // The migration chain is the game's own and must keep running unchanged by
     // where the save is kept. This is the version the pyramid work wrote.
-    const state = career('migration-v7');
+    const state = legacyCareer('migration-v7');
     const legacy = stripToVersion7(state);
 
     const result = await readMigrated(legacy);
@@ -565,7 +695,7 @@ describe('old save versions', () => {
   });
 
   it('gives an old save the development curves it predates', async () => {
-    const state = career('migration-curves');
+    const state = legacyCareer('migration-curves');
     const legacy = stripToVersion8(state);
     for (const person of Object.values(legacy.state.people)) {
       if ((person as { kind?: string }).kind === 'player') {
@@ -586,7 +716,7 @@ describe('old save versions', () => {
   });
 
   it('gives an old save a manager profile and a training history it predates', async () => {
-    const state = career('migration-profile');
+    const state = legacyCareer('migration-profile');
     const legacy = stripToVersion8(state);
     delete (legacy.state as { managerProfile?: unknown }).managerProfile;
 
@@ -597,7 +727,7 @@ describe('old save versions', () => {
   });
 
   it('gives a save made before round identity the round each cup tie was drawn for', async () => {
-    const state = career('migration-cup-rounds');
+    const state = legacyCareer('migration-cup-rounds');
     const legacy = stripToVersion21(state);
 
     // The Plate as it stands once the main cup has fed it: a drawn opening round
@@ -667,7 +797,7 @@ describe('old save versions', () => {
   });
 
   it('gives a save made before pyramids one region for its towns and one pyramid that owns its ladder', async () => {
-    const legacy = stripToVersion22(career('migration-pyramids'));
+    const legacy = stripToVersion22(legacyCareer('migration-pyramids'));
     const before = {
       divisionIds: leagueCompetitions(legacy.state).map((competition) => competition.id),
       userDivisionId: divisionOf(legacy.state, legacy.state.userClubId)?.id ?? null,
@@ -776,24 +906,41 @@ describe('old save versions', () => {
     }
   });
 
-  it('plays a migrated career through a season rollover', async () => {
-    const legacy = stripToVersion22(career('migration-rollover'));
+  it('plays a migrated career through a season rollover, into the county the map has', async () => {
+    const legacy = stripToVersion22(legacyCareer('migration-rollover'));
     const result = await readMigrated(legacy);
     const before = divisionsOf(result.state).map((competition) => competition.id);
+    // A one-ladder career migrating in is one the county's five districts belong
+    // to, and it waits for the boundary like any other.
+    expect(result.state.worldExpansion).toEqual({ pending: true });
+    expect(result.state.pyramidIds).toEqual([FOUNDING_PYRAMID_ID]);
 
+    const countyTowns = Object.values(result.state.world.towns).map((town) => ({ id: town.id, regionId: town.regionId }));
+    settleLeague(result.state);
+    finishSeason(result.state);
     startNextSeason(result.state);
 
-    // The new season was built through the pyramid's own record, and the record
-    // still describes what was written: same ladder, still the only one, and
-    // every club of it in exactly one division.
+    // The new season was built through the pyramids' own records: the ladder the
+    // career already had, rebuilt exactly as it was, and every district the map
+    // draws founded alongside it.
     expect(result.state.phase).toBe('season');
+    expect(result.state.pyramidIds).toHaveLength(ALDERFORDSHIRE_DISTRICTS.length);
+    const districts = result.state.pyramidIds.slice(1);
+    expect(districts).toHaveLength(ALDERFORDSHIRE_DISTRICTS.length - 1);
     expect(divisionsOf(result.state).map((competition) => competition.id)).toEqual(before);
-    expect(result.state.pyramidIds).toEqual([FOUNDING_PYRAMID_ID]);
     expect(result.state.pyramids[FOUNDING_PYRAMID_ID]!.competitionIds).toEqual(before);
-    expect(Object.keys(result.state.world.regions)).toHaveLength(1);
-    for (const competition of divisionsOf(result.state)) {
-      expect(competition.clubIds.length).toBeGreaterThan(0);
+    for (const district of districts) expect(divisionsOf(result.state, district)).toHaveLength(3);
+    expect(result.state.worldExpansion).toEqual({
+      pending: false,
+      expandedInSeasonId: result.state.season.id,
+    });
+    for (const competition of leagueCompetitions(result.state)) {
+      expect(competition.clubIds, competition.id).toHaveLength(12);
     }
+    // Eighteen divisions of twelve, and no club in more than one of them.
+    expect(leagueCompetitions(result.state)).toHaveLength(
+      ALDERFORDSHIRE_DISTRICTS.length * 3,
+    );
     for (const club of Object.values(result.state.clubs)) {
       if (!club.active) continue;
       const memberships = leagueCompetitions(result.state).filter((competition) =>
@@ -801,17 +948,194 @@ describe('old save versions', () => {
       );
       expect(memberships).toHaveLength(1);
     }
-    // The cup is the same competition it always was, drawn for the new season.
-    expect(result.state.phase).toBe('season');
+
+    // Six regions, and the county's own towns have not moved into any of them.
+    expect(result.state.world.regionIds).toEqual(
+      ALDERFORDSHIRE_DISTRICTS.map((district) => district.regionId),
+    );
+    for (const town of countyTowns) {
+      expect(result.state.world.towns[town.id]!.regionId).toBe(town.regionId);
+    }
+
+    // Every ladder's cup is drawn for the new season, and the county cup exists
+    // now that there is a county to have one.
     expect(Object.keys(result.state.fixtures[LEAGUE_CUP_ID]?.matchdayOf ?? {}).length).toBeGreaterThan(0);
     expect(result.state.competitions[PLATE_ID]).toBeDefined();
+    expect(result.state.competitions[COUNTY_CUP_ID]).toBeDefined();
   });
 
   it('rejects a save from a newer game before any migration is attempted', async () => {
-    const legacy = stripToVersion7(career('migration-too-new'));
+    const legacy = stripToVersion7(legacyCareer('migration-too-new'));
     legacy.version = GAME_STATE_VERSION + 1;
     expect((await readMigrated(legacy)).error).toMatch(/newer version/i);
   });
+});
+
+/**
+ * The county's second district, for a career that predates it.
+ *
+ * The migration and the roll-over are deliberately two different moments.
+ * Opening an old save answers the question — the marker — and the next season
+ * boundary is what acts on it, because a ladder cannot be spliced into a season
+ * whose fixtures are half played without inventing results. Everything here is
+ * about that gap: what the save is while it waits, and what it is after.
+ */
+describe('the district next door', () => {
+  it('marks a one-ladder save as waiting for it, without touching the world', async () => {
+    const before = legacyCareer('migration-district');
+    const legacy = stripToVersion23(before);
+
+    const result = await readMigrated(legacy);
+    expect(result.error).toBeNull();
+    expect(result.version).toBe(GAME_STATE_VERSION);
+
+    // The question is asked and answered: this career is owed a district, and
+    // will be given one at its next season boundary.
+    expect(result.state.worldExpansion).toEqual({ pending: true });
+    // And nothing else about the world has moved. One ladder, one region, the
+    // towns, clubs, competitions, fixtures and calendar the save was written
+    // with — the season in flight is the season the manager left behind.
+    expect(result.state.pyramidIds).toEqual([FOUNDING_PYRAMID_ID]);
+    expect(result.state.world.regionIds).toEqual([FOUNDING_REGION_ID]);
+    expect(Object.keys(result.state.world.regions)).toHaveLength(1);
+    expect(Object.keys(result.state.clubs)).toHaveLength(Object.keys(before.clubs).length);
+    expect(Object.keys(result.state.world.towns)).toHaveLength(Object.keys(before.world.towns).length);
+    expect(result.state.season.calendar).toEqual(before.season.calendar);
+    for (const competition of Object.values(before.competitions)) {
+      expect(result.state.competitions[competition.id], competition.id).toEqual(competition);
+    }
+    for (const [matchId, match] of Object.entries(before.matches)) {
+      expect(result.state.matches[matchId], matchId).toEqual(match);
+    }
+
+    // Loading the same save twice is the same answer twice, not a second
+    // district waiting behind the first.
+    const again = await readMigrated(legacy);
+    expect(again.state.worldExpansion).toEqual({ pending: true });
+    expect(again.state.pyramidIds).toEqual([FOUNDING_PYRAMID_ID]);
+    expect(Object.keys(again.state.clubs)).toHaveLength(Object.keys(before.clubs).length);
+  });
+
+  it('answers the question for a career that already has the whole county', async () => {
+    const whole = stripToVersion23(countyCareer('migration-district-six'));
+
+    const result = await readMigrated(whole);
+
+    // A career founded with every district cannot be expanded a second time: the
+    // migration records that it was asked, and that nothing was owed.
+    expect(result.state.worldExpansion).toEqual({ pending: false });
+    expect(result.state.pyramidIds).toHaveLength(ALDERFORDSHIRE_DISTRICTS.length);
+    expect(Object.keys(result.state.world.regions)).toHaveLength(ALDERFORDSHIRE_DISTRICTS.length);
+  });
+
+  it('owes a two-ladder career the four districts the map has added since', async () => {
+    // Every save the game wrote between the district next door and the whole
+    // county: two ladders, and four districts it has never had.
+    const two = stripToVersion23(career('migration-district-two'));
+
+    const result = await readMigrated(two);
+
+    expect(result.state.worldExpansion).toEqual({ pending: true });
+    expect(result.state.pyramidIds).toHaveLength(2);
+    expect(Object.keys(result.state.world.regions)).toHaveLength(2);
+    // And nothing was founded on opening it: the districts arrive at the season
+    // boundary, not in the middle of a season already being played.
+    expect(Object.keys(result.state.clubs)).toHaveLength(72);
+  });
+
+  it('keeps a career waiting for its district across a save and a reload', async () => {
+    const legacy = stripToVersion23(legacyCareer('migration-district-saved'));
+    const migrated = (await readMigrated(legacy)).state;
+    const clubs = Object.keys(migrated.clubs).length;
+
+    // Saved before the boundary: the marker is part of the career rather than of
+    // the session that opened it, and reading the career back does not found a
+    // district in the middle of the season.
+    const saved = await saveGame(migrated, 'slot-pending');
+    expect(saved.error).toBeNull();
+    const reloaded = (await loadGame('slot-pending')).state!;
+    expect(reloaded.worldExpansion).toEqual({ pending: true });
+    expect(reloaded.pyramidIds).toEqual([FOUNDING_PYRAMID_ID]);
+    expect(Object.keys(reloaded.world.regions)).toHaveLength(1);
+    expect(Object.keys(reloaded.clubs)).toHaveLength(clubs);
+  });
+
+  it('gives a marked career its districts at the boundary, once, and keeps them', async () => {
+    const legacy = stripToVersion23(legacyCareer('migration-district-rollover'));
+    const migrated = (await readMigrated(legacy)).state;
+    const countyClubs = Object.keys(migrated.clubs).sort();
+
+    settleLeague(migrated);
+    finishSeason(migrated);
+    startNextSeason(migrated);
+
+    const districts = migrated.pyramidIds.slice(1);
+    const expandedIn = migrated.season.id;
+    expect(migrated.pyramidIds).toHaveLength(ALDERFORDSHIRE_DISTRICTS.length);
+    expect(districts).toHaveLength(ALDERFORDSHIRE_DISTRICTS.length - 1);
+    expect(migrated.worldExpansion).toEqual({ pending: false, expandedInSeasonId: expandedIn });
+    for (const clubId of countyClubs) expect(migrated.clubs[clubId]).toBeDefined();
+
+    // The world it has just been given is a world the game *plays*: the autumn
+    // runs through the real day loop — lineups picked, fixtures resolved, rounds
+    // drawn as their afternoon arrives — until the county cup's opening round has
+    // been played out, which is the first afternoon the two ladders meet.
+    const countyCupOpening = Object.values(migrated.matches)
+      .filter((match) => match.competitionId === COUNTY_CUP_ID)
+      .map((match) => match.date)
+      .sort()[0]!;
+    let days = 0;
+    while (migrated.date <= countyCupOpening && days < 200) {
+      processDay(migrated, migrated.date, { resolveUserMatch: true });
+      days += 1;
+    }
+    expect(days).toBeLessThan(200);
+    const playedIn = (pyramidId: string) =>
+      Object.values(migrated.matches).some(
+        (match) => match.played && match.competitionId.startsWith(`comp_${pyramidId}_`),
+      );
+    expect(playedIn(FOUNDING_PYRAMID_ID)).toBe(true);
+    for (const district of districts) expect(playedIn(district), district).toBe(true);
+    expect(migrated.competitions[COUNTY_CUP_ID]!.cup!.round).toBeGreaterThan(1);
+    expect(migrated.phase).toBe('season');
+    // Nobody was asked to play twice on one afternoon, in either ladder or in the
+    // cup that spans them.
+    const onADate = new Map<string, string[]>();
+    for (const match of Object.values(migrated.matches)) {
+      if (!match.played) continue;
+      onADate.set(match.date, [...(onADate.get(match.date) ?? []), match.homeClubId, match.awayClubId]);
+    }
+    for (const [date, clubsOnIt] of onADate) {
+      expect(new Set(clubsOnIt).size, date).toBe(clubsOnIt.length);
+    }
+
+    // After the boundary, saved and reloaded: the expanded world is the world the
+    // save holds, and the marker is spent rather than waiting to be spent again.
+    await saveGame(migrated, 'slot-expanded');
+    const reloaded = (await loadGame('slot-expanded')).state!;
+    expect(reloaded.pyramidIds).toEqual([FOUNDING_PYRAMID_ID, ...districts]);
+    expect(reloaded.worldExpansion).toEqual({ pending: false, expandedInSeasonId: expandedIn });
+    expect(Object.keys(reloaded.world.regions)).toHaveLength(ALDERFORDSHIRE_DISTRICTS.length);
+    for (const clubId of countyClubs) expect(reloaded.clubs[clubId]).toBeDefined();
+
+    // And the boundary after that finds nothing to found: the same six ladders,
+    // the same map, the same five districts.
+    const towns = Object.keys(reloaded.world.towns).length;
+    const clubs = Object.keys(reloaded.clubs).length;
+    settleLeague(reloaded);
+    finishSeason(reloaded);
+    startNextSeason(reloaded);
+    expect(reloaded.pyramidIds).toEqual([FOUNDING_PYRAMID_ID, ...districts]);
+    expect(Object.keys(reloaded.world.regions)).toHaveLength(ALDERFORDSHIRE_DISTRICTS.length);
+    expect(Object.keys(reloaded.world.towns)).toHaveLength(towns);
+    expect(Object.keys(reloaded.clubs)).toHaveLength(clubs);
+    expect(reloaded.worldExpansion).toEqual({ pending: false, expandedInSeasonId: expandedIn });
+    // Half a season of football through the real day loop, over a county of six
+    // ladders and two boundaries' worth of saves, is most of what this test costs:
+    // it is given a timeout of its own rather than the default, and a generous one
+    // because the world it plays in is three times the world this test was
+    // written in.
+  }, 300_000);
 });
 
 describe('bringing localStorage careers across', () => {
@@ -1117,7 +1441,11 @@ describe('asking the browser to keep the careers', () => {
     expect(storagePersistenceStatus()).toEqual({ asked: true, status: 'granted' });
   });
 
-  it('asks once however many careers are written, and a refusal is not a failure', async () => {
+  // Two whole careers are built and written here, and a career is two ladders
+  // now: under the slow suite's own load this is seconds of work, not slack — so
+  // the case is given the budget the work needs rather than the default fifth of
+  // it. The assertions are unchanged.
+  it('asks once however many careers are written, and a refusal is not a failure', { timeout: 30_000 }, async () => {
     const manager = installStorageManager(false);
     resetStoragePersistenceForTests();
 
@@ -1172,7 +1500,10 @@ describe('a career that will not open', () => {
 });
 
 describe('the store reporting a stalled autosave', () => {
-  it('tells the manager when the career stops reaching storage, and stops saying so when it can be written again', async () => {
+  it(
+    'tells the manager when the career stops reaching storage, and stops saying so when it can be written again',
+    { timeout: 30_000 },
+    async () => {
     const store = useGameStore.getState();
     await store.quitToMenu();
     store.createDraft('autosave-lost-storage');
@@ -1234,12 +1565,244 @@ async function readMigrated(
  * no region on any town. What is left is a world described only by the ladder it
  * is playing — which is exactly what a pre-change save holds.
  */
+describe('a county of its own', () => {
+  /** A career as version 26 left it: a named county, and no county record. */
+  function legacyCounties(state: GameState): { version: number; savedAt: string; state: GameState } {
+    const legacy = structuredClone(state);
+    delete (legacy.world as { counties?: unknown }).counties;
+    delete (legacy.world as { countyIds?: unknown }).countyIds;
+    for (const region of Object.values(legacy.world.regions)) delete (region as { countyId?: unknown }).countyId;
+    for (const town of Object.values(legacy.world.towns)) delete (town as { countyId?: unknown }).countyId;
+    return { version: 26, savedAt: new Date().toISOString(), state: legacy };
+  }
+
+  it('gives a save written before counties one, holding every region, town and ladder it has', async () => {
+    const legacy = legacyCounties(career('migration-county'));
+    const before = {
+      regionIds: [...legacy.state.world.regionIds],
+      townIds: Object.keys(legacy.state.world.towns).sort(),
+      pyramidIds: [...legacy.state.pyramidIds],
+      divisionIds: leagueCompetitions(legacy.state).map((competition) => competition.id),
+      cupIds: Object.values(legacy.state.competitions)
+        .filter((competition) => competition.kind === 'cup')
+        .map((competition) => competition.id)
+        .sort(),
+      honours: Object.values(legacy.state.clubs).flatMap((club) => club.history.honours),
+    };
+
+    const result = await readMigrated(legacy);
+    expect(result.error).toBeNull();
+    expect(result.version).toBe(GAME_STATE_VERSION);
+
+    // One county, named what the save already called itself, holding the regions
+    // the world was drawn from.
+    expect(result.state.world.countyIds).toEqual([FOUNDING_COUNTY_ID]);
+    const county = result.state.world.counties[FOUNDING_COUNTY_ID]!;
+    expect(county.id).toBe(FOUNDING_COUNTY_ID);
+    expect(county.name).toBe(FOUNDING_COUNTY_NAME);
+    // The county's name and the name the career reads for itself are one fact,
+    // written in both places from the one word the save carried.
+    expect(county.name).toBe(result.state.world.countyName);
+    expect(county.regionIds).toEqual(before.regionIds);
+    for (const region of Object.values(result.state.world.regions)) {
+      expect(region.countyId).toBe(FOUNDING_COUNTY_ID);
+    }
+    for (const town of Object.values(result.state.world.towns)) expect(town.countyId).toBe(FOUNDING_COUNTY_ID);
+
+    // A ladder is in the county because the region it draws from is, and nothing
+    // the career already held has moved: the same towns, the same competitions,
+    // the same honours.
+    expect(result.state.pyramidIds).toEqual(before.pyramidIds);
+    for (const pyramidId of result.state.pyramidIds) {
+      expect(countyIdOfPyramid(result.state, pyramidId)).toBe(FOUNDING_COUNTY_ID);
+    }
+    expect(Object.keys(result.state.world.towns).sort()).toEqual(before.townIds);
+    expect(leagueCompetitions(result.state).map((competition) => competition.id)).toEqual(before.divisionIds);
+    expect(
+      Object.values(result.state.competitions)
+        .filter((competition) => competition.kind === 'cup')
+        .map((competition) => competition.id)
+        .sort(),
+    ).toEqual(before.cupIds);
+    expect(Object.values(result.state.clubs).flatMap((club) => club.history.honours)).toEqual(before.honours);
+  });
+
+  it('does not grow a second county when it is applied twice', async () => {
+    const legacy = legacyCounties(career('county-twice'));
+    const once = await readMigrated(legacy);
+    const twice = await readMigrated({ ...legacy, version: 26, state: structuredClone(once.state) });
+
+    expect(twice.state.world.countyIds).toEqual([FOUNDING_COUNTY_ID]);
+    expect(Object.keys(twice.state.world.counties)).toEqual([FOUNDING_COUNTY_ID]);
+    expect(twice.state.world.counties[FOUNDING_COUNTY_ID]!.regionIds).toEqual(
+      once.state.world.counties[FOUNDING_COUNTY_ID]!.regionIds,
+    );
+    for (const town of Object.values(twice.state.world.towns)) expect(town.countyId).toBe(FOUNDING_COUNTY_ID);
+  });
+
+  it('keeps the entrant set of a cup that says nothing about which county it is', async () => {
+    // A county cup written before counties had ids names no county, and a cup
+    // that names no county is the career's own — the founding county, which is
+    // where every club of a one-county career is — rather than a licence to enter
+    // every county a later world might hold.
+    const state = career('county-legacy-field');
+    const cup = state.competitions[COUNTY_CUP_ID]!;
+    expect(cupFieldOf(cup.cup)).toEqual({ kind: 'county' });
+    expect(storedCupField({ kind: 'county', countyId: FOUNDING_COUNTY_ID })).toEqual({ kind: 'county' });
+    expect(storedCupField({ kind: 'county', countyId: 'county_2' })).toEqual({ kind: 'county', countyId: 'county_2' });
+
+    const inTheCup = new Set(fieldClubs(state, cupFieldOf(cup.cup)));
+    expect(inTheCup).toEqual(new Set(countyClubIds(state)));
+    expect(new Set(fieldClubs(state, { kind: 'county' }))).toEqual(inTheCup);
+    // Every active club in the career, and both ladders of it.
+    expect(inTheCup.size).toBe(Object.values(state.clubs).filter((club) => club.active).length);
+    expect(inTheCup.size).toBe(72);
+
+    const reloaded = (await readMigrated({ version: 27, savedAt: new Date().toISOString(), state: structuredClone(state) })).state;
+    expect(new Set(fieldClubs(reloaded, cupFieldOf(reloaded.competitions[COUNTY_CUP_ID]!.cup)))).toEqual(inTheCup);
+  });
+
+  it('keeps its county across a save and a reload', async () => {
+    const state = career('county-round-trip');
+    await saveGame(state, 'slot-1');
+    const loaded = (await loadGame('slot-1')).state!;
+
+    expect(loaded.world.countyIds).toEqual(state.world.countyIds);
+    expect(loaded.world.counties[FOUNDING_COUNTY_ID]).toEqual(state.world.counties[FOUNDING_COUNTY_ID]);
+    for (const town of Object.values(loaded.world.towns)) expect(town.countyId).toBe(FOUNDING_COUNTY_ID);
+    expect(
+      Object.values(loaded.world.regions).map((region) => region.countyId),
+    ).toEqual(Object.values(state.world.regions).map((region) => region.countyId));
+  });
+});
+
+describe('a county with a name', () => {
+  /** The district next door's name in a save: what no rename may touch. */
+  function districtRegion(state: GameState): string {
+    return Object.values(state.world.regions)[1]?.name ?? state.world.regionName;
+  }
+
+  /**
+   * A career as version 25 left it: a county named by its seed, and a cup called
+   * flatly 'County Cup'.
+   *
+   * Both words are put back by hand rather than by stripping a field, because
+   * that is what the old save actually holds — it was not written without a
+   * county name, it was written with a different one — and three clubs keep an
+   * honour each: in the county's old words, in the founding ladder's old words
+   * (its cups were named after no district then), and in a district's own name,
+   * which no rename reaches. The season archive is given a county cup too: it
+   * holds a copy of the name, and a copy is a name to bring forward.
+   */
+  function legacyNaming(state: GameState): { version: number; savedAt: string; state: GameState } {
+    const legacy = structuredClone(state);
+    legacy.world.countyName = 'Marsworthshire';
+    delete (legacy.world as { nationName?: string }).nationName;
+    legacy.competitions[COUNTY_CUP_ID]!.name = 'County Cup';
+    const clubs = Object.values(legacy.clubs);
+    clubs[0]!.history.honours = ['2019/20 County Cup winners'];
+    clubs[1]!.history.honours = [`2019/20 ${LEAGUE_CUP_NAME} winners`];
+    clubs[2]!.history.honours = [`2019/20 ${districtRegion(state)} ${LEAGUE_CUP_NAME} winners`];
+    legacy.seasonHistory = [
+      {
+        seasonId: 'season_2019_20',
+        seasonLabel: '2019/20',
+        leagues: [],
+        cups: [
+          {
+            competitionId: COUNTY_CUP_ID,
+            name: 'County Cup',
+            clubIds: [],
+            rounds: [],
+            winnerClubId: null,
+            runnerUpClubId: null,
+          },
+        ],
+      },
+    ];
+    return { version: 25, savedAt: new Date().toISOString(), state: legacy };
+  }
+
+  it('names the county, the cup that is its own, and the honours won in it', async () => {
+    const state = career('naming-v25');
+    const region = state.world.regionName;
+    const clubNames = Object.values(state.clubs).map((club) => club.identity.name).sort();
+    const result = await readMigrated(legacyNaming(state));
+
+    expect(result.error).toBeNull();
+    expect(result.state.world.countyName).toBe(FOUNDING_COUNTY_NAME);
+    expect(result.state.world.nationName).toBe(NATION_NAME);
+    expect(result.state.competitions[COUNTY_CUP_ID]!.name).toBe(COUNTY_CUP_NAME);
+    expect(result.state.seasonHistory!.at(-1)!.cups[0]!.name).toBe(COUNTY_CUP_NAME);
+
+    // The founding ladder's cups are named after its district now, so the honours
+    // won in them are brought forward with them — in the save's own words, which
+    // for a career this old is the valley it has always played in.
+    expect(result.state.competitions[LEAGUE_CUP_ID]!.name).toBe(`${region} ${LEAGUE_CUP_NAME}`);
+
+    const honours = Object.values(result.state.clubs).flatMap((club) => club.history.honours);
+    expect(honours).toContain(`2019/20 ${COUNTY_CUP_NAME} winners`);
+    expect(honours).not.toContain('2019/20 County Cup winners');
+    expect(honours).toContain(`2019/20 ${region} ${LEAGUE_CUP_NAME} winners`);
+    expect(honours).not.toContain(`2019/20 ${LEAGUE_CUP_NAME} winners`);
+    // A district's cup honour is in words no rename reaches: it was already named
+    // after its own region, and it is left exactly as it was.
+    expect(honours).toContain(`2019/20 ${districtRegion(state)} ${LEAGUE_CUP_NAME} winners`);
+
+    // And the county's *places* are exactly where they were: the name is a name,
+    // not a reason to lay the world out again.
+    expect(Object.values(result.state.clubs).map((club) => club.identity.name).sort()).toEqual(clubNames);
+    expect(Object.values(result.state.world.towns).map((town) => town.name).sort()).toEqual(
+      Object.values(state.world.towns).map((town) => town.name).sort(),
+    );
+    expect(Object.keys(result.state.matches).length).toBe(Object.keys(state.matches).length);
+    expect(Object.values(result.state.world.regions).map((region) => region.name)).toEqual(
+      Object.values(state.world.regions).map((region) => region.name),
+    );
+  });
+
+  it('reads the same again however many times it is loaded', async () => {
+    // The new name ends in the old one, so a second pass over a renamed honour
+    // is the one thing this migration could get wrong twice.
+    const legacy = legacyNaming(career('naming-twice'));
+    const once = await readMigrated(legacy);
+    const twice = await readMigrated({ ...legacy, version: 25, state: structuredClone(once.state) });
+    const honours = Object.values(twice.state.clubs).flatMap((club) => club.history.honours);
+    expect(honours).toContain(`2019/20 ${COUNTY_CUP_NAME} winners`);
+    expect(honours.filter((honour) => honour.includes(COUNTY_CUP_NAME)).length).toBe(1);
+    expect(twice.state.world.countyName).toBe(FOUNDING_COUNTY_NAME);
+  });
+
+  it('leaves a career that already knows what county it is in alone', async () => {
+    const legacy = legacyNaming(career('naming-current'));
+    // The same career, saved by a build that already names the county: nothing in
+    // it is old, so nothing in it is rewritten. The migration is a step for saves
+    // written before the name existed, and this one was not.
+    const result = await readMigrated({
+      version: GAME_STATE_VERSION,
+      savedAt: new Date().toISOString(),
+      state: structuredClone(legacy.state),
+    });
+    expect(result.error).toBeNull();
+    expect(result.state.world.countyName).toBe('Marsworthshire');
+    expect(result.state.competitions[COUNTY_CUP_ID]!.name).toBe('County Cup');
+  });
+});
+
 function stripPyramidModel(state: GameState): void {
   delete (state as { pyramids?: unknown }).pyramids;
   delete (state as { pyramidIds?: unknown }).pyramidIds;
   delete (state.world as { regions?: unknown }).regions;
   delete (state.world as { regionIds?: unknown }).regionIds;
-  for (const town of Object.values(state.world.towns)) delete (town as { regionId?: unknown }).regionId;
+  // A save this old predates counties as well: no county records, no county the
+  // world reads first, and no county on any town. The migrations that give it one
+  // are the ones being asked about.
+  delete (state.world as { counties?: unknown }).counties;
+  delete (state.world as { countyIds?: unknown }).countyIds;
+  for (const town of Object.values(state.world.towns)) {
+    delete (town as { regionId?: unknown }).regionId;
+    delete (town as { countyId?: unknown }).countyId;
+  }
 }
 
 function stripToVersion7(state: GameState): { version: number; savedAt: string; state: GameState } {
@@ -1258,6 +1821,20 @@ function stripToVersion7(state: GameState): { version: number; savedAt: string; 
   delete (legacy as { promotionHistory?: unknown }).promotionHistory;
   stripPyramidModel(legacy);
   return { version: 7, savedAt: new Date().toISOString(), state: legacy };
+}
+
+/**
+ * A save from just before the county's second district: the world as the last
+ * version of the game wrote it, one ladder and no marker either way.
+ *
+ * There is nothing to strip but the answer itself: a version 23 save has regions
+ * and pyramids, and whether it is owed a district is the question the migration
+ * asks — it is not a field the save carries.
+ */
+function stripToVersion23(state: GameState): { version: number; savedAt: string; state: GameState } {
+  const legacy = structuredClone(state);
+  delete (legacy as { worldExpansion?: unknown }).worldExpansion;
+  return { version: 23, savedAt: new Date().toISOString(), state: legacy };
 }
 
 /**

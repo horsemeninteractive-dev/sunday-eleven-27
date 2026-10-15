@@ -1,25 +1,36 @@
-import type { Competition, CupState, FixtureList } from '@/domain/competition';
+import type { Competition, CupField, CupRound, CupState, FixtureList } from '@/domain/competition';
+import { storedCupField } from '@/domain/competition';
 import type { GameState } from '@/domain/game';
 import type { ClubId, CompetitionId, ISODate, MatchId, PyramidId } from '@/domain/ids';
 import type { Match } from '@/domain/match';
 import type { SeasonCalendarEntry } from '@/domain/world';
 import {
+  buildSeasonCalendar,
   kickOffTimeFor,
   placeCupRounds,
   type CupRoundPlacement,
   type CupRoundSlot,
+  type PlacedCupSlot,
 } from './calendar';
 import { allCupRoundSlots, cupRoundSlots, drawCupRound, mainCupPlan, newCupState, platePlan, seedOrder } from './cup';
 import { generateFixtures, matchdayCount } from './generation/fixtureGenerator';
 import { createMatchRecord } from './matchday';
 import { scheduleEvent } from './schedule';
 import {
+  countiesOf,
+  countyClubIds,
+  countyCupId,
+  countyCupName,
   cupCompetitionId,
+  cupNameFor,
   divisionCompetitionId,
   divisionNameFor,
+  foundingCountyId,
   foundingPyramidId,
-  LEAGUE_CUP_NAME,
+  invitedClubIds,
   PLATE_NAME,
+  pyramidClubIds,
+  pyramidIdsOfCounty,
   pyramidOf,
 } from './pyramid';
 import { Rng } from './rng';
@@ -42,8 +53,16 @@ export interface SeasonStructure {
   calendar: SeasonCalendarEntry[];
   /** How many of those matchdays are league Sundays. */
   leagueMatchdays: number;
-  /** The cup round slots, for a caller that wants to know when cups fall. */
-  cupSlots: CupRoundSlot[];
+  /**
+   * The cup round slots, one per round the build asked the calendar for, in the
+   * order they were asked for, each with the Sunday it took.
+   *
+   * A *slot* is not a calendar entry: two rounds whose fields have no club in
+   * common are played on one Sunday and share one date, so the calendar grows by
+   * one entry where two slots were dated. `shared` names the rounds on the same
+   * afternoon, which is what a caller reads to tell the two apart.
+   */
+  cupSlots: PlacedCupSlot[];
 }
 
 /** A fresh competition record for a division, with the boundary places set. */
@@ -79,20 +98,49 @@ function cupCompetition(
   seasonId: string,
   clubIds: ClubId[],
   cup: CupState,
+  field: CupField,
 ): Competition {
-  return { id, name, kind: 'cup', tier: 0, seasonId, clubIds, cup };
+  // The field travels with the cup: a ladder's own is left unsaid, because that
+  // is what an absent field already means, and everything else is written down.
+  const stored = storedCupField(field);
+  return { id, name, kind: 'cup', tier: 0, seasonId, clubIds, cup: { ...cup, ...(stored ? { field: stored } : {}) } };
 }
 
-/** Every active club, ranked the way the generator ranked them. */
-export function clubsForLadder(state: GameState): ClubId[] {
-  return Object.values(state.clubs)
-    .filter((club) => club.active)
-    .map((club) => club.id)
-    .sort((a, b) => {
-      const repA = state.clubs[a]?.reputation ?? 0;
-      const repB = state.clubs[b]?.reputation ?? 0;
-      return repB - repA || a.localeCompare(b);
-    });
+/**
+ * The clubs a declared cup field draws from.
+ *
+ * A pyramid's field is that ladder's membership: the divisions this build was
+ * handed for it, or — for a ladder this build is not writing — the divisions the
+ * world already has. Membership is not filtered by whether a club is active,
+ * because the division is the thing that says who plays in it; a draw re-checks
+ * an entrant's activity when it draws, and a club that folded is moved out of its
+ * division at the boundary rather than during a cup draw.
+ *
+ * A county's field is every *active* club in the county it names, whatever ladder
+ * it plays on — read from the clubs' towns, so a second county's cup cannot reach
+ * them and a club is never entered in a cup by geography it does not have. That
+ * asymmetry is the point rather than an oversight: a ladder's field is a
+ * membership somebody maintains, and a county's is a population read off the
+ * world, so a county has to say what makes a club eligible — being a club that
+ * county still has. An invitation is the clubs it names, in the order it names
+ * them, less any the world cannot enter.
+ */
+export function fieldClubs(
+  state: GameState,
+  field: CupField,
+  ladders: ReadonlyMap<PyramidId, readonly ClubId[]> = new Map(),
+): ClubId[] {
+  switch (field.kind) {
+    case 'pyramid':
+      return [...(ladders.get(field.pyramidId) ?? pyramidClubIds(state, field.pyramidId))];
+    case 'county':
+      // A county cup's field names its county. A cup that says nothing about
+      // which county it belongs to is the career's own, which is what every
+      // county cup written before counties had ids meant.
+      return countyClubIds(state, field.countyId ?? foundingCountyId(state));
+    case 'invitation':
+      return invitedClubIds(state, field.clubIds);
+  }
 }
 
 /** Cut a ranked list of clubs into divisions of the configured size. */
@@ -109,24 +157,114 @@ export function divideIntoTiers(
   return divisions;
 }
 
+/**
+ * One ladder's share of a season: which pyramid, which region, which divisions.
+ *
+ * A world build is handed a list of these rather than one flat ladder, because a
+ * flat list of six divisions cannot say which three belong to which pyramid — and
+ * a builder that guessed would merge two ladders of three tiers into one of six.
+ * Each pyramid keeps its own id (and so its own competition ids), its own ordered
+ * divisions, its own club membership and its own region for naming; its
+ * configuration and the competitions it owns are read from, and written back to,
+ * its own `Pyramid` record.
+ */
+export interface SeasonPyramidInput {
+  pyramidId: PyramidId;
+  /** The region's name, for division names. */
+  regionName: string;
+  /** Divisions after any movement, tier 1 first. */
+  divisions: ClubId[][];
+}
+
+/**
+ * A competition no ladder runs: the county's cup, or one by invitation.
+ *
+ * Asked for explicitly rather than inferred. Supplying two pyramids does not mean
+ * the county has a county cup — a world with a second ladder and no county cup is
+ * a perfectly ordinary world — so the world's own cups are named here or they do
+ * not exist. Its entrants come from its declared field and from nothing else.
+ */
+export interface SeasonCupRequest {
+  id: CompetitionId;
+  name: string;
+  field: CupField;
+}
+
+/**
+ * The county cups the world runs: one for each county with more than one ladder
+ * of its own to run it between.
+ *
+ * The county cup is the competition a ladder's own cups cannot be: its field is
+ * every active club *in its county*, whichever of that county's ladders the club
+ * plays on, so it is the one cup a manager can be drawn against a side he will
+ * never meet in a league. It exists only where a county has more than one ladder,
+ * and that is a rule about the county rather than about the world: in a county
+ * with a single ladder the ladder's own cup *is* the county's cup, so a second
+ * competition with the same entrants, a different name and its own dates in the
+ * calendar would be a duplicate trophy and a fortnight of Sundays taken from
+ * nothing. A county with one ladder has no cup even when another county has
+ * several — which is what the old rule, counting the world's ladders, could not
+ * say, and why a county's own ladder count is what is asked here.
+ *
+ * Each cup belongs to its own county: it carries that county's name, its field
+ * names that county, and its id is built from that county's id, so two counties'
+ * cups are two competitions rather than one id requested twice. The founding
+ * county keeps the competition its cup has always been, id and name alike. The
+ * requests come back in the order the world reads its counties, so the same world
+ * asks for the same cups in the same order.
+ *
+ * A caller may still ask for a world cup by hand — the season builder takes any
+ * request it is handed — but this is the answer the game itself uses, so new
+ * careers and every season after them get the same cups on the same terms.
+ */
+export function countyCupRequests(state: GameState): SeasonCupRequest[] {
+  const requests: SeasonCupRequest[] = [];
+  for (const county of countiesOf(state)) {
+    if (pyramidIdsOfCounty(state, county.id).length < 2) continue;
+    requests.push({
+      id: countyCupId(county.id),
+      name: countyCupName(county.name),
+      field: { kind: 'county', countyId: county.id },
+    });
+  }
+  return requests;
+}
+
+/**
+ * What a season is built from.
+ *
+ * One call builds the whole world: every ladder's divisions and cups, the world's
+ * own cups, one set of fixtures and matches, and one calendar. It used to take a
+ * single flat ladder and one pyramid id, and replace the world's competition,
+ * fixture, match and calendar records wholesale — which is why calling it once per
+ * pyramid erased the pyramid before it.
+ */
 export interface BuildSeasonOptions {
   state: GameState;
   seasonId: string;
   seasonLabel: string;
   /** The first league Sunday. */
   firstLeagueDate: ISODate;
-  /** Divisions after any movement, tier 1 first. */
-  divisions: ClubId[][];
-  /**
-   * The ladder the season is being built for: the founding pyramid unless the
-   * caller says otherwise. The calendar is the world's, but the divisions, the
-   * cups and the ids the season writes all belong to one pyramid.
-   */
-  pyramidId?: PyramidId;
-  /** The region's name, for division names. */
-  regionName: string;
+  /** Every ladder this season is built for, the founding pyramid first. */
+  pyramids: SeasonPyramidInput[];
+  /** The world's own cups, if it has any. Absent means it has none. */
+  cups?: SeasonCupRequest[];
   /** Announce the first cup draws as news. */
   announceDraws?: boolean;
+  /**
+   * Whether the rounds this build asks for are dated in the season calendar.
+   *
+   * True by default, and true everywhere in the game: a round with no date is a
+   * round that can never be drawn, and Phase 0's rule is that a season refuses to
+   * start rather than run a competition that can never reach a winner. A caller
+   * may turn it off to build the *competitions* of a world it cannot yet date —
+   * the calendar gives one cup lane and two ladders need two, which is Stage 3's
+   * work — and gets every pyramid's divisions, cups, ownership and fields, leagues
+   * drawn into the calendar, and no cup dates at all. It is deliberately one
+   * switch for the build rather than one per cup, because a world with half its
+   * cups dated is not a state anything should be able to reach.
+   */
+  dateCupRounds?: boolean;
 }
 
 /**
@@ -186,56 +324,211 @@ function requireCupRoundsPlaced(
 }
 
 /**
+ * A cup this build is about to create, and everything the record needs.
+ *
+ * Gathered before anything is written, because the calendar, the ownership lists
+ * and the competition records all read the same description of the tournament —
+ * how many clubs are in it, which rounds it holds, and where its rounds are
+ * numbered from.
+ */
+interface CupSpec {
+  id: CompetitionId;
+  name: string;
+  /**
+   * The name of the Plate this cup feeds, where it has one.
+   *
+   * Carried per cup rather than read from a constant, because it is named after
+   * the ladder that runs it: the county's is the Sunday League Plate and the
+   * district's is the `<its region> Sunday League Plate`. Two Plates with one name
+   * would file their winners under one honour.
+   */
+  plateName?: string;
+  field: CupField;
+  /** Its entrants, in the order the draw seeds them. */
+  entrants: ClubId[];
+  plan: CupRound[];
+  /**
+   * How many matchdays its rounds are numbered above the league's.
+   *
+   * Read off the calendar rather than chosen: a cup's round `r` is played on
+   * matchday `leagueMatchdays + offset + r`, and the date for a matchday is the
+   * calendar entry with that number, so the offset has to be exactly the number of
+   * rounds already laid out before this cup's — which is what keeps two cups' ties
+   * off each other's afternoons.
+   */
+  matchdayOffset: number;
+  /**
+   * The consolation cup this one feeds, where it has one: a cup that starts with
+   * no field at all and is filled from this cup's losers. Its `consolationFor` is
+   * written on the cup that is fed, never on the cup that feeds it — a cup naming
+   * itself as its own feeder is a cup whose Plate is never drawn.
+   */
+  consolationRounds: CupRound[];
+  consolationId?: CompetitionId;
+  consolationOffset?: number;
+}
+
+/**
  * Build every competition for a season and put the fixtures in place.
  *
- * Replaces `state.competitions`, `state.fixtures`, `state.matches` and
- * `state.matchOrder` wholesale — a season is a clean sheet, and the archive of
- * what happened in the last one lives on the clubs rather than in the fixture
- * list.
+ * One call builds the whole world: every ladder's divisions and cups, the world's
+ * own cups, one set of fixtures and matches, and one calendar. It replaces
+ * `state.competitions`, `state.fixtures`, `state.matches` and `state.matchOrder`
+ * wholesale — a season is a clean sheet, and the archive of what happened in the
+ * last one lives on the clubs rather than in the fixture list.
  */
 export function buildSeasonStructure(options: BuildSeasonOptions): SeasonStructure {
-  const { state, seasonId, seasonLabel, firstLeagueDate, divisions, regionName } = options;
-  const pyramidId = options.pyramidId ?? foundingPyramidId(state);
-  const cupId = cupCompetitionId(pyramidId, 'cup');
-  const plateId = cupCompetitionId(pyramidId, 'plate');
-  const config = pyramidOf(state, pyramidId).config;
+  const { state, seasonId, seasonLabel, firstLeagueDate, pyramids } = options;
+  const dateCups = options.dateCupRounds !== false;
+
+  // Each ladder's clubs as *this* build is writing them, by pyramid id. Read from
+  // the divisions being built rather than from `state.competitions`: this function
+  // is what writes those, so at game start the old set is empty and a field read
+  // from it would be a field of nobody.
+  const ladders = new Map<PyramidId, ClubId[]>(
+    pyramids.map((input) => [input.pyramidId, input.divisions.flat()]),
+  );
 
   // --- The calendar ---------------------------------------------------------
   // Every division has the same number of matchdays, so the league calendar is
-  // sized by one division and the whole county plays it together.
-  const clubsPerTier = Math.max(2, divisions[0]?.length ?? config.clubsPerTier);
-  const leagueMatchdays = matchdayCount(clubsPerTier);
-  const cupField = divisions.flat().length;
-  // The consolation cup's rounds are numbered above the League Cup's, so its
-  // dates come after them: a club knocked out in the opening round has already
-  // lost by the time the Plate's first tie is played, and no club is asked for
-  // two games on one Wednesday.
-  const cupSlots = config.leagueCup ? allCupRoundSlots(cupField, leagueMatchdays, config.consolationCup) : [];
-  const plateOffset = config.leagueCup ? cupRoundSlots(cupField, leagueMatchdays).length : 0;
-  // How many clubs each round of each cup holds, fixed here so the draw, the
-  // round-advance and the screens all read one description of the tournament.
-  const mainPlan = config.leagueCup ? mainCupPlan(cupField) : [];
-  const plateRounds = config.leagueCup && config.consolationCup ? platePlan(mainPlan) : [];
-  // Which competition each slot belongs to, read off the order they were laid
-  // out in: `allCupRoundSlots` lists the League Cup's rounds first and the
-  // Plate's after them, so a slot's position — not its round number, which both
-  // competitions start at one — is what says whose round it is.
-  const slotOwners: CompetitionId[] = [
-    ...mainPlan.map(() => cupId),
-    ...plateRounds.map(() => plateId),
-  ];
-  const placement = placeCupRounds(firstLeagueDate, leagueMatchdays, cupSlots);
-  requireCupRoundsPlaced(
-    state,
-    placement,
-    slotOwners,
-    seasonLabel,
-    new Map([
-      [cupId, LEAGUE_CUP_NAME],
-      [plateId, PLATE_NAME],
-    ]),
+  // sized by one division and the whole county plays it together. It is the first
+  // pyramid's that sizes it: the world shares one sequence of Sundays, and
+  // per-ladder division sizes are a later stage of the expansion.
+  const founding = pyramids[0];
+  const clubsPerTier = Math.max(
+    2,
+    founding?.divisions[0]?.length ?? pyramidOf(state, founding?.pyramidId ?? 'league').config.clubsPerTier,
   );
-  const calendar = placement.calendar;
+  const leagueMatchdays = matchdayCount(clubsPerTier);
+
+  const cups: CupSpec[] = [];
+  const slots: CupRoundSlot[] = [];
+  /** What the calendar made of each slot. Empty for a build that dates nothing. */
+  let placedSlots: PlacedCupSlot[] = [];
+  const slotOwners: CompetitionId[] = [];
+
+  // --- Each ladder's own cups ------------------------------------------------
+  // A cup's field is its own ladder's clubs, and its rounds are numbered after
+  // everything already asked for. The consolation cup's rounds come after the
+  // League Cup's, so a club knocked out in the opening round has already lost by
+  // the time the Plate's first tie is played, and no club is asked for two games
+  // on one afternoon.
+  for (const input of pyramids) {
+    const { pyramidId } = input;
+    const config = pyramidOf(state, pyramidId).config;
+    const cupId = cupCompetitionId(pyramidId, 'cup');
+    const plateId = cupCompetitionId(pyramidId, 'plate');
+    const field: CupField = { kind: 'pyramid', pyramidId };
+    const ladderClubs = fieldClubs(state, field, ladders);
+    const entrants = seedOrder(state, ladderClubs);
+    // How many clubs each round holds, fixed here so the draw, the round-advance
+    // and the screens all read one description of the tournament. A field of
+    // fewer than two clubs is no cup at all.
+    const mainPlan = config.leagueCup ? mainCupPlan(entrants.length) : [];
+    const plateRounds = config.leagueCup && config.consolationCup ? platePlan(mainPlan) : [];
+    const mainOffset = slots.length;
+    if (config.leagueCup) {
+      // Every round of this ladder's cups carries the ladder's field, which is
+      // what lets the *other* ladder's round have the same Sunday: the two fields
+      // have no club in common, so no club can be drawn twice on one afternoon.
+      // The Plate is given the same field as the cup it is fed from rather than
+      // the losers it will actually take, because the draw has not happened when
+      // the season is built: a club that could be in either must not be in both,
+      // and the Plate's entrants are a subset of the ladder either way.
+      // Each slot carries the competition whose round it is, read off the order
+      // `allCupRoundSlots` lays them out in: the League Cup's rounds first and the
+      // Plate's after them. The calendar uses it to keep a competition's rounds in
+      // order when the season is crowded, and nothing else depends on it —
+      // `slotOwners` below still says which competition a placed round belongs to.
+      slots.push(
+        ...allCupRoundSlots(entrants.length, leagueMatchdays, config.consolationCup).map((slot, index) => ({
+          ...slot,
+          clubs: ladderClubs,
+          competitionId: index < mainPlan.length ? cupId : plateId,
+        })),
+      );
+      // Which competition each slot belongs to, read off the order they were laid
+      // out in: `allCupRoundSlots` lists the League Cup's rounds first and the
+      // Plate's after them, so a slot's position — not its round number, which
+      // both competitions start at one — is what says whose round it is.
+      slotOwners.push(...mainPlan.map(() => cupId), ...plateRounds.map(() => plateId));
+    }
+    if (mainPlan.length === 0) continue;
+    cups.push({
+      id: cupId,
+      // Named after the district the ladder draws its clubs from: the county's
+      // ladder runs the Alderford Sunday League Cup, and the one next door the
+      // Westbrook Valley Sunday League Cup — two trophies, two names, two honours.
+      name: cupNameFor(input.regionName, 'cup'),
+      plateName: cupNameFor(input.regionName, 'plate'),
+      field,
+      entrants,
+      plan: mainPlan,
+      matchdayOffset: mainOffset,
+      consolationRounds: plateRounds,
+      ...(plateRounds.length > 0 ? { consolationId: plateId, consolationOffset: mainOffset + mainPlan.length } : {}),
+    });
+  }
+
+  // --- The world's own cups --------------------------------------------------
+  // Asked for by name, and drawn from their declared field: a county cup's field
+  // is every active club in the county, which is why it is not derived from the
+  // ladders above. Their rounds are numbered after every ladder's, by the same
+  // rule as any other cup's.
+  for (const request of options.cups ?? []) {
+    if (cups.some((spec) => spec.id === request.id)) {
+      throw new Error(`Two cups want the same competition id, ${request.id}.`);
+    }
+    const entrants = seedOrder(state, fieldClubs(state, request.field, ladders));
+    const plan = mainCupPlan(entrants.length);
+    const mainOffset = slots.length;
+    // A world cup's rounds carry the field they were drawn from, so a county cup
+    // overlapping every ladder's own field can never be given one of their
+    // Sundays: there would be clubs in both competitions. Its rounds take the
+    // afternoons nobody else can use.
+    const fieldClubsOfRequest = fieldClubs(state, request.field, ladders);
+    slots.push(
+      ...cupRoundSlots(entrants.length, leagueMatchdays).map((slot) => ({
+        ...slot,
+        clubs: fieldClubsOfRequest,
+        competitionId: request.id,
+      })),
+    );
+    slotOwners.push(...plan.map(() => request.id));
+    if (plan.length === 0) continue;
+    cups.push({
+      id: request.id,
+      name: request.name,
+      field: request.field,
+      entrants,
+      plan,
+      matchdayOffset: mainOffset,
+      consolationRounds: [],
+    });
+  }
+
+  // The calendar is asked for every slot in one call, so a round the season has
+  // no room for is refused where the season is built. A build that is proving the
+  // world's competitions rather than its dates asks for the league's Sundays
+  // alone, and every cup is then declared, seeded, owned and undated.
+  let calendar: SeasonCalendarEntry[];
+  if (dateCups) {
+    const placement = placeCupRounds(firstLeagueDate, leagueMatchdays, slots);
+    requireCupRoundsPlaced(
+      state,
+      placement,
+      slotOwners,
+      seasonLabel,
+      new Map(cups.flatMap((spec) => [
+        [spec.id, spec.name] as const,
+        ...(spec.consolationId ? [[spec.consolationId, spec.plateName ?? PLATE_NAME] as const] : []),
+      ])),
+    );
+    calendar = placement.calendar;
+    placedSlots = placement.slots;
+  } else {
+    calendar = buildSeasonCalendar(firstLeagueDate, leagueMatchdays);
+  }
   // The calendar is ordered by *date*, not by matchday: a cup round sits on the
   // Sunday before the league matchday it precedes, so its matchday number is
   // higher than the league rounds around it. A fixture's date must therefore be
@@ -247,39 +540,54 @@ export function buildSeasonStructure(options: BuildSeasonOptions): SeasonStructu
 
   // --- The competitions -----------------------------------------------------
   const competitions: Record<CompetitionId, Competition> = {};
-  divisions.forEach((clubIds, index) => {
-    const tier = index + 1;
-    if (clubIds.length === 0) return;
-    const competition = divisionCompetition(state, pyramidId, tier, seasonId, clubIds, regionName);
-    competitions[competition.id] = competition;
-  });
+  // Every ladder's divisions, one ladder after another, tier 1 upwards. Each
+  // pyramid's ids are its own, so no ladder can overwrite another's.
+  for (const input of pyramids) {
+    input.divisions.forEach((clubIds, index) => {
+      const tier = index + 1;
+      if (clubIds.length === 0) return;
+      const competition = divisionCompetition(state, input.pyramidId, tier, seasonId, clubIds, input.regionName);
+      competitions[competition.id] = competition;
+    });
+  }
 
-  // From the divisions just passed in, not from `state.competitions`: this
-  // function is what *writes* those competitions, so at game start the old set
-  // is empty and reading it would size the cup field at zero.
-  const ladderClubs = divisions.flat();
-  if (config.leagueCup && cupSlots.length > 0) {
-    competitions[cupId] = cupCompetition(
-      cupId,
-      LEAGUE_CUP_NAME,
-      seasonId,
-      seedOrder(state, ladderClubs),
-      newCupState(mainPlan),
-    );
-    if (config.consolationCup) {
-      competitions[plateId] = cupCompetition(plateId, PLATE_NAME, seasonId, [], newCupState(plateRounds, cupId, plateOffset));
+  // Then the cups, each with the field its entrants were taken from.
+  for (const spec of cups) {
+    competitions[spec.id] = cupCompetition(
+        spec.id,
+        spec.name,
+        seasonId,
+        spec.entrants,
+        newCupState(spec.plan, undefined, spec.matchdayOffset),
+        spec.field,
+      );
+    if (spec.consolationId) {
+      competitions[spec.consolationId] = cupCompetition(
+        spec.consolationId,
+        spec.plateName ?? PLATE_NAME,
+        seasonId,
+        [],
+        newCupState(spec.consolationRounds, spec.id, spec.consolationOffset ?? 0),
+        spec.field,
+      );
     }
   }
 
-  // The pyramid's own list of what it owns, written where its competitions are
+  // Each pyramid's own list of what it owns, written where its competitions are
   // made. It is the source of truth the lookups read, so it is kept here rather
   // than derived later: one writer, and no way for the record and the world to
-  // disagree about which ladder a division belongs to.
-  const pyramid = pyramidOf(state, pyramidId);
-  pyramid.competitionIds = divisions
-    .map((_, index) => divisionCompetitionId(pyramidId, index + 1))
-    .filter((id) => Boolean(competitions[id]));
-  pyramid.cupIds = [cupId, plateId].filter((id) => Boolean(competitions[id]));
+  // disagree about which ladder a division belongs to. A world-level cup is on no
+  // pyramid's list — it belongs to the county — which is what makes `pyramidIdOf`
+  // answer null for it rather than pointing at a ladder that does not run it.
+  for (const input of pyramids) {
+    const pyramid = pyramidOf(state, input.pyramidId);
+    pyramid.competitionIds = input.divisions
+      .map((_, index) => divisionCompetitionId(input.pyramidId, index + 1))
+      .filter((id) => Boolean(competitions[id]));
+    pyramid.cupIds = [cupCompetitionId(input.pyramidId, 'cup'), cupCompetitionId(input.pyramidId, 'plate')].filter(
+      (id) => Boolean(competitions[id]),
+    );
+  }
 
   // --- The fixtures ---------------------------------------------------------
   const matches: Record<MatchId, Match> = {};
@@ -330,20 +638,26 @@ export function buildSeasonStructure(options: BuildSeasonOptions): SeasonStructu
     state.season.endDate = calendar[calendar.length - 1]!.date;
   }
 
-  // --- The first cup draw ---------------------------------------------------
+  // --- The first cup draws --------------------------------------------------
   // Drawn here rather than on the day: a cup draw is an announcement, and a draw
   // that happened on the morning of the tie would be an announcement nobody had
-  // heard.
-  if (config.leagueCup && cupSlots.length > 0) {
-    drawCupRound(state, competitions[cupId]!, {
-      seasonId,
-      seasonLabel,
-      leagueMatchdays,
-      announce: options.announceDraws ?? false,
-    });
+  // heard. A consolation cup is not drawn here — it has no field until the cup
+  // above it knocks clubs out of itself, and the day loop feeds it.
+  if (dateCups) {
+    for (const spec of cups) {
+      drawCupRound(state, competitions[spec.id]!, {
+        seasonId,
+        seasonLabel,
+        leagueMatchdays,
+        announce: options.announceDraws ?? false,
+      });
+    }
   }
 
-  return { calendar, leagueMatchdays, cupSlots };
+  // The slots are the ones the calendar was actually asked for: a build that
+  // dates nothing has no cup rounds to report, and says so rather than reporting
+  // rounds that do not exist.
+  return { calendar, leagueMatchdays, cupSlots: placedSlots };
 }
 
 /**

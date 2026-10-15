@@ -17,6 +17,7 @@ import {
   type CareerContext,
 } from './career';
 import { governanceStore } from './governance';
+import type { ClubId } from '@/domain/ids';
 import { leagueClubIds } from './pyramid';
 import { startNextSeason } from './season';
 import { createTestGame, type TestGame } from './testSupport';
@@ -229,22 +230,37 @@ describe('the player-manager career loop', () => {
   });
 
   it('closes a post for good when it turns him down', () => {
-    const game = createTestGame('career-refused');
+    const game = createTestGame('career-turn-down');
     const state = game.state;
     dismissAtBoundary(game);
 
     // Reach far above his level: a club far better than the man asking will say
-    // no, and once it has, the same man does not ask again.
+    // no, and once it has, the same man does not ask again. Which post says no is
+    // a roll against a county with more than one club in it, so the refusal is
+    // taken wherever it comes — the seed is the one whose market says no first,
+    // and a roll that landed the other way would leave the loop with nothing to
+    // break on and this test red rather than quietly passing.
     const manager = userManager(state)!;
-    const opening = careerStore(state).openings[0]!;
     manager.reputation = -999;
+    const openings = careerStore(state).openings.map((entry) => entry.clubId);
+    expect(openings.length).toBeGreaterThan(0);
 
-    const first = applyForJob(state, opening.clubId, contextFor(state));
-    expect(first.ok).toBe(true);
-    expect(first.accepted).toBe(false);
-    expect(careerStore(state).openings.some((entry) => entry.clubId === opening.clubId)).toBe(false);
+    let refused: ClubId | null = null;
+    for (const clubId of openings) {
+      const result = applyForJob(state, clubId, contextFor(state));
+      // A county that appointed him ends the search: the post that says no is
+      // looked for, not assumed.
+      if (!result.ok) break;
+      if (!result.accepted) {
+        refused = clubId;
+        break;
+      }
+    }
+    // Somebody in the county says no to a manager nobody has heard of.
+    expect(refused).not.toBeNull();
+    expect(careerStore(state).openings.some((entry) => entry.clubId === refused)).toBe(false);
 
-    const second = applyForJob(state, opening.clubId, contextFor(state));
+    const second = applyForJob(state, refused!, contextFor(state));
     expect(second.ok).toBe(false);
   });
 

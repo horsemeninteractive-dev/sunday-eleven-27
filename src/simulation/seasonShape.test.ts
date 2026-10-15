@@ -9,6 +9,7 @@ import {
 } from './calendar';
 import { allCupRoundSlots } from './cup';
 import { matchdayCount } from './generation/fixtureGenerator';
+import { FOUNDING_PYRAMID_ID } from '@/domain/competition';
 import { buildSeasonStructure } from './seasonStructure';
 import { createTestGame } from './testSupport';
 
@@ -195,8 +196,7 @@ describe('placing the cup rounds, and refusing a season that cannot hold them', 
         seasonId: 'season_test',
         seasonLabel: '2026/27',
         firstLeagueDate: OPENING_SUNDAY,
-        divisions,
-        regionName: 'Testshire',
+        pyramids: [{ pyramidId: FOUNDING_PYRAMID_ID, regionName: 'Testshire', divisions }],
       }),
     ).toThrow(/no room for every cup round/);
   });
@@ -213,8 +213,7 @@ describe('placing the cup rounds, and refusing a season that cannot hold them', 
       seasonId: 'season_test_full',
       seasonLabel: '2026/27',
       firstLeagueDate: OPENING_SUNDAY,
-      divisions,
-      regionName: 'Testshire',
+      pyramids: [{ pyramidId: FOUNDING_PYRAMID_ID, regionName: 'Testshire', divisions }],
     });
     expect(structure.cupSlots).toHaveLength(allCupRoundSlots(36, structure.leagueMatchdays, true).length);
     const cupDates = structure.calendar.filter((entry) => entry.matchday > structure.leagueMatchdays);

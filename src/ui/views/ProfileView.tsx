@@ -43,7 +43,7 @@ export function ProfileView() {
   const mode = setup?.mode ?? 'career';
   // The world the manager is about to walk into, and a handful of others to
   // choose from: a rolled one cannot be a repeat of the list he was just shown.
-  const [seed, setSeed] = useState(() => rollSeed());
+  const [seed, setSeed] = useState(() => setup?.seed ?? rollSeed());
   // Fresh on every visit, so the panel is never the same nine worlds twice.
   const suggestions = useMemo(() => pickSuggestedSeeds(SUGGESTIONS_SHOWN), []);
   const [error, setError] = useState<string | null>(null);
@@ -108,7 +108,7 @@ export function ProfileView() {
       setError(`Give the world a seed of at least ${MIN_SEED_LENGTH} characters.`);
       return;
     }
-    gameActions().createDraft(trimmed);
+    gameActions().openGeography(trimmed);
   };
 
   return (
@@ -117,7 +117,7 @@ export function ProfileView() {
       <PageHeader
         eyebrow={mode === 'create-club' ? 'Create a club' : 'New career'}
         title="Your profile"
-        subtitle="Step 1 of 2 · Introduce yourself, then choose or build your club."
+        subtitle="Step 1 of 3 · Introduce yourself, find your district, then choose or build your club."
         actions={
           <>
             <Button variant="ghost" onClick={() => gameActions().cancelSetup()}>
@@ -128,7 +128,7 @@ export function ProfileView() {
                 seeds, which put the last step of the setup below the fold on a
                 laptop. */}
             <Button variant="primary" onClick={begin} disabled={!ready}>
-              {mode === 'create-club' ? 'Generate world and design your club' : 'Generate world'}
+              Choose your district
             </Button>
           </>
         }

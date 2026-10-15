@@ -18,7 +18,7 @@ import { isLeagueMatchday } from './timeline';
 import { createMatchRecord } from './matchday';
 import { createEvent } from './news';
 import { isActiveFixture } from './postponement';
-import { registerFixture, tierOf } from './pyramid';
+import { levelOf, registerFixture } from './pyramid';
 import { Rng, stream } from './rng';
 
 /**
@@ -246,20 +246,26 @@ export function allCupRoundSlots(leagueField: number, leagueMatchdays: number, c
  *
  * With 36 clubs in a knockout, a flat bag gives a Division One club in the
  * first round as often as not, and the first two rounds produce a lot of ties
- * nobody would call a tie. Seeding by tier — and within a tier by reputation —
- * means the early rounds are mostly neighbours and near-neighbours, which is
- * what a county cup draw actually looks like, and it means the top of the
- * pyramid is still winning in round five rather than in round one.
+ * nobody would call a tie. Seeding by the *level* a club plays at — and within a
+ * level by reputation — means the early rounds are mostly neighbours and
+ * near-neighbours, which is what a county cup draw actually looks like, and it
+ * means the top of the pyramid is still winning in round five rather than in
+ * round one.
  *
- * The seed order is then shuffled within bands of four, so a tier boundary
- * still produces some awkward ties rather than a perfectly tier-aligned
- * bracket.
+ * The level rather than the bare tier, because a county cup draws from more than
+ * one ladder and two ladders both number their own rungs from one: read by tier
+ * alone, a second district's Division One seeds equal with the county's, and the
+ * draw has no idea which of them is the stronger football. In a one-pyramid world
+ * the two numbers are the same one, so nothing about that draw moves.
+ *
+ * The seed order is then shuffled within bands of four, so a level boundary
+ * still produces some awkward ties rather than a perfectly aligned bracket.
  */
 export function seedOrder(state: GameState, clubIds: readonly ClubId[]): ClubId[] {
   const ranked = [...clubIds].sort((a, b) => {
-    const tierA = tierOf(state, a) ?? 99;
-    const tierB = tierOf(state, b) ?? 99;
-    if (tierA !== tierB) return tierA - tierB;
+    const levelA = levelOf(state, a) ?? 99;
+    const levelB = levelOf(state, b) ?? 99;
+    if (levelA !== levelB) return levelA - levelB;
     const repA = state.clubs[a]?.reputation ?? 0;
     const repB = state.clubs[b]?.reputation ?? 0;
     if (repA !== repB) return repB - repA;
@@ -705,19 +711,26 @@ export { isLeagueMatchday } from './timeline';
  * A giant killing: a club from the bottom of the ladder past somebody from the
  * top of it, in a cup tie.
  *
- * The threshold is a tier gap rather than a result margin, because what makes a
- * cup tie memorable is not that it was a surprise scoreline — it is that the
- * pub side went to the club with the floodlights.
+ * The threshold is a gap in the football rather than a result margin, because what
+ * makes a cup tie memorable is not that it was a surprise scoreline — it is that
+ * the pub side went to the club with the floodlights.
+ *
+ * The gap is read in *levels*, because the two ladders number their rungs
+ * separately and a county cup tie can be across them: by tier alone, a county
+ * third division beating a district's top division counts as two rungs and a
+ * giant killing, when in fact the district's Division One is the higher standard
+ * of the two. A level is what a club's football actually is; a tier is only what
+ * its own ladder calls it.
  */
 export function isGiantKilling(state: GameState, match: Match): boolean {
   if (!isCup(state.competitions[match.competitionId])) return false;
   if (!match.result || !match.played) return false;
-  const homeTier = tierOf(state, match.homeClubId);
-  const awayTier = tierOf(state, match.awayClubId);
-  if (homeTier === null || awayTier === null) return false;
-  const winnerTier = winnerOf(match) === match.homeClubId ? homeTier : awayTier;
-  const loserTier = winnerTier === homeTier ? awayTier : homeTier;
-  return loserTier - winnerTier >= 2;
+  const homeLevel = levelOf(state, match.homeClubId);
+  const awayLevel = levelOf(state, match.awayClubId);
+  if (homeLevel === null || awayLevel === null) return false;
+  const winnerLevel = winnerOf(match) === match.homeClubId ? homeLevel : awayLevel;
+  const loserLevel = winnerLevel === homeLevel ? awayLevel : homeLevel;
+  return loserLevel - winnerLevel >= 2;
 }
 
 /** The winner's evening, written for the news. */
@@ -810,7 +823,8 @@ export function planOf(competition: Competition): CupRound[] {
 }
 
 /** When a cup round's ties were drawn, for the archive and the UI. */
-export function roundDrawDate(state: GameState, competition: Competition, round: number): ISODate | null {  const list = state.fixtures?.[competition.id];
+export function roundDrawDate(state: GameState, competition: Competition, round: number): ISODate | null {
+  const list = state.fixtures?.[competition.id];
   if (!list) return null;
   const matchday = cupRoundMatchday(state, competition, round);
   const ids = Object.entries(list.matchdayOf)

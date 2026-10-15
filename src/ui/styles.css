@@ -1772,11 +1772,13 @@ h1[tabindex='-1']:focus {
  * the scene. It is deliberately scoped: inside a career the same header sits on
  * flat black, where a shadow would only muddy the edges of a large title. */
 .profile-setup .page-head__eyebrow,
+.geography-select .page-head__eyebrow,
 .club-select .page-head__eyebrow,
 .create-club .page-head__eyebrow {
   text-shadow: 0 1px 10px rgba(0, 0, 0, 0.8), 0 0 2px rgba(0, 0, 0, 0.65);
 }
 .profile-setup .page-head__title,
+.geography-select .page-head__title,
 .club-select .page-head__title,
 .create-club .page-head__title {
   text-shadow: 0 2px 14px rgba(0, 0, 0, 0.55);
@@ -2072,6 +2074,23 @@ select.input {
 .field__hint {
   font-size: var(--fs-sm);
   color: var(--text-faint);
+}
+/*
+ * One selector for the league table and the cups.
+ *
+ * Both screens used to offer a tab per competition, which is a row that grows
+ * with the world and wrapped onto a second line on a phone as soon as a county
+ * had five cups in it. What is left is a single pick, grouped by the ladder each
+ * competition belongs to — so it sits in the header action as a field rather than
+ * spanning the page — and it is kept off a wall-width select on a laptop.
+ */
+.competition-picker {
+  margin-bottom: 0;
+  min-width: 0;
+  max-width: 30rem;
+}
+.competition-picker .input {
+  width: 100%;
 }
 
 .tab {
@@ -2526,6 +2545,36 @@ select.input {
   justify-content: flex-end;
   text-align: right;
 }
+/* The place a club plays in, under its name, wherever a ladder is read: the
+   league table, a fixture row, a result, the fixture sheet. It is a line of its
+   own rather than a suffix — 'Glanside North End (Glanside)' reads as one name
+   with a bracket in it, and the town is the fact, not a footnote — and it is
+   quieter than the name, because it is where the club is and not who it is. */
+.clubcell__town {
+  display: block;
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  line-height: 1.25;
+  letter-spacing: 0.01em;
+  opacity: 0.72;
+}
+.clubcell--reverse .clubcell__town {
+  text-align: right;
+}
+/* A fixture row sets its club sides in one line with the ellipsis on the spans
+   inside them, which is right for a name in a row of names and wrong for the
+   place under it: an ellipsised town is a manager reading 'Cold Sanderh…' and
+   learning nothing. */
+.fixrow__side .clubcell__town {
+  white-space: normal;
+  text-overflow: clip;
+  overflow: visible;
+}
+/* The manager's own fixture list: the opponent's name and its town, stacked. */
+.fixture__opponent {
+  display: block;
+  min-width: 0;
+}
 
 /* The record books ------------------------------------------------------- */
 /* A name, the club he plays for, and the number. Not a table with headers: the
@@ -2908,7 +2957,14 @@ select.input {
   text-align: right;
 }
 .fixture__kind .pill {
-  white-space: nowrap;
+  /*
+   * What the fixture is for can be two words wide — 'Preliminary Round' — and a
+   * chip that refuses to wrap on a phone takes the row's width for itself, since
+   * the column holding the two clubs is the one that gives way. It wraps instead,
+   * which is what the note on `.fixture__kind` above always meant.
+   */
+  white-space: normal;
+  text-align: right;
 }
 
 /* Cup ties: the round, and the list of ties that made it up. */
@@ -3025,6 +3081,7 @@ select.input {
  */
 .start,
 .profile-setup,
+.geography-select,
 .club-select,
 .create-club {
   position: relative;
@@ -3035,11 +3092,18 @@ select.input {
 .start {
   display: flex;
   overflow: hidden;
-  padding: var(--s5) var(--s4);
+  /* The pre-game screens are frames of the same kind the shell and the match
+     are, so they reserve the system bars the same way, from the same four
+     tokens: without this the menu opens under the clock and the club designer's
+     first field is under the camera. The ground still fills the window — the
+     padding is inside a `100dvh` box, not a subtraction from it — so the bars
+     are lit by the pitch rather than by a band of nothing. */
+  padding: calc(var(--s5) + var(--safe-top)) calc(var(--s4) + var(--safe-right)) calc(var(--s5) + var(--safe-bottom)) calc(var(--s4) + var(--safe-left));
 }
 /* Whatever a pre-game screen puts on top of the scene: above it, always. */
 .start > *:not(.scene),
 .profile-setup > *:not(.scene),
+.geography-select > *:not(.scene),
 .club-select > *:not(.scene),
 .create-club > *:not(.scene) {
   position: relative;
@@ -3903,7 +3967,10 @@ html[data-motion='reduced'] .start__menu > * {
   align-items: center;
   justify-content: center;
   gap: clamp(14px, 3vh, 26px);
-  padding: var(--s5) var(--s4);
+  /* The first thing the game ever shows is also a frame, and the one the bars
+     would otherwise be drawn across: the mark and the statement reserve the
+     room, and the veil and the pitch behind them still fill it. */
+  padding: calc(var(--s5) + var(--safe-top)) calc(var(--s4) + var(--safe-right)) calc(var(--s5) + var(--safe-bottom)) calc(var(--s4) + var(--safe-left));
   overflow: hidden;
   text-align: center;
   background: linear-gradient(180deg, #0f2a1a 0%, #0a1c11 52%, var(--bg) 100%);
@@ -4133,7 +4200,10 @@ html[data-motion='reduced'] .firstboot__skip {
 @media (max-height: 560px) {
   .firstboot {
     gap: 10px;
-    padding: var(--s4) var(--s3);
+    /* A phone held sideways: a short window is exactly where a cutout eats the
+       side and the status bar eats the top, so the statement keeps the room the
+       bars take as well as the tightened padding. */
+    padding: calc(var(--s4) + var(--safe-top)) calc(var(--s3) + var(--safe-right)) calc(var(--s4) + var(--safe-bottom)) calc(var(--s3) + var(--safe-left));
   }
   .firstboot__stage {
     gap: 8px;
@@ -4425,7 +4495,10 @@ html[data-motion='reduced'] .firstboot__skip {
 .create-club {
   max-width: 1180px;
   margin: 0 auto;
-  padding: var(--s4) var(--s3) var(--s5);
+  /* Both are as tall as the window and scroll as documents, so both reserve the
+     bars themselves: the heading is not under the clock, and the button at the
+     foot of the form is not under the gesture bar. */
+  padding: calc(var(--s4) + var(--safe-top)) calc(var(--s3) + var(--safe-right)) calc(var(--s5) + var(--safe-bottom)) calc(var(--s3) + var(--safe-left));
   display: flex;
   flex-direction: column;
   gap: var(--s3);
@@ -4654,7 +4727,9 @@ html[data-motion='reduced'] .firstboot__skip {
 .club-select {
   max-width: 1360px;
   margin: 0 auto;
-  padding: var(--s4) var(--s3) var(--s5);
+  /* Same frame as the two above, and the same reservation: the club a manager
+     picks is a list that reaches both edges of a phone. */
+  padding: calc(var(--s4) + var(--safe-top)) calc(var(--s3) + var(--safe-right)) calc(var(--s5) + var(--safe-bottom)) calc(var(--s3) + var(--safe-left));
   display: flex;
   flex-direction: column;
   gap: var(--s3);
@@ -6918,6 +6993,7 @@ html[data-motion='reduced'] .incident {
 @media (prefers-reduced-motion: no-preference) {
   .app__main > *,
   .start,
+  .geography-select,
   .club-select,
   .create-club,
   .profile-setup,
@@ -8344,7 +8420,10 @@ html[data-motion='reduced'] .incident {
     grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
   }
   .start {
-    padding: var(--s4) var(--s2);
+    /* The tighter phone padding, and then the bars on top of it: the menu and
+       the club list reach the edges of a phone, so this is the one frame where
+       the reservation has to survive a media query that rewrites its padding. */
+    padding: calc(var(--s4) + var(--safe-top)) calc(var(--s2) + var(--safe-right)) calc(var(--s4) + var(--safe-bottom)) calc(var(--s2) + var(--safe-left));
   }
   /* On a phone the settings trigger lives in the sticky head bar at the top
      of the screen, so the panel hangs *below* its trigger and keeps itself
@@ -9501,8 +9580,11 @@ html[data-motion='reduced'] .pitch--preparation .pitch__player { transition: non
   .save-list__item { flex-wrap: wrap; }
   .save-list__item > .row { width: 100%; }
   .save-list__item > .row .btn { flex: 1; }
-  /* Sticky, so opaque: the page scrolls under it. */
-  .club-select .page-head, .create-club .page-head { position: sticky; top: 0; z-index: 2; background: var(--bg); padding: 12px; }
+  /* Sticky, so opaque: the page scrolls under it. Stuck below the status bar
+     rather than at the top of the window, because these two are documents that
+     scroll rather than frames with a scroller of their own — `top: 0` here is
+     the top of the *screen*, which on a phone is under the clock. */
+  .club-select .page-head, .create-club .page-head { position: sticky; top: var(--safe-top); z-index: 2; background: var(--bg); padding: 12px; }
   .club-select .page-head__subtitle, .create-club .page-head__subtitle { display: none; }
 }
 
@@ -9629,6 +9711,31 @@ button.chip { cursor: pointer; min-width: 36px; }
 .more > summary { min-height: 44px; padding: 12px 4px; color: var(--text-dim); cursor: pointer; font-size: var(--fs-sm); }
 .more[open] > summary { color: var(--text); }
 .more > :not(summary) { margin-block: 8px 16px; }
+/* The road to the final: one round a row, that round's ties hanging under the row
+   that is open. The row itself is the control — what a manager wants when he reads
+   "Round of 32" is the ties in it, not a disclosure triangle in the corner — so it
+   is a button, and the round he is on is written in words in the road column as
+   well as lit, because a state told by colour alone is a state half the readers
+   miss. */
+.bracket { list-style: none; margin: 0; padding: 0; border-block: 1px solid var(--line); }
+.bracket__stage { border-bottom: 1px solid var(--line-soft); }
+.bracket__stage:last-child { border-bottom: 0; }
+.bracket__head { display: grid; grid-template-columns: 22px minmax(0, 1fr) minmax(0, 26ch); gap: 10px 14px; align-items: baseline; width: 100%; padding: 12px 16px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.bracket__head:hover { background: var(--panel-2); }
+.bracket__head:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.bracket__mark { color: var(--text-faint); font-size: var(--fs-sm); }
+.bracket__title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; }
+.bracket__title strong { font-weight: 600; }
+.bracket__road { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: flex-end; gap: 4px 10px; text-align: right; }
+.bracket__stage--open .bracket__mark { color: var(--club); }
+.bracket__stage--open > .bracket__head { background: var(--panel-2); box-shadow: inset 2px 0 0 var(--club); }
+/* The final is the round the whole competition is read towards, so it is the one
+   row that carries the room's own surface rather than the list's. */
+.bracket__stage--final { background: linear-gradient(180deg, var(--panel-2), transparent); }
+.bracket__panel { background: var(--panel); padding: 4px 0 12px; }
+.bracket__panel .cup__ties { padding-inline: 4px; }
+.bracket__panel > p { margin: 8px 16px; }
+@media (max-width: 760px) { .bracket__head { grid-template-columns: 18px minmax(0, 1fr); } .bracket__road { grid-column: 2; justify-content: flex-start; text-align: left; } }
 .overlay { overflow: hidden; }
 .overlay__panel { border-top-width: 2px; border-radius: 4px; box-shadow: var(--shadow-float); }
 .overlay__panel:focus { outline: none; }
@@ -9674,7 +9781,10 @@ button.chip { cursor: pointer; min-width: 36px; }
    against the window a moment later. Same banner, same Dismiss, whichever of the
    two places the screen happens to be. */
 .global-feedback--in-modal { position: static; flex: 0 0 auto; max-width: none; box-shadow: none; }
-.loading-screen { padding: 24px; color: var(--text-dim); }
+/* The screen-opening status, which is the one screen with no frame around it at
+   all: it is a sentence on the page, and on a phone it would otherwise be the
+   sentence under the clock. */
+.loading-screen { padding: calc(24px + var(--safe-top)) calc(24px + var(--safe-right)) calc(24px + var(--safe-bottom)) calc(24px + var(--safe-left)); color: var(--text-dim); }
 /* A person is drawn: his face, and the shirt of whoever he plays for.
 
    Every person in the game used to be one bust glyph in one grey box, so a

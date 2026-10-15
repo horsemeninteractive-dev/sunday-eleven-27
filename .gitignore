@@ -58,6 +58,12 @@ coverage/
 # Tooling scratch (agent/IDE working files, not part of the game)
 .freebuff/
 
+# Verification scratch: the logs, screenshots, browser harnesses and JSON
+# read off a local run by whoever was checking a change. Regenerated every
+# time, useful for an afternoon and a fact about a machine rather than about
+# the project, exactly like the harness output below.
+.verify/
+
 # Browser-harness output (screenshots and JSON read off a local run, regenerated
 # by the scripts in .freebuff/ui-test/)
 band/

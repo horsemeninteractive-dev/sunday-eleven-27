@@ -75,6 +75,7 @@ const BY_VIEW: Record<ViewId, ViewArchetype> = {
   // Their own world, outside the shell: see the note above.
   start: 'world',
   profile: 'world',
+  'select-geography': 'world',
   'select-club': 'world',
   'create-club': 'world',
   match: 'football',

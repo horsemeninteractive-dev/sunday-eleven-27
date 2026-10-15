@@ -40,7 +40,7 @@ describe('the manager profile', () => {
   });
 
   it('is carried into the career and names the manager official', () => {
-    const draft = generateDraft({ seed: 'manager-profile' });
+    const draft = generateDraft({ seed: 'manager-profile', pyramids: 2 });
     const clubId = draft.divisionClubIds[0]!;
     const profile = {
       firstName: 'Dave',
@@ -73,7 +73,7 @@ describe('the manager profile', () => {
     // list of who runs it — and the *profile* is what a returning manager's saved
     // profile hands back when he starts again under the same name. One of the two
     // has to be the copy, and it should not be the one on the drawing.
-    const draft = generateDraft({ seed: 'manager-face' });
+    const draft = generateDraft({ seed: 'manager-face', pyramids: 2 });
     const clubId = draft.divisionClubIds[0]!;
     const face: FaceChoices = {
       shape: 'square',
@@ -129,7 +129,7 @@ describe('the manager profile', () => {
 
 describe('creating a club', () => {
   it('takes the place of the weakest club in the bottom division but generates its own squad', () => {
-    const draft = generateDraft({ seed: 'custom-club' });
+    const draft = generateDraft({ seed: 'custom-club', pyramids: 2 });
     // A club the manager builds starts at the bottom of the pyramid, so the
     // place it takes is the weakest club in the *lowest* division rather than
     // the weakest in the county.
@@ -187,7 +187,7 @@ describe('creating a club', () => {
   });
 
   it('produces a playable career the moment it is built', () => {
-    const draft = generateDraft({ seed: 'custom-club-play' });
+    const draft = generateDraft({ seed: 'custom-club-play', pyramids: 2 });
     const clubId = applyCustomClub(draft, {
       name: 'AFC Testville',
       shortName: 'Testville',
@@ -225,7 +225,7 @@ describe('creating a club', () => {
   });
 
   it('previews exactly the squad the career is given', () => {
-    const draft = generateDraft({ seed: 'squad-preview' });
+    const draft = generateDraft({ seed: 'squad-preview', pyramids: 2 });
     const design = {
       name: 'AFC Preview',
       shortName: 'Preview',
@@ -282,7 +282,7 @@ describe('creating a club', () => {
   });
 
   it('buys a better squad for a higher standard, and more players for bigger backing', () => {
-    const draft = generateDraft({ seed: 'squad-standard' });
+    const draft = generateDraft({ seed: 'squad-standard', pyramids: 2 });
     const townId = draft.world.townIds[0]!;
     const meanPassing = (squadStandard: 'pub-side' | 'ringers') => {
       const squad = squadForCustomClub(draft, { squadStandard, squadSize: 20, townId });
@@ -323,7 +323,7 @@ describe('creating a club', () => {
   });
 
   it('rates a new club by the players it bought rather than the money it had', () => {
-    const draft = generateDraft({ seed: 'rate-the-squad' });
+    const draft = generateDraft({ seed: 'rate-the-squad', pyramids: 2 });
     const townId = draft.world.townIds[0]!;
     const standing = (squadStandard: Parameters<typeof squadCost>[0], squadSize: number) =>
       squadReputation(squadForCustomClub(draft, { squadStandard, squadSize, townId }));
@@ -365,7 +365,7 @@ describe('creating a club', () => {
   });
 
   it('wears the badge the manager designed, and only the parts he decided', () => {
-    const draft = generateDraft({ seed: 'badge-designer' });
+    const draft = generateDraft({ seed: 'badge-designer', pyramids: 2 });
     const design = {
       name: 'Haxbridge Dockers',
       shortName: 'Dockers',
@@ -391,7 +391,7 @@ describe('creating a club', () => {
     // A club that designed nothing carries nothing, so the drawing code still
     // makes the badge it would have given any other club in the world.
     const { badge: _designed, ...bare } = design;
-    const bareDraft = generateDraft({ seed: 'badge-designer' });
+    const bareDraft = generateDraft({ seed: 'badge-designer', pyramids: 2 });
     const bareId = applyCustomClub(bareDraft, bare);
     expect(bareDraft.clubs[bareId]!.badge).toBeUndefined();
   });

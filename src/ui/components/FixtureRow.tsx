@@ -63,14 +63,17 @@ export function FixtureRow({
   return (
     <li className={`fixrow${mine ? ' fixrow--mine' : ''}${calledOff ? ' fixrow--postponed' : ''}`}>
       <span className="fixrow__meta muted small">{meta}</span>
+      {/* Both clubs are named with the place each of them plays in: a fixture row
+          is where a manager reads a name he may not know, and the town is what he
+          learned about the world before he chose a club in it. */}
       <span className="fixrow__side fixrow__side--home">
-        <ClubLink clubId={homeClubId} />
+        <ClubLink clubId={homeClubId} town />
       </span>
       <span className="fixrow__v muted small" aria-hidden="true">
         v
       </span>
       <span className="fixrow__side fixrow__side--away">
-        <ClubLink clubId={awayClubId} reverse />
+        <ClubLink clubId={awayClubId} reverse town />
       </span>
       <span className="fixrow__result">
         {calledOff ? (
